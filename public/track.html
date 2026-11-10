@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your Shuttle Ride</title>
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="hero"><div style="font-size:2rem">🚐</div><h1 id="title">Your shuttle ride</h1><div id="dealer" style="color:#ccc"></div></div>
+<main class="wrap grid" style="max-width:600px">
+  <div class="card" id="status"><div class="empty">Loading…</div></div>
+  <div class="card"><div id="map" class="map"></div></div>
+  <div class="card small muted" id="foot"></div>
+</main>
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/js/common.js"></script>
+<script>
+(async () => {
+  const { $, api, esc, fmtTime } = App;
+  const token = location.pathname.split('/').pop();
+  let map = null; let car = null; let fitted = false;
+  const STEPS = [['requested', 'Requested'], ['assigned', 'Driver assigned'], ['en_route', 'On the way'], ['onboard', 'On board'], ['completed', 'Done']];
+
+  async function load() {
+    let data;
+    try { data = await api(`/api/public/track/${encodeURIComponent(token)}`); }
+    catch (err) { $('#status').innerHTML = `<h2>Ride not found</h2><p>${esc(err.message)}</p>`; return; }
+    const { ride, dealer, driver_location: loc, queue_position: pos } = data;
+    $('#dealer').textContent = dealer.name;
+    $('#title').textContent = ride.type === 'pickup' ? `Hi ${ride.customer_first_name}, we're coming to get you` : `Hi ${ride.customer_first_name}, your ride home`;
+
+    let body;
+    if (ride.status === 'cancelled') body = `<h2>This ride was cancelled</h2><p>Questions? Call ${esc(dealer.phone || 'the dealership')}.</p>`;
+    else {
+      const idx = STEPS.findIndex(([s]) => s === ride.status);
+      const steps = STEPS.map(([, label], i) => `<div class="step ${i < idx ? 'done' : i === idx ? 'now' : ''}"><i>${i < idx ? '✓' : i + 1}</i>${label}</div>`).join('');
+      const headline = {
+        requested: 'We got your request. A driver will be assigned shortly.',
+        assigned: `${esc(ride.driver_name || 'Your driver')} will be your driver.`,
+        en_route: `${esc(ride.driver_name || 'Your driver')} is on the way!`,
+        onboard: ride.type === 'pickup' ? 'Heading to the dealership.' : "You're on your way.",
+        completed: 'Ride complete. Thanks for choosing us!',
+      }[ride.status];
+      const veh = ride.vehicle;
+      body = `<div class="status-steps">${steps}</div>
+        <h2>${headline}</h2>
+        <div class="ride-meta" style="font-size:1rem">
+          <div>🕒 Scheduled ${fmtTime(ride.scheduled_at)}</div>
+          <div>📍 ${ride.type === 'pickup' ? 'Pick up at' : 'Drop off at'} ${esc(ride.address)}</div>
+          ${veh ? `<div>🚐 Look for: <b>${esc([veh.color, veh.make_model].filter(Boolean).join(' ') || veh.name)}</b>${veh.plate ? ` · plate ${esc(veh.plate)}` : ''}</div>` : ''}
+          ${pos ? `<div>📋 You're #${pos} in the shuttle line</div>` : ''}
+        </div>
+        ${dealer.phone ? `<div class="actions"><a class="btn btn-ghost" href="${App.telLink(dealer.phone)}">📞 Call the dealership</a></div>` : ''}`;
+    }
+    $('#status').innerHTML = body;
+    $('#foot').innerHTML = `${esc(dealer.name)} · ${esc(dealer.address)}<br>This page updates on its own. Last change ${fmtTime(ride.updated_at)}.`;
+
+    if (!map) {
+      App.settings = { dealer_name: dealer.name, dealer_address: dealer.address, dealer_lat: dealer.lat, dealer_lng: dealer.lng };
+      map = App.makeMap($('#map'), dealer, 12);
+      App.dealerMarker(map, App.settings);
+      if (ride.lat != null) L.marker([ride.lat, ride.lng], { icon: App.pinIcon(ride.type, '★') }).bindPopup('You').addTo(map);
+    }
+    if (loc) {
+      if (car) car.setLatLng([loc.lat, loc.lng]);
+      else car = L.marker([loc.lat, loc.lng], { icon: App.carIcon() }).bindPopup('Your shuttle').addTo(map);
+    } else if (car) { car.remove(); car = null; }
+    if (!fitted) {
+      const pts = [[dealer.lat, dealer.lng]];
+      if (ride.lat != null) pts.push([ride.lat, ride.lng]);
+      if (loc) pts.push([loc.lat, loc.lng]);
+      if (pts.length > 1) map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
+      fitted = true;
+    }
+  }
+  App.poll(load, 15000);
+})();
+</script>
+</body>
+</html>

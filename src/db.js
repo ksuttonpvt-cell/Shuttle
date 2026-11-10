@@ -1,0 +1,86 @@
+// SQLite storage using Node's built-in driver (Node 22.13+).
+const fs = require('node:fs');
+const path = require('node:path');
+const { DatabaseSync } = require('node:sqlite');
+
+function openDb(file) {
+  if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
+  const db = new DatabaseSync(file);
+  db.exec(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA foreign_keys = ON;
+
+    CREATE TABLE IF NOT EXISTS users (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      name          TEXT NOT NULL,
+      email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      phone         TEXT,
+      role          TEXT NOT NULL CHECK (role IN ('admin','advisor','driver')),
+      password_hash TEXT NOT NULL,
+      active        INTEGER NOT NULL DEFAULT 1,
+      on_duty       INTEGER NOT NULL DEFAULT 0,
+      vehicle_id    INTEGER REFERENCES vehicles(id) ON DELETE SET NULL,
+      last_lat      REAL,
+      last_lng      REAL,
+      last_loc_at   TEXT,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token      TEXT PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS vehicles (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT NOT NULL,
+      make_model TEXT,
+      year       INTEGER,
+      color      TEXT,
+      plate      TEXT,
+      vin        TEXT,
+      seats      INTEGER NOT NULL DEFAULT 7,
+      mileage    INTEGER,
+      status     TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available','maintenance','retired')),
+      notes      TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS rides (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      type             TEXT NOT NULL CHECK (type IN ('pickup','dropoff')),
+      customer_name    TEXT NOT NULL,
+      customer_phone   TEXT,
+      customer_email   TEXT,
+      address          TEXT NOT NULL,
+      lat              REAL,
+      lng              REAL,
+      scheduled_at     TEXT NOT NULL,
+      priority         TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('normal','urgent')),
+      passengers       INTEGER NOT NULL DEFAULT 1,
+      ro_number        TEXT,
+      customer_vehicle TEXT,
+      notes            TEXT,
+      status           TEXT NOT NULL DEFAULT 'requested'
+                       CHECK (status IN ('requested','assigned','en_route','onboard','completed','cancelled')),
+      source           TEXT NOT NULL DEFAULT 'advisor',
+      advisor_id       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      driver_id        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      vehicle_id       INTEGER REFERENCES vehicles(id) ON DELETE SET NULL,
+      track_token      TEXT NOT NULL UNIQUE,
+      created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at     TEXT
+    );
+    CREATE INDEX IF NOT EXISTS rides_status ON rides(status);
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
+  return db;
+}
+
+module.exports = { openDb };

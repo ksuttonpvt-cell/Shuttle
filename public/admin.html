@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shuttle Admin</title>
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<header id="topbar"></header>
+<main class="wrap">
+  <div class="tabs">
+    <button data-tab="dash" class="active">Dashboard</button>
+    <button data-tab="history">Ride history</button>
+    <button data-tab="users">Staff &amp; logins</button>
+    <button data-tab="vehicles">Vehicles</button>
+    <button data-tab="links">QR codes &amp; links</button>
+    <button data-tab="settings">Settings</button>
+  </div>
+
+  <!-- Dashboard -->
+  <section data-pane="dash" class="grid">
+    <div class="stats" id="stats"></div>
+    <div class="grid cols-even">
+      <div class="card"><div class="card-head"><h2>Live map</h2><span class="small muted">🚐 drivers · numbered = queue order</span></div><div id="map" class="map map-tall"></div></div>
+      <div class="card"><div class="card-head"><h2>Open rides — in pickup order</h2></div><div id="openRides" style="max-height:560px;overflow:auto"></div></div>
+    </div>
+    <div class="card"><div class="card-head"><h2>Drivers</h2></div><div id="driverTable"></div></div>
+  </section>
+
+  <!-- History -->
+  <section data-pane="history" class="card hidden">
+    <div class="card-head"><h2>Ride history</h2>
+      <div class="actions" style="margin:0">
+        <select id="histScope" style="width:auto"><option value="today">Today + open</option><option value="all">Last 500 rides</option></select>
+        <button class="btn-ghost btn-sm" id="exportCsv">Download CSV</button>
+      </div>
+    </div>
+    <div class="table-wrap" id="history"></div>
+  </section>
+
+  <!-- Users -->
+  <section data-pane="users" class="grid cols-2 hidden">
+    <div class="card">
+      <h2>Add a person</h2>
+      <p class="small muted">Each person signs in with their own email and password.</p>
+      <form id="userForm">
+        <label>Full name *</label><input name="name" required>
+        <label>Email (their sign-in) *</label><input name="email" type="email" required>
+        <label>Mobile phone</label><input name="phone" type="tel">
+        <label>Role *</label>
+        <select name="role" required>
+          <option value="advisor">Service advisor</option>
+          <option value="driver">Shuttle driver</option>
+          <option value="admin">Admin (full access)</option>
+        </select>
+        <label>Starting password * (8+ characters)</label>
+        <div class="linkbox"><input name="password" required minlength="8"><button type="button" class="btn-ghost btn-sm" id="genPw">Generate</button></div>
+        <div id="userMsg"></div>
+        <button class="btn-block" style="margin-top:1rem">Create account</button>
+      </form>
+    </div>
+    <div class="card"><h2>Everyone</h2><div class="table-wrap" id="users"></div></div>
+  </section>
+
+  <!-- Vehicles -->
+  <section data-pane="vehicles" class="grid cols-2 hidden">
+    <div class="card">
+      <h2 id="vehTitle">Add a vehicle</h2>
+      <form id="vehForm">
+        <input type="hidden" name="id">
+        <label>Name *</label><input name="name" required placeholder="Shuttle 1">
+        <div class="row">
+          <div><label>Make / model</label><input name="make_model" placeholder="Toyota Sienna"></div>
+          <div><label>Year</label><input name="year" type="number" min="1990" max="2100"></div>
+        </div>
+        <div class="row">
+          <div><label>Color</label><input name="color"></div>
+          <div><label>Plate</label><input name="plate"></div>
+        </div>
+        <label>VIN</label><input name="vin">
+        <div class="row">
+          <div><label>Passenger seats</label><input name="seats" type="number" min="1" max="20" value="7"></div>
+          <div><label>Mileage</label><input name="mileage" type="number" min="0"></div>
+        </div>
+        <label>Status</label>
+        <select name="status"><option value="available">Available</option><option value="maintenance">In maintenance</option><option value="retired">Retired</option></select>
+        <label>Notes</label><textarea name="notes" placeholder="Oil change due, tire pressure light…"></textarea>
+        <div id="vehMsg"></div>
+        <div class="actions"><button>Save vehicle</button><button type="button" class="btn-ghost hidden" id="vehCancel">Cancel edit</button></div>
+      </form>
+    </div>
+    <div class="card"><h2>Fleet</h2><div class="table-wrap" id="vehicles"></div></div>
+  </section>
+
+  <!-- Links -->
+  <section data-pane="links" class="hidden">
+    <div class="card" style="margin-bottom:1rem">
+      <h2>QR codes &amp; links to send out</h2>
+      <p class="muted small">Print these for the service drive or waiting room, or send them by text/email. Each ride also gets its own tracking link — use “Send link / QR” on the ride.</p>
+      <button class="btn-ghost btn-sm no-print" onclick="print()">🖨 Print this page</button>
+    </div>
+    <div class="qr-grid" id="links"></div>
+  </section>
+
+  <!-- Settings -->
+  <section data-pane="settings" class="card hidden" style="max-width:640px">
+    <h2>Dealership settings</h2>
+    <form id="setForm">
+      <label>Dealership name</label><input name="dealer_name">
+      <label>Address</label><input name="dealer_address">
+      <label>Phone shown to customers</label><input name="dealer_phone" type="tel">
+      <div class="row">
+        <div><label>Map latitude</label><input name="dealer_lat"></div>
+        <div><label>Map longitude</label><input name="dealer_lng"></div>
+      </div>
+      <p class="small muted">Tip: tap the map to set the dealership pin.</p>
+      <div id="setMap" class="map map-sm"></div>
+      <label class="check" style="margin-top:1rem"><input type="checkbox" name="public_requests"> Let customers request rides online (the /request page)</label>
+      <div id="setMsg"></div>
+      <button style="margin-top:1rem">Save settings</button>
+    </form>
+  </section>
+</main>
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/rides.js"></script>
+<script>
+(async () => {
+  const { $, $$, api, esc, fmtTime, statusBadge, typeBadge } = App;
+  const me = await App.requireUser('admin');
+  const ROLE = { admin: 'Admin', advisor: 'Advisor', driver: 'Driver' };
+
+  // ---------- tabs ----------
+  const loaders = {};
+  function show(tab) {
+    $$('[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+    $$('[data-pane]').forEach((p) => p.classList.toggle('hidden', p.dataset.pane !== tab));
+    history.replaceState(null, '', '#' + tab);
+    loaders[tab]?.();
+  }
+  $$('[data-tab]').forEach((b) => b.onclick = () => show(b.dataset.tab));
+
+  // ---------- dashboard ----------
+  const map = App.makeMap($('#map'), { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng) });
+  App.dealerMarker(map, App.settings);
+  const draw = App.ridesLayer(map);
+  let openRides = []; let drivers = [];
+  async function loadDash() {
+    const [r, d, today] = await Promise.all([api('/api/rides?scope=open'), api('/api/drivers'), api('/api/rides?scope=today')]);
+    openRides = r.queue.map((id) => r.rides.find((x) => x.id === id));
+    drivers = d.drivers;
+    const done = today.rides.filter((x) => x.status === 'completed').length;
+    const late = openRides.filter((x) => new Date(x.scheduled_at) < Date.now() && x.status !== 'onboard').length;
+    $('#stats').innerHTML = [
+      [openRides.filter((x) => x.status === 'requested').length, 'Waiting for a driver'],
+      [openRides.filter((x) => x.driver_id).length, 'Assigned / in progress'],
+      [late, 'Running late'],
+      [done, 'Completed today'],
+      [drivers.filter((x) => x.on_duty).length + ' / ' + drivers.length, 'Drivers on duty'],
+    ].map(([n, l]) => `<div class="stat"><b>${n}</b><span>${l}</span></div>`).join('');
+    $('#openRides').innerHTML = openRides.length ? openRides.map((x) => Rides.card(x, { drivers })).join('') : '<div class="empty">No open rides.</div>';
+    $('#driverTable').innerHTML = drivers.length ? `<div class="table-wrap"><table>
+      <tr><th>Driver</th><th>Status</th><th>Vehicle</th><th>Open rides</th><th>Last location</th></tr>
+      ${drivers.map((x) => `<tr><td>${esc(x.name)}</td><td>${x.on_duty ? '<span class="badge s-completed">On duty</span>' : '<span class="badge s-requested">Off</span>'}</td>
+        <td>${esc(x.vehicle_name || '—')}</td><td>${x.open_rides}</td><td class="small">${x.last_loc_at ? fmtTime(x.last_loc_at) : '—'}</td></tr>`).join('')}
+      </table></div>` : '<div class="empty">No drivers yet — add them under “Staff &amp; logins”.</div>';
+    draw(openRides, drivers);
+  }
+  loaders.dash = () => { setTimeout(() => map.invalidateSize(), 50); return loadDash(); };
+  Rides.bind($('#openRides'), (id) => openRides.find((r) => r.id === id), loadDash);
+
+  // ---------- history ----------
+  let hist = [];
+  async function loadHistory() {
+    ({ rides: hist } = await api('/api/rides?scope=' + $('#histScope').value));
+    hist.sort((a, b) => new Date(b.scheduled_at) - new Date(a.scheduled_at));
+    $('#history').innerHTML = hist.length ? `<table>
+      <tr><th>When</th><th>Type</th><th>Customer</th><th>Address</th><th>Advisor</th><th>Driver / vehicle</th><th>Status</th><th></th></tr>
+      ${hist.map((r) => `<tr data-id="${r.id}"><td>${fmtTime(r.scheduled_at)}</td><td>${typeBadge(r.type)}</td>
+        <td>${esc(r.customer_name)}<br><span class="small muted">${esc(r.customer_phone || '')} ${esc(r.ro_number || '')}</span></td>
+        <td class="small">${esc(r.address)}</td><td>${esc(r.advisor_name || (r.source === 'customer' ? 'Customer' : '—'))}</td>
+        <td>${esc(r.driver_name || '—')}<br><span class="small muted">${esc(r.vehicle_name || '')}</span></td>
+        <td>${statusBadge(r.status)}</td>
+        <td><button class="btn-ghost btn-sm" data-share>Link</button> <button class="btn-ghost btn-sm" data-del>Delete</button></td></tr>`).join('')}
+      </table>` : '<div class="empty">No rides yet.</div>';
+  }
+  loaders.history = loadHistory;
+  $('#histScope').onchange = loadHistory;
+  $('#history').addEventListener('click', async (e) => {
+    const tr = e.target.closest('[data-id]'); if (!tr) return;
+    const r = hist.find((x) => x.id === Number(tr.dataset.id));
+    if (e.target.closest('[data-share]')) App.share({ title: `Shuttle tracking for ${r.customer_name}`, url: r.track_url, phone: r.customer_phone, email: r.customer_email, message: App.rideMessage(r) });
+    if (e.target.closest('[data-del]') && confirm(`Permanently delete the ride for ${r.customer_name}?`)) { await api(`/api/rides/${r.id}`, { method: 'DELETE' }); loadHistory(); }
+  });
+  $('#exportCsv').onclick = () => {
+    const cols = ['id', 'scheduled_at', 'type', 'status', 'customer_name', 'customer_phone', 'customer_email', 'address', 'ro_number', 'customer_vehicle', 'advisor_name', 'driver_name', 'vehicle_name', 'passengers', 'priority', 'created_at', 'completed_at', 'notes'];
+    const csv = [cols.join(',')].concat(hist.map((r) => cols.map((c) => `"${String(r[c] ?? '').replace(/"/g, '""')}"`).join(','))).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `shuttle-rides-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+  };
+
+  // ---------- users ----------
+  let users = [];
+  const genPw = () => Array.from(crypto.getRandomValues(new Uint8Array(10)), (b) => 'abcdefghjkmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ23456789'[b % 54]).join('');
+  $('#genPw').onclick = () => { $('#userForm').elements.password.value = genPw(); };
+  async function loadUsers() {
+    ({ users } = await api('/api/users'));
+    $('#users').innerHTML = `<table><tr><th>Name</th><th>Email (sign-in)</th><th>Role</th><th>Status</th><th></th></tr>
+      ${users.map((u) => `<tr data-id="${u.id}"><td>${esc(u.name)}<br><span class="small muted">${esc(u.phone || '')}</span></td><td>${esc(u.email)}</td>
+        <td>${ROLE[u.role]}</td><td>${u.active ? '<span class="badge s-completed">Active</span>' : '<span class="badge s-cancelled">Disabled</span>'}</td>
+        <td style="white-space:nowrap"><button class="btn-ghost btn-sm" data-edit>Edit</button> <button class="btn-ghost btn-sm" data-reset>Reset password</button>
+        ${u.id !== me.id ? `<button class="btn-ghost btn-sm" data-toggle>${u.active ? 'Disable' : 'Enable'}</button>` : ''}</td></tr>`).join('')}</table>`;
+  }
+  loaders.users = loadUsers;
+  $('#userForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.target));
+    try {
+      const { user } = await api('/api/users', { body });
+      App.flash($('#userMsg'), `Created ${user.name}. Give them: email ${user.email} / password ${body.password}`, true);
+      e.target.reset(); loadUsers();
+    } catch (err) { App.flash($('#userMsg'), err.message); }
+  };
+  $('#users').addEventListener('click', async (e) => {
+    const tr = e.target.closest('[data-id]'); if (!tr) return;
+    const u = users.find((x) => x.id === Number(tr.dataset.id));
+    try {
+      if (e.target.closest('[data-toggle]')) { await api(`/api/users/${u.id}`, { method: 'PATCH', body: { active: !u.active } }); loadUsers(); }
+      if (e.target.closest('[data-reset]')) {
+        const pw = prompt(`New password for ${u.name} (8+ characters):`, genPw());
+        if (pw) { await api(`/api/users/${u.id}`, { method: 'PATCH', body: { password: pw } }); alert(`Password updated. ${u.name} signs in with ${u.email} / ${pw}`); }
+      }
+      if (e.target.closest('[data-edit]')) {
+        const m = App.modal(`<h2>Edit ${esc(u.name)}</h2><form>
+          <label>Name</label><input name="name" value="${esc(u.name)}">
+          <label>Email (sign-in)</label><input name="email" type="email" value="${esc(u.email)}">
+          <label>Phone</label><input name="phone" value="${esc(u.phone || '')}">
+          <label>Role</label><select name="role">${Object.entries(ROLE).map(([k, v]) => `<option value="${k}" ${k === u.role ? 'selected' : ''}>${v}</option>`).join('')}</select>
+          <div class="msg"></div><div class="actions"><button>Save</button><button type="button" class="btn-ghost" data-close>Cancel</button></div></form>`);
+        $('form', m).onsubmit = async (ev) => {
+          ev.preventDefault();
+          try { await api(`/api/users/${u.id}`, { method: 'PATCH', body: Object.fromEntries(new FormData(ev.target)) }); m.remove(); loadUsers(); }
+          catch (err) { App.flash($('.msg', m), err.message); }
+        };
+      }
+    } catch (err) { alert(err.message); }
+  });
+
+  // ---------- vehicles ----------
+  let vehicles = [];
+  const vf = $('#vehForm');
+  function vehReset() { vf.reset(); vf.elements.id.value = ''; $('#vehTitle').textContent = 'Add a vehicle'; $('#vehCancel').classList.add('hidden'); }
+  async function loadVehicles() {
+    ({ vehicles } = await api('/api/vehicles'));
+    const label = { available: '<span class="badge s-completed">Available</span>', maintenance: '<span class="badge s-en_route">Maintenance</span>', retired: '<span class="badge s-cancelled">Retired</span>' };
+    $('#vehicles').innerHTML = vehicles.length ? `<table><tr><th>Vehicle</th><th>Details</th><th>Seats</th><th>Miles</th><th>Status</th><th>Driver now</th><th></th></tr>
+      ${vehicles.map((v) => `<tr data-id="${v.id}"><td><b>${esc(v.name)}</b></td>
+        <td class="small">${esc([v.year, v.color, v.make_model].filter(Boolean).join(' '))}<br>${v.plate ? 'Plate ' + esc(v.plate) : ''} ${v.vin ? '· VIN ' + esc(v.vin) : ''}${v.notes ? '<br>📝 ' + esc(v.notes) : ''}</td>
+        <td>${v.seats}</td><td>${v.mileage != null ? Number(v.mileage).toLocaleString() : '—'}</td><td>${label[v.status]}</td><td>${esc(v.driver_name || '—')}</td>
+        <td style="white-space:nowrap"><button class="btn-ghost btn-sm" data-edit>Edit</button> <button class="btn-ghost btn-sm" data-del>Delete</button></td></tr>`).join('')}</table>`
+      : '<div class="empty">No vehicles yet. Add your first shuttle on the left.</div>';
+  }
+  loaders.vehicles = loadVehicles;
+  vf.onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(vf));
+    const id = body.id; delete body.id;
+    try {
+      await api(id ? `/api/vehicles/${id}` : '/api/vehicles', { method: id ? 'PATCH' : 'POST', body });
+      App.flash($('#vehMsg'), 'Saved.', true); vehReset(); loadVehicles();
+    } catch (err) { App.flash($('#vehMsg'), err.message); }
+  };
+  $('#vehCancel').onclick = vehReset;
+  $('#vehicles').addEventListener('click', async (e) => {
+    const tr = e.target.closest('[data-id]'); if (!tr) return;
+    const v = vehicles.find((x) => x.id === Number(tr.dataset.id));
+    if (e.target.closest('[data-edit]')) {
+      for (const el of vf.elements) if (el.name && v[el.name] !== undefined) el.value = v[el.name] ?? '';
+      $('#vehTitle').textContent = `Edit ${v.name}`; $('#vehCancel').classList.remove('hidden'); vf.scrollIntoView({ behavior: 'smooth' });
+    }
+    if (e.target.closest('[data-del]') && confirm(`Delete ${v.name}? (Tip: set it to “Retired” instead to keep its history.)`)) {
+      await api(`/api/vehicles/${v.id}`, { method: 'DELETE' }); loadVehicles();
+    }
+  });
+
+  // ---------- links ----------
+  async function loadLinks() {
+    const { links } = await api('/api/links');
+    $('#links').innerHTML = links.map((l) => `<div class="card">
+      <h3>${esc(l.label)}</h3>
+      <img src="/api/qr?size=480&text=${encodeURIComponent(l.url)}" alt="QR code for ${esc(l.label)}">
+      <div class="small" style="word-break:break-all;margin:.4rem 0">${esc(l.url)}</div>
+      <div class="actions no-print" style="justify-content:center"><button class="btn-blue btn-sm" data-url="${esc(l.url)}" data-label="${esc(l.label)}">Send / share</button>
+      <a class="btn btn-ghost btn-sm" download="${l.key}-qr.png" href="/api/qr?size=1024&text=${encodeURIComponent(l.url)}">⬇ Download</a></div></div>`).join('');
+  }
+  loaders.links = loadLinks;
+  $('#links').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-url]'); if (!b) return;
+    App.share({ title: b.dataset.label, url: b.dataset.url });
+  });
+
+  // ---------- settings ----------
+  const sf = $('#setForm'); let setMap = null; let setPin = null;
+  async function loadSettings() {
+    const { settings } = await api('/api/me');
+    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng']) sf.elements[k].value = settings[k] || '';
+    sf.elements.public_requests.checked = settings.public_requests === '1';
+    const at = [Number(settings.dealer_lat), Number(settings.dealer_lng)];
+    if (!setMap) {
+      setMap = App.makeMap($('#setMap'), { lat: at[0], lng: at[1] }, 15);
+      setPin = L.marker(at, { icon: App.pinIcon('dealer', 'T') }).addTo(setMap);
+      setMap.on('click', (e) => { setPin.setLatLng(e.latlng); sf.elements.dealer_lat.value = e.latlng.lat.toFixed(6); sf.elements.dealer_lng.value = e.latlng.lng.toFixed(6); });
+    }
+    setTimeout(() => setMap.invalidateSize(), 100);
+  }
+  loaders.settings = loadSettings;
+  sf.onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(sf));
+    body.public_requests = sf.elements.public_requests.checked ? '1' : '0';
+    try { const { settings } = await api('/api/settings', { method: 'PATCH', body }); App.settings = settings; App.flash($('#setMsg'), 'Saved.', true); }
+    catch (err) { App.flash($('#setMsg'), err.message); }
+  };
+
+  show(location.hash.slice(1) in loaders ? location.hash.slice(1) : 'dash');
+  setInterval(() => { if (!$('[data-pane="dash"]').classList.contains('hidden') && !document.hidden) loadDash(); }, 15000);
+})();
+</script>
+</body>
+</html>

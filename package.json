@@ -1,0 +1,29 @@
+{
+  "name": "corwin-shuttle",
+  "version": "1.0.0",
+  "description": "Shuttle dispatch website: advisors, drivers, admin, maps, QR codes",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "seed:demo": "node src/seed-demo.js",
+    "test": "node --test test/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ksuttonpvt-cell/Shuttle.git"
+  },
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ksuttonpvt-cell/Shuttle/issues"
+  },
+  "homepage": "https://github.com/ksuttonpvt-cell/Shuttle#readme",
+  "dependencies": {
+    "express": "^4.22.3",
+    "leaflet": "^1.9.4",
+    "qrcode": "^1.5.4"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "private": true
+}
