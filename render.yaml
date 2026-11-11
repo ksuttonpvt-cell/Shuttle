@@ -1,0 +1,24 @@
+# Render Blueprint: Dashboard → New → Blueprint → pick this repo.
+services:
+  - type: web
+    name: corwin-shuttle
+    runtime: node
+    plan: starter            # persistent disks need a paid plan
+    region: oregon
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    disk:
+      name: shuttle-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DB_FILE
+        value: /var/data/shuttle.db
+      - key: ADMIN_EMAIL
+        sync: false          # Render asks you for this on first deploy
+      - key: ADMIN_NAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false

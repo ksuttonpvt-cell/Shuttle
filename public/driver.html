@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Driver App</title>
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  .next { border: 2px solid var(--red); }
+  .next .big { font-size: 1.3rem; font-weight: 800; }
+  .shift-bar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: end; }
+  .shift-bar > div { flex: 1; min-width: 180px; }
+</style>
+</head>
+<body>
+<header id="topbar"></header>
+<main class="wrap grid" style="max-width:900px">
+
+  <section class="card" id="shift"></section>
+
+  <section class="card next hidden" id="nextCard"></section>
+
+  <section class="card">
+    <div class="tabs" style="margin-bottom:.6rem">
+      <button class="active" data-tab="mine">My rides <span id="mineCount"></span></button>
+      <button data-tab="open">Unassigned <span id="openCount"></span></button>
+      <button data-tab="all">Everything open</button>
+    </div>
+    <p class="small muted" style="margin-top:0">Numbers show the order to handle rides: on board / en route first, then overdue, urgent, and soonest — closest to you breaks ties.</p>
+    <div id="list"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Map</h2><button class="btn-ghost btn-sm" id="recenter">Fit all</button></div>
+    <div id="map" class="map map-tall"></div>
+  </section>
+</main>
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/js/common.js"></script>
+<script>
+(async () => {
+  const { $, $$, api, esc, fmtTime, relTime, statusBadge, typeBadge } = App;
+  let me = await App.requireUser('driver');
+  let vehicles = []; let rides = []; let tab = 'mine'; let watchId = null;
+
+  // ---------- shift / vehicle / location ----------
+  async function drawShift() {
+    ({ vehicles } = await api('/api/vehicles'));
+    const usable = vehicles.filter((v) => v.status === 'available');
+    const veh = vehicles.find((v) => v.id === me.vehicle_id);
+    $('#shift').innerHTML = me.on_duty ? `
+      <div class="card-head" style="margin:0">
+        <div><h2 style="margin:0">On duty ✅</h2>
+          <div class="muted small">Driving <b>${esc(veh?.name || '—')}</b>${veh ? ` · ${esc([veh.color, veh.make_model, veh.plate].filter(Boolean).join(' · '))} · ${veh.seats} seats` : ''}</div>
+          <div class="small" id="gps">${watchId != null ? '📡 Sharing location' : '📡 Location off'}</div>
+        </div>
+        <div class="actions" style="margin:0">
+          <button class="btn-ghost btn-sm" id="gpsBtn">${watchId != null ? 'Stop sharing location' : 'Share my location'}</button>
+          <button class="btn-dark btn-sm" id="endShift">End shift</button>
+        </div>
+      </div>` : `
+      <h2>Start your shift</h2>
+      <div class="shift-bar">
+        <div><label>Which vehicle are you driving?</label>
+          <select id="vehSel"><option value="">Choose…</option>
+          ${usable.map((v) => `<option value="${v.id}" ${v.driver_id && v.driver_id !== me.id ? 'disabled' : ''}>${esc(v.name)} — ${esc([v.color, v.make_model].filter(Boolean).join(' '))} (${v.seats} seats)${v.driver_name && v.driver_id !== me.id ? ' · in use by ' + esc(v.driver_name) : ''}</option>`).join('')}
+          </select></div>
+        <button class="btn-green btn-lg" id="startShift">Start shift</button>
+      </div>
+      <div id="shiftMsg"></div>
+      ${!usable.length ? '<p class="small muted">No vehicles are set up yet — ask an admin to add one.</p>' : ''}`;
+    if (me.on_duty) {
+      $('#endShift').onclick = async () => { ({ user: me } = await api('/api/driver/shift', { body: { on_duty: false } })); stopGps(); drawShift(); };
+      $('#gpsBtn').onclick = () => { watchId != null ? stopGps() : startGps(); drawShift(); };
+    } else {
+      $('#startShift').onclick = async () => {
+        try {
+          ({ user: me } = await api('/api/driver/shift', { body: { on_duty: true, vehicle_id: Number($('#vehSel').value) } }));
+          startGps(); drawShift(); refresh();
+        } catch (err) { App.flash($('#shiftMsg'), err.message); }
+      };
+    }
+  }
+
+  let lastSent = 0; let myMarker = null;
+  function startGps() {
+    if (!navigator.geolocation) return alert('This device cannot share location.');
+    watchId = navigator.geolocation.watchPosition((pos) => {
+      const { latitude: lat, longitude: lng } = pos.coords;
+      me.last_lat = lat; me.last_lng = lng;
+      if (myMarker) myMarker.setLatLng([lat, lng]); else myMarker = L.marker([lat, lng], { icon: App.carIcon(), zIndexOffset: 900 }).bindPopup('You').addTo(map);
+      if (Date.now() - lastSent > 15000) { lastSent = Date.now(); api('/api/driver/location', { body: { lat, lng } }).catch(() => {}); }
+    }, (err) => { const g = $('#gps'); if (g) g.textContent = '📡 Location blocked: ' + err.message; watchId = null; },
+    { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 });
+  }
+  function stopGps() { if (watchId != null) navigator.geolocation.clearWatch(watchId); watchId = null; }
+
+  // ---------- rides ----------
+  const map = App.makeMap($('#map'), { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng) });
+  App.dealerMarker(map, App.settings);
+  const draw = App.ridesLayer(map);
+
+  const NEXT_STEP = {
+    assigned: ['en_route', 'Start — I\'m on my way', 'btn-blue'],
+    en_route: ['onboard', 'Customer is on board', 'btn-blue'],
+    onboard: ['completed', 'Ride complete ✓', 'btn-green'],
+  };
+
+  function rideHtml(r, big = false) {
+    const mine = r.driver_id === me.id;
+    const step = mine && NEXT_STEP[r.status];
+    const dest = r.type === 'pickup'
+      ? `Pick up at <b>${esc(r.address)}</b> → bring to dealership`
+      : `Dealership → drop off at <b>${esc(r.address)}</b>`;
+    return `
+      <div class="ride ${r.rank === 1 ? 'first' : ''}" data-id="${r.id}">
+        <div class="ride-top">
+          <div>${r.rank ? `<span class="rank">${r.rank}</span>` : ''}<span class="ride-name ${big ? 'big' : ''}">${esc(r.customer_name)}</span>
+            ${r.priority === 'urgent' ? '<span class="badge b-urgent">Urgent</span>' : ''}</div>
+          <div>${typeBadge(r.type)} ${statusBadge(r.status)}</div>
+        </div>
+        <div class="ride-meta">
+          <div>🕒 ${fmtTime(r.scheduled_at)} · ${relTime(r.scheduled_at)} · ${r.passengers} passenger${r.passengers > 1 ? 's' : ''}</div>
+          <div>📍 ${dest}${r.distance_mi != null ? ` · ${r.distance_mi} mi` : ''}</div>
+          ${r.notes ? `<div>📝 ${esc(r.notes)}</div>` : ''}
+          ${r.customer_vehicle || r.ro_number ? `<div>🔧 ${esc([r.customer_vehicle, r.ro_number].filter(Boolean).join(' · '))}</div>` : ''}
+          ${r.driver_name && !mine ? `<div>🚐 ${esc(r.driver_name)}</div>` : ''}
+          ${r.reasons ? `<div class="small">Why this order: ${esc(r.reasons.join(' · '))}</div>` : ''}
+        </div>
+        <div class="actions">
+          ${!r.driver_id ? `<button class="btn-dark" data-claim>Take this ride</button>` : ''}
+          ${step ? `<button class="${step[2]}" data-status="${step[0]}">${step[1]}</button>` : ''}
+          <a class="btn btn-ghost" target="_blank" rel="noopener" href="${App.directionsUrl(r)}">🧭 Navigate</a>
+          ${r.customer_phone ? `<a class="btn btn-ghost" href="${App.telLink(r.customer_phone)}">📞 Call</a>
+            <a class="btn btn-ghost" href="sms:${r.customer_phone.replace(/[^\d+]/g, '')}">💬 Text</a>` : ''}
+          ${mine && r.status === 'assigned' ? `<button class="btn-ghost" data-release>Give back</button>` : ''}
+        </div>
+      </div>`;
+  }
+
+  async function refresh() {
+    const r = await api('/api/rides?scope=open');
+    rides = r.queue.map((id) => r.rides.find((x) => x.id === id));
+    const mine = rides.filter((x) => x.driver_id === me.id);
+    const open = rides.filter((x) => !x.driver_id);
+    $('#mineCount').textContent = `(${mine.length})`;
+    $('#openCount').textContent = `(${open.length})`;
+    const list = tab === 'mine' ? mine : tab === 'open' ? open : rides;
+    $('#list').innerHTML = list.length ? list.map((x) => rideHtml(x)).join('')
+      : `<div class="empty">${tab === 'mine' ? 'Nothing assigned to you. Check “Unassigned” to take a ride.' : 'Nothing here right now.'}</div>`;
+
+    const next = mine[0] || open[0];
+    $('#nextCard').classList.toggle('hidden', !next);
+    if (next) $('#nextCard').innerHTML = `<h2>👉 Do this next</h2>${rideHtml(next, true)}`;
+
+    const { drivers } = await api('/api/drivers');
+    draw(rides, drivers.filter((d) => d.id !== me.id));
+  }
+
+  document.body.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    const host = btn.closest('[data-id]'); if (!host) return;
+    const id = Number(host.dataset.id);
+    try {
+      if (btn.hasAttribute('data-claim')) await api(`/api/rides/${id}`, { method: 'PATCH', body: { driver_id: me.id } });
+      else if (btn.hasAttribute('data-release')) await api(`/api/rides/${id}`, { method: 'PATCH', body: { driver_id: null } });
+      else if (btn.dataset.status) await api(`/api/rides/${id}`, { method: 'PATCH', body: { status: btn.dataset.status } });
+      else return;
+      refresh();
+    } catch (err) { alert(err.message); refresh(); }
+  });
+
+  $$('[data-tab]').forEach((b) => b.onclick = () => {
+    tab = b.dataset.tab; $$('[data-tab]').forEach((x) => x.classList.toggle('active', x === b)); refresh();
+  });
+  $('#recenter').onclick = () => {
+    const pts = rides.filter((r) => r.lat != null).map((r) => [r.lat, r.lng]);
+    pts.push([Number(App.settings.dealer_lat), Number(App.settings.dealer_lng)]);
+    if (me.last_lat != null) pts.push([me.last_lat, me.last_lng]);
+    map.fitBounds(pts, { padding: [30, 30], maxZoom: 15 });
+  };
+
+  await drawShift();
+  if (me.on_duty) { startGps(); drawShift(); }
+  App.poll(refresh, 15000);
+})();
+</script>
+</body>
+</html>

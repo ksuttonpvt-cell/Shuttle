@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Advisor Desk</title>
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<header id="topbar"></header>
+<main class="wrap">
+  <div class="grid cols-2">
+    <section class="card">
+      <div class="card-head"><h2>New shuttle ride</h2></div>
+      <form id="newRide"></form>
+    </section>
+
+    <section class="grid" style="align-content:start">
+      <div class="card">
+        <div class="card-head">
+          <h2>Shuttle queue</h2>
+          <div class="actions" style="margin:0">
+            <label class="check" style="margin:0"><input type="checkbox" id="mineOnly"> My customers only</label>
+            <button class="btn-ghost btn-sm" id="shareRequest">Customer request link / QR</button>
+          </div>
+        </div>
+        <p class="small muted" style="margin-top:-.4rem">Numbered in the order the shuttle should handle them — overdue, urgent and soonest first, then closest.</p>
+        <div id="rides"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Map</h2><span class="small muted">🚐 drivers on duty · numbered pins = queue order</span></div>
+        <div id="map" class="map"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Drivers</h2></div>
+        <div id="drivers"></div>
+      </div>
+    </section>
+  </div>
+</main>
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/rides.js"></script>
+<script>
+(async () => {
+  const { $, api, esc } = App;
+  await App.requireUser('advisor');
+
+  // New ride form
+  const form = $('#newRide');
+  form.innerHTML = Rides.formHtml() + `<div id="formMsg"></div>
+    <button class="btn-block btn-lg" style="margin-top:1rem">Add to shuttle queue</button>`;
+  const wired = Rides.wireForm(form);
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const { ride } = await api('/api/rides', { body: Rides.formData(form) });
+      form.reset(); wired.reset();
+      form.elements.scheduled_at.value = App.toLocalInput(new Date(Date.now() + 30 * 60000));
+      App.flash($('#formMsg'), `Added ${ride.customer_name}.`, true);
+      refresh();
+      App.share({ title: `Shuttle tracking for ${ride.customer_name}`, url: ride.track_url, phone: ride.customer_phone, email: ride.customer_email, message: App.rideMessage(ride) });
+    } catch (err) { App.flash($('#formMsg'), err.message); }
+  };
+
+  // Queue + map
+  const map = App.makeMap($('#map'), { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng) });
+  App.dealerMarker(map, App.settings);
+  const draw = App.ridesLayer(map);
+  let rides = []; let drivers = [];
+  async function refresh() {
+    const mine = $('#mineOnly').checked ? '&mine=1' : '';
+    const [r, d] = await Promise.all([api('/api/rides?scope=open' + mine), api('/api/drivers')]);
+    rides = r.queue.map((id) => r.rides.find((x) => x.id === id));
+    drivers = d.drivers;
+    $('#rides').innerHTML = rides.length ? rides.map((x) => Rides.card(x, { drivers })).join('') : '<div class="empty">No open rides. Add one on the left.</div>';
+    $('#drivers').innerHTML = drivers.length ? `<div class="table-wrap"><table><tr><th>Driver</th><th>Status</th><th>Vehicle</th><th>Open rides</th></tr>
+      ${drivers.map((x) => `<tr><td>${esc(x.name)}${x.phone ? `<br><a class="small" href="${App.telLink(x.phone)}">${esc(x.phone)}</a>` : ''}</td>
+      <td>${x.on_duty ? '<span class="badge s-completed">On duty</span>' : '<span class="badge s-requested">Off</span>'}</td>
+      <td>${esc(x.vehicle_name || '—')}</td><td>${x.open_rides}</td></tr>`).join('')}</table></div>` : '<div class="empty">No drivers yet. An admin can add them.</div>';
+    draw(rides, drivers);
+  }
+  Rides.bind($('#rides'), (id) => rides.find((r) => r.id === id), refresh);
+  $('#mineOnly').onchange = refresh;
+  $('#shareRequest').onclick = () => App.share({ title: 'Request a shuttle ride', url: App.baseUrl + '/request',
+    message: `Need a ride from ${App.settings.dealer_name}? Request the shuttle here: ${App.baseUrl}/request` });
+  App.poll(refresh, 15000);
+})();
+</script>
+</body>
+</html>

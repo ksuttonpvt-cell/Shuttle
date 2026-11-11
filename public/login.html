@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shuttle Sign In</title>
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="center-page">
+  <div class="card auth-card">
+    <div style="text-align:center;margin-bottom:1rem">
+      <div style="font-size:2.4rem">🚐</div>
+      <h1>Shuttle sign in</h1>
+      <div class="muted" id="dealer">Staff only</div>
+    </div>
+    <form id="f">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="username" required autofocus>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <div id="msg"></div>
+      <button class="btn-block btn-lg" style="margin-top:1rem">Sign in</button>
+    </form>
+    <p class="small muted" style="text-align:center;margin-top:1rem">
+      Forgot your password? Ask a shuttle admin to reset it.<br>
+      Customer? <a href="/request">Request a shuttle ride</a>
+    </p>
+  </div>
+</div>
+<script src="/js/common.js"></script>
+<script>
+(async () => {
+  const { user, settings } = await App.api('/api/me');
+  App.$('#dealer').textContent = settings.dealer_name + ' · staff only';
+  const next = new URLSearchParams(location.search).get('next');
+  const go = (u) => { location.href = next && next.startsWith('/') && !next.startsWith('//') ? next : '/' + u.role; };
+  if (user) return go(user);
+  App.$('#f').onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.target));
+    try { const { user } = await App.api('/api/login', { body, allow401: true }); go(user); }
+    catch (err) { App.flash(App.$('#msg'), err.message); }
+  };
+})();
+</script>
+</body>
+</html>

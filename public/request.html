@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Request a Shuttle</title>
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="hero"><div style="font-size:2rem">🚐</div><h1>Request a shuttle ride</h1><div id="dealer" class="muted" style="color:#ccc"></div></div>
+<main class="wrap" style="max-width:560px">
+  <div class="card" id="off" hidden><h2>Online requests are off</h2><p>Please call the service department<span id="offPhone"></span> and we'll get you scheduled.</p></div>
+  <form class="card" id="f" hidden>
+    <div class="seg">
+      <input type="radio" name="type" value="pickup" id="pu" checked><label for="pu">Pick me up<br><span class="small">bring me to the dealership</span></label>
+      <input type="radio" name="type" value="dropoff" id="do"><label for="do">Take me home / work<br><span class="small">from the dealership</span></label>
+    </div>
+    <label>Your name *</label><input name="customer_name" required autocomplete="name">
+    <div class="row">
+      <div><label>Mobile phone *</label><input name="customer_phone" type="tel" required autocomplete="tel"></div>
+      <div><label>Email</label><input name="customer_email" type="email" autocomplete="email"></div>
+    </div>
+    <label id="addrLabel">Where should we pick you up? *</label>
+    <input name="address" required autocomplete="street-address" placeholder="Street address">
+    <div data-results></div>
+    <input type="hidden" name="lat"><input type="hidden" name="lng">
+    <div class="map map-sm" id="map" style="margin-top:.5rem"></div>
+    <div class="small muted" id="pinmsg">Tip: tap the map to mark the exact spot.</div>
+    <div class="row">
+      <div><label>When? *</label><input name="scheduled_at" type="datetime-local" required></div>
+      <div><label>Passengers</label><input name="passengers" type="number" min="1" max="7" value="1"></div>
+    </div>
+    <label>Repair order # or vehicle (optional)</label><input name="ro_number">
+    <label>Anything the driver should know?</label><textarea name="notes" placeholder="Building entrance, gate code, car seat…"></textarea>
+    <div id="msg"></div>
+    <button class="btn-block btn-lg" style="margin-top:1rem">Request ride</button>
+    <p class="small muted">A service team member will confirm your ride. You'll get a link to track your driver.</p>
+  </form>
+</main>
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/js/common.js"></script>
+<script>
+(async () => {
+  const { $, api } = App;
+  const info = await api('/api/public/info');
+  App.settings = { dealer_name: info.dealer_name, dealer_address: info.dealer_address, dealer_lat: info.dealer_lat, dealer_lng: info.dealer_lng };
+  $('#dealer').textContent = `${info.dealer_name} · ${info.dealer_address}`;
+  if (!info.public_requests) {
+    $('#off').hidden = false;
+    if (info.dealer_phone) $('#offPhone').innerHTML = ` at <a href="${App.telLink(info.dealer_phone)}">${App.esc(info.dealer_phone)}</a>`;
+    return;
+  }
+  const f = $('#f'); f.hidden = false;
+  f.elements.scheduled_at.value = App.toLocalInput(new Date(Date.now() + 30 * 60000));
+  f.querySelectorAll('[name=type]').forEach((r) => r.onchange = () => {
+    $('#addrLabel').textContent = f.elements.type.value === 'pickup' ? 'Where should we pick you up? *' : 'Where are you going? *';
+  });
+  const map = App.makeMap($('#map'), { lat: info.dealer_lat, lng: info.dealer_lng }, 12);
+  App.dealerMarker(map, App.settings);
+  App.addressPicker({
+    input: f.elements.address, results: $('[data-results]', f), map, geocodePath: '/api/public/geocode',
+    onPick: ({ lat, lng }) => { f.elements.lat.value = lat; f.elements.lng.value = lng; $('#pinmsg').textContent = '📍 Spot marked'; },
+  });
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(f));
+    body.scheduled_at = new Date(body.scheduled_at).toISOString();
+    if (!body.lat) { body.lat = null; body.lng = null; }
+    try {
+      const { token } = await api('/api/public/rides', { body });
+      location.href = '/t/' + token;
+    } catch (err) { App.flash($('#msg'), err.message); }
+  };
+})();
+</script>
+</body>
+</html>
