@@ -4,7 +4,7 @@
   "description": "Shuttle dispatch website: advisors, drivers, admin, maps, QR codes",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "node --env-file-if-exists=.env src/server.js",
     "seed:demo": "node src/seed-demo.js",
     "test": "node --test test/*.test.js"
   },

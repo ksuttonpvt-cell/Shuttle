@@ -51,6 +51,41 @@ Cost: the Starter plan (about $7/month) plus a 1 GB disk (about $0.25/month). Th
 
 **Own web address (optional):** in Render, open the service, go to **Settings → Custom Domains**, and add for example `shuttle.yourdealership.com`. Render shows one DNS record for whoever manages the dealership's domain to add. Then set `PUBLIC_URL` to that address under **Environment**, so the QR codes use it. Reprint any QR codes made before the change.
 
+### Running it on your own Windows 11 PC
+**1. Install the software (one time).** Install **Node.js** (the "LTS" version) from nodejs.org and **Git** from git-scm.com, accepting the default options.
+
+**2. Get the app.** Open **PowerShell** and run:
+```powershell
+cd C:\
+git clone https://github.com/ksuttonpvt-cell/Shuttle.git
+cd Shuttle
+npm install --omit=dev
+copy .env.example .env
+notepad .env
+```
+In Notepad, fill in your admin email, name and password, plus `PUBLIC_URL` (the web address from step 4), then save.
+
+**3. Try it.** Double-click `C:\Shuttle\start-shuttle.bat`, then open http://localhost:3000 on that PC.
+
+**4. Make it reachable from phones (free, with HTTPS).** Use a **Cloudflare Tunnel**. It needs no router changes and doesn't open any ports.
+1. Make a free account at cloudflare.com and add a domain you control. This could be the dealership's domain (ask whoever manages it), or a new one bought through Cloudflare for about $10 a year.
+2. In Cloudflare, go to **Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared**, and name it `shuttle`.
+3. Choose **Windows**, and run the install command it shows in PowerShell opened with **Run as administrator**. This installs the tunnel as a Windows service that starts on its own.
+4. Under **Public hostname**, enter `shuttle` plus your domain. For the service, choose type **HTTP** with URL **localhost:3000**. Save.
+5. The site is now at `https://shuttle.yourdomain.com`. Make sure `PUBLIC_URL` in `.env` matches it.
+
+**5. Keep it running after restarts.** Open **Task Scheduler** and choose **Create Task** (not "Basic").
+- **General:** name it `Shuttle`, and tick **Run whether user is logged on or not**.
+- **Triggers:** New → **At startup**.
+- **Actions:** New → Start a program → `C:\Shuttle\start-shuttle.bat`.
+- **Settings:** untick **Stop the task if it runs longer than**, and tick **If the task fails, restart every 1 minute**.
+
+Then right-click the task and choose **Run**. Also go to **Settings → System → Power** and set sleep to **Never**.
+
+**Updating later:** in PowerShell, run `cd C:\Shuttle`, then `git pull`, then `npm install --omit=dev`. Then end and run the `Shuttle` task in Task Scheduler.
+
+**Backups:** everything (rides, logins, vehicles) is stored in `C:\Shuttle\data`. Copy that folder somewhere safe regularly, such as a USB drive or OneDrive. The most reliable copy is one made while the task is stopped.
+
 **Other hosts:** a `Dockerfile` is included. Mount a volume at `/data`, serve it over HTTPS, and set `PUBLIC_URL`.
 
 Maps use OpenStreetMap (no API key). Address search uses the free OpenStreetMap Nominatim service. If a search doesn't find an address, tap the map to drop a pin. The Navigate button opens Google Maps directions.
