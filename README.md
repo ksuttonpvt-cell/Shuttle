@@ -39,8 +39,19 @@ Want sample data to try it out? Run `npm run seed:demo`. It adds 3 shuttles, an 
 | `PUBLIC_URL` | from the request | Address used in QR codes and texted links, e.g. `https://shuttle.example.com` |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_NAME` | — | First admin account (only used when there are no users yet) |
 
-### Putting it online
-Any host that runs Node 22 and keeps a disk works, for example a small VPS, Render, Railway, or Fly.io with a volume. Run it behind HTTPS (drivers' phones only share GPS over HTTPS), set `PUBLIC_URL` so the QR codes point to the real address, and keep `DB_FILE` on persistent storage.
+### Putting it online (Render, about 15 minutes)
+1. Merge this repo's pull request into `main`.
+2. Create an account at **render.com** and sign in with GitHub, allowing access to this repo.
+3. In the Render dashboard, choose **New → Blueprint**, then pick this repo. Render reads `render.yaml`.
+4. Render asks for **ADMIN_EMAIL**, **ADMIN_NAME** and **ADMIN_PASSWORD**. That becomes your admin login.
+5. Click **Apply**. After a few minutes the site is live at `https://corwin-shuttle.onrender.com` (or a similar address), with HTTPS.
+6. Sign in, then go to **Admin → Vehicles** to add the shuttles, **Staff & logins** to add advisors and drivers, and **Settings** to confirm the dealership pin.
+
+Cost: the Starter plan (about $7/month) plus a 1 GB disk (about $0.25/month). The disk is what keeps the rides and accounts saved between restarts. Every push to `main` redeploys automatically.
+
+**Own web address (optional):** in Render, open the service, go to **Settings → Custom Domains**, and add for example `shuttle.yourdealership.com`. Render shows one DNS record for whoever manages the dealership's domain to add. Then set `PUBLIC_URL` to that address under **Environment**, so the QR codes use it. Reprint any QR codes made before the change.
+
+**Other hosts:** a `Dockerfile` is included. Mount a volume at `/data`, serve it over HTTPS, and set `PUBLIC_URL`.
 
 Maps use OpenStreetMap (no API key). Address search uses the free OpenStreetMap Nominatim service. If a search doesn't find an address, tap the map to drop a pin. The Navigate button opens Google Maps directions.
 

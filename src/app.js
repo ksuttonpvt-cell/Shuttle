@@ -39,7 +39,7 @@ function createApp(db, opts = {}) {
     return { lat: Number(s.dealer_lat), lng: Number(s.dealer_lng) };
   }
   function baseUrl(req) {
-    return (opts.publicUrl || process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+    return (opts.publicUrl || process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
   }
   const publicUser = (u) => u && ({
     id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, active: !!u.active,
@@ -122,6 +122,8 @@ function createApp(db, opts = {}) {
     setSessionCookie(req, res, '', 0);
     res.json({ ok: true });
   });
+
+  app.get('/healthz', (req, res) => { q('SELECT 1').get(); res.json({ ok: true }); });
 
   app.get('/api/me', (req, res) => {
     res.json({ user: publicUser(req.user) || null, settings: getSettings(), base_url: baseUrl(req) });
