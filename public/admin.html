@@ -12,6 +12,7 @@
   <div class="tabs">
     <button data-tab="dash" class="active">Dashboard</button>
     <button data-tab="history">Ride history</button>
+    <button data-tab="reports">Reports</button>
     <button data-tab="users">Staff &amp; logins</button>
     <button data-tab="vehicles">Vehicles</button>
     <button data-tab="links">QR codes &amp; links</button>
@@ -23,7 +24,7 @@
     <div class="stats" id="stats"></div>
     <div class="grid cols-even">
       <div class="card"><div class="card-head"><h2>Live map</h2><span class="small muted">🚐 drivers · numbered = queue order</span></div><div id="map" class="map map-tall"></div></div>
-      <div class="card"><div class="card-head"><h2>Open rides — in pickup order</h2></div><div id="openRides" style="max-height:560px;overflow:auto"></div></div>
+      <div class="card"><div class="card-head"><h2>Open rides — in pickup order</h2></div><div id="dashChips"></div><div id="openRides" style="max-height:560px;overflow:auto"></div></div>
     </div>
     <div class="card"><div class="card-head"><h2>Drivers</h2></div><div id="driverTable"></div></div>
   </section>
@@ -36,6 +37,7 @@
         <button class="btn-ghost btn-sm" id="exportCsv">Download CSV</button>
       </div>
     </div>
+    <div id="histChips"></div>
     <div class="table-wrap" id="history"></div>
   </section>
 
@@ -103,6 +105,33 @@
     <div class="qr-grid" id="links"></div>
   </section>
 
+  <!-- Reports -->
+  <section data-pane="reports" class="grid hidden">
+    <div class="card">
+      <div class="card-head"><h2>Reports</h2>
+        <div class="actions" style="margin:0">
+          <button class="btn-ghost btn-sm" data-range="0">Today</button>
+          <button class="btn-ghost btn-sm" data-range="6">Last 7 days</button>
+          <button class="btn-ghost btn-sm" data-range="29">Last 30 days</button>
+        </div>
+      </div>
+      <form id="repForm" class="actions" style="align-items:end;margin:0">
+        <div><label style="margin-top:0">From</label><input type="date" name="from"></div>
+        <div><label style="margin-top:0">To</label><input type="date" name="to"></div>
+        <button class="btn-dark">Show</button>
+        <button type="button" class="btn-ghost" id="repCsv">Download CSV</button>
+      </form>
+      <p class="small muted" style="margin-bottom:0"><b>Wait</b> is how long after the scheduled time the customer got in the shuttle. <b>On time</b> means within 10 minutes. Wait and ride times only count rides from this update onward.</p>
+    </div>
+    <div class="stats" id="repStats"></div>
+    <div class="card"><h2>By day</h2><div class="table-wrap" id="repDays"></div></div>
+    <div class="grid cols-even">
+      <div class="card"><h2>Drivers</h2><div class="table-wrap" id="repDrivers"></div></div>
+      <div class="card"><h2>Booked by</h2><div class="table-wrap" id="repAdvisors"></div></div>
+    </div>
+    <div class="card"><h2>Why rides were cancelled</h2><div id="repReasons"></div></div>
+  </section>
+
   <!-- Settings -->
   <section data-pane="settings" class="card hidden" style="max-width:640px">
     <h2>Dealership settings</h2>
@@ -116,10 +145,34 @@
       </div>
       <p class="small muted">Tip: tap the map to set the dealership pin.</p>
       <div id="setMap" class="map map-sm"></div>
+      <label>Time zone (used in texts and reports)</label>
+      <select name="timezone">
+        <option value="America/Denver">Mountain (Denver)</option>
+        <option value="America/Phoenix">Mountain, no daylight saving (Phoenix)</option>
+        <option value="America/Chicago">Central (Chicago)</option>
+        <option value="America/New_York">Eastern (New York)</option>
+        <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
+      </select>
       <label class="check" style="margin-top:1rem"><input type="checkbox" name="public_requests"> Let customers request rides online (the /request page)</label>
       <div id="setMsg"></div>
       <button style="margin-top:1rem">Save settings</button>
     </form>
+    <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
+    <h2>Customer texts</h2>
+    <div id="smsInfo" class="small muted">Loading…</div>
+    <form id="smsForm">
+      <p class="small" style="margin-bottom:.2rem"><b>Text the customer automatically when:</b></p>
+      <label class="check"><input type="checkbox" name="sms_booked"> their ride is booked (with a tracking link)</label>
+      <label class="check"><input type="checkbox" name="sms_en_route"> the driver is on the way (driver's name, vehicle, plate)</label>
+      <label class="check"><input type="checkbox" name="sms_cancelled"> their ride is cancelled</label>
+      <div class="actions"><button class="btn-dark btn-sm">Save text settings</button></div>
+      <div id="smsMsg"></div>
+    </form>
+    <div id="smsTest" class="hidden">
+      <label>Send a test text to</label>
+      <div class="linkbox"><input id="smsTo" type="tel" placeholder="Your mobile number"><button type="button" class="btn-ghost btn-sm" id="smsSend">Send test</button></div>
+    </div>
+    <div id="smsLog" style="margin-top:1rem"></div>
     <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
     <h2>Software updates</h2>
     <div id="verInfo" class="small muted">Loading…</div>
@@ -164,22 +217,30 @@
       [done, 'Completed today'],
       [drivers.filter((x) => x.on_duty).length + ' / ' + drivers.length, 'Drivers on duty'],
     ].map(([n, l]) => `<div class="stat"><b>${n}</b><span>${l}</span></div>`).join('');
-    $('#openRides').innerHTML = openRides.length ? openRides.map((x) => Rides.card(x, { drivers })).join('') : '<div class="empty">No open rides.</div>';
+    const shownOpen = dashChips.apply(openRides);
+    $('#openRides').innerHTML = shownOpen.length ? shownOpen.map((x) => Rides.card(x, { drivers })).join('')
+      : `<div class="empty">${openRides.length ? 'No rides of this type right now.' : 'No open rides.'}</div>`;
     $('#driverTable').innerHTML = drivers.length ? `<div class="table-wrap"><table>
       <tr><th>Driver</th><th>Status</th><th>Vehicle</th><th>Open rides</th><th>Last location</th></tr>
       ${drivers.map((x) => `<tr><td>${esc(x.name)}</td><td>${x.on_duty ? '<span class="badge s-completed">On duty</span>' : '<span class="badge s-requested">Off</span>'}</td>
         <td>${esc(x.vehicle_name || '—')}</td><td>${x.open_rides}</td><td class="small">${x.last_loc_at ? fmtTime(x.last_loc_at) : '—'}</td></tr>`).join('')}
       </table></div>` : '<div class="empty">No drivers yet — add them under “Staff &amp; logins”.</div>';
-    draw(openRides, drivers);
+    draw(shownOpen, drivers);
   }
+  const dashChips = App.typeChips($('#dashChips'), 'shuttle.adminType', () => loadDash());
   loaders.dash = () => { setTimeout(() => map.invalidateSize(), 50); return loadDash(); };
   Rides.bind($('#openRides'), (id) => openRides.find((r) => r.id === id), loadDash);
 
   // ---------- history ----------
-  let hist = [];
+  let hist = []; let allHist = [];
+  const histChips = App.typeChips($('#histChips'), 'shuttle.historyType', () => renderHistory());
   async function loadHistory() {
-    ({ rides: hist } = await api('/api/rides?scope=' + $('#histScope').value));
-    hist.sort((a, b) => new Date(b.scheduled_at) - new Date(a.scheduled_at));
+    ({ rides: allHist } = await api('/api/rides?scope=' + $('#histScope').value));
+    allHist.sort((a, b) => new Date(b.scheduled_at) - new Date(a.scheduled_at));
+    renderHistory();
+  }
+  function renderHistory() {
+    hist = histChips.apply(allHist);
     $('#history').innerHTML = hist.length ? `<table>
       <tr><th>When</th><th>Type</th><th>Customer</th><th>Address</th><th>Advisor</th><th>Driver / vehicle</th><th>Status</th><th></th></tr>
       ${hist.map((r) => `<tr data-id="${r.id}"><td>${fmtTime(r.scheduled_at)}</td><td>${typeBadge(r.type)}</td>
@@ -306,11 +367,83 @@
     App.share({ title: b.dataset.label, url: b.dataset.url });
   });
 
+  // ---------- reports ----------
+  const rf = $('#repForm'); let report = null;
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  function setRange(daysBack) {
+    rf.elements.to.value = ymd(new Date());
+    rf.elements.from.value = ymd(new Date(Date.now() - daysBack * 86400000));
+  }
+  const dash = (v, unit = '') => (v == null ? '—' : `${v}${unit}`);
+  const dayName = (d) => new Date(d + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const statCols = [['rides', 'Rides'], ['pickups', 'Pick ups'], ['dropoffs', 'Drop offs'], ['completed', 'Completed'], ['cancelled', 'Cancelled'],
+    ['no_shows', 'No-shows'], ['avg_wait_min', 'Avg wait', ' min'], ['on_time_pct', 'On time', '%'], ['avg_ride_min', 'Avg ride', ' min']];
+  const statTable = (rows, first, label) => rows.length ? `<table><tr><th>${label}</th>${statCols.map(([, l]) => `<th>${l}</th>`).join('')}</tr>
+    ${rows.map((r) => `<tr><td><b>${esc(first(r))}</b></td>${statCols.map(([k, , u]) => `<td>${dash(r[k], u)}</td>`).join('')}</tr>`).join('')}</table>`
+    : '<div class="empty">No rides in this range.</div>';
+  async function loadReport() {
+    if (!rf.elements.from.value) setRange(6);
+    try { report = await api(`/api/reports?from=${rf.elements.from.value}&to=${rf.elements.to.value}`); }
+    catch (err) { $('#repStats').innerHTML = `<div class="alert alert-err">${esc(err.message)}</div>`; return; }
+    const t = report.totals;
+    $('#repStats').innerHTML = [[t.rides, 'Rides'], [`${t.pickups} / ${t.dropoffs}`, 'Pick ups / drop offs'], [t.completed, 'Completed'],
+      [t.cancelled, 'Cancelled'], [t.no_shows, 'No-shows'], [dash(t.avg_wait_min, ' min'), 'Average wait'], [dash(t.on_time_pct, '%'), 'On time']]
+      .map(([n, l]) => `<div class="stat"><b>${n}</b><span>${l}</span></div>`).join('');
+    $('#repDays').innerHTML = statTable([...report.days].reverse(), (r) => dayName(r.day), 'Day');
+    $('#repDrivers').innerHTML = statTable(report.drivers, (r) => r.name, 'Driver');
+    $('#repAdvisors').innerHTML = statTable(report.advisors, (r) => r.name, 'Booked by');
+    const max = Math.max(1, ...report.cancel_reasons.map((r) => r.count));
+    $('#repReasons').innerHTML = report.cancel_reasons.length ? report.cancel_reasons.map((r) => `
+      <div style="display:grid;grid-template-columns:minmax(140px,240px) 1fr auto;gap:.6rem;align-items:center;margin:.35rem 0">
+        <span>${esc(r.reason)}</span><div style="height:12px;border-radius:6px;background:var(--red);width:${(r.count / max) * 100}%"></div><b>${r.count}</b></div>`).join('')
+      : '<div class="empty">No cancelled rides in this range. 🎉</div>';
+  }
+  loaders.reports = loadReport;
+  rf.onsubmit = (e) => { e.preventDefault(); loadReport(); };
+  $$('[data-range]').forEach((b) => b.onclick = () => { setRange(Number(b.dataset.range)); loadReport(); });
+  $('#repCsv').onclick = () => {
+    if (!report) return;
+    const cols = ['day', ...statCols.map(([k]) => k)];
+    const csv = [cols.join(',')].concat(report.days.map((d) => cols.map((c) => d[c] ?? '').join(','))).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `shuttle-report-${report.from}-to-${report.to}.csv`; a.click();
+  };
+
+  // ---------- customer texts ----------
+  const smsF = $('#smsForm');
+  async function loadSms() {
+    const [{ settings }, s] = await Promise.all([api('/api/me'), api('/api/sms')]);
+    for (const k of ['sms_booked', 'sms_en_route', 'sms_cancelled']) smsF.elements[k].checked = settings[k] === '1';
+    $('#smsInfo').innerHTML = s.configured
+      ? `✅ Texting is set up. Messages come from <b>${esc(s.from)}</b>.`
+      : `⚠️ <b>Texting isn't set up yet</b>, so no texts are sent. To turn it on, create an account at twilio.com, get a phone number, then add these three lines to the <code>.env</code> file on the server and restart the site:
+        <pre class="small" style="background:#f4f5f7;padding:.6rem;border-radius:8px;overflow:auto">TWILIO_ACCOUNT_SID=AC...\nTWILIO_AUTH_TOKEN=...\nTWILIO_FROM=+13035550123</pre>`;
+    $('#smsTest').classList.toggle('hidden', !s.configured);
+    $('#smsLog').innerHTML = s.log.length ? `<h3>Recent texts</h3><div class="table-wrap"><table><tr><th>When</th><th>To</th><th>Type</th><th>Result</th></tr>
+      ${s.log.map((l) => `<tr title="${esc(l.body || '')}"><td class="small">${fmtTime(l.created_at.replace(' ', 'T') + (l.created_at.endsWith('Z') ? '' : 'Z'))}</td>
+        <td>${esc(l.customer_name || '')}<br><span class="small muted">${esc(l.to_number || '')}</span></td><td>${esc({ booked: 'Booked', en_route: 'On the way', cancelled: 'Cancelled', test: 'Test' }[l.event] || l.event)}</td>
+        <td>${l.status === 'sent' ? '<span class="badge s-completed">Sent</span>' : `<span class="badge s-cancelled">${esc(l.status)}</span><div class="small">${esc(l.error || '')}</div>`}</td></tr>`).join('')}
+      </table></div>` : '';
+  }
+  smsF.onsubmit = async (e) => {
+    e.preventDefault();
+    const body = {}; for (const k of ['sms_booked', 'sms_en_route', 'sms_cancelled']) body[k] = smsF.elements[k].checked ? '1' : '0';
+    try { await api('/api/settings', { method: 'PATCH', body }); App.flash($('#smsMsg'), 'Saved.', true); }
+    catch (err) { App.flash($('#smsMsg'), err.message); }
+  };
+  $('#smsSend').onclick = async () => {
+    try { await api('/api/sms/test', { body: { to: $('#smsTo').value } }); App.flash($('#smsMsg'), 'Test text sent. Check your phone.', true); }
+    catch (err) { App.flash($('#smsMsg'), err.message); }
+    loadSms();
+  };
+
   // ---------- settings ----------
   const sf = $('#setForm'); let setMap = null; let setPin = null;
   async function loadSettings() {
     const { settings } = await api('/api/me');
-    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng']) sf.elements[k].value = settings[k] || '';
+    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone']) sf.elements[k].value = settings[k] || '';
+    if (!sf.elements.timezone.value) sf.elements.timezone.value = 'America/Denver';
     sf.elements.public_requests.checked = settings.public_requests === '1';
     const at = [Number(settings.dealer_lat), Number(settings.dealer_lng)];
     if (!setMap) {
@@ -340,7 +473,7 @@
     e.target.disabled = false; e.target.textContent = 'Check for updates now';
     loadVersion();
   };
-  loaders.settings = () => { loadVersion(); return loadSettings(); };
+  loaders.settings = () => { loadVersion(); loadSms(); return loadSettings(); };
   sf.onsubmit = async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(sf));

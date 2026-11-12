@@ -89,6 +89,22 @@ function openDb(file) {
   addColumn('rides', 'cancel_reason', 'TEXT');
   addColumn('rides', 'cancelled_by', 'INTEGER REFERENCES users(id) ON DELETE SET NULL');
   addColumn('rides', 'cancelled_at', 'TEXT');
+  addColumn('rides', 'en_route_at', 'TEXT');   // when the driver started heading out
+  addColumn('rides', 'onboard_at', 'TEXT');    // when the customer got in
+  addColumn('rides', 'return_of', 'INTEGER');  // a drop off booked from this pick up ("Customer ready")
+  addColumn('rides', 'no_return', 'INTEGER NOT NULL DEFAULT 0'); // pick up whose customer doesn't need a ride back
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sms_log (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      ride_id    INTEGER,
+      event      TEXT,
+      to_number  TEXT,
+      body       TEXT,
+      status     TEXT NOT NULL,
+      error      TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
   return db;
 }
 

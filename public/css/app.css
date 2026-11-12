@@ -160,6 +160,12 @@ th { font-size: .78rem; text-transform: uppercase; color: var(--muted); letter-s
 .step.done i { background: var(--green); border-color: var(--green); color: #fff; }
 .step.now i { background: var(--red); border-color: var(--red); color: #fff; }
 .step.now { color: var(--ink); font-weight: 700; }
+.ride-alert {
+  position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 3000; width: min(560px, calc(100% - 24px));
+  background: var(--red); color: #fff; font-weight: 700; padding: .9rem 1rem; border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.25); cursor: pointer; animation: alert-in .25s ease-out;
+}
+@keyframes alert-in { from { transform: translate(-50%, -20px); opacity: 0; } }
 .ask-title { font-size: 1.35rem; text-align: center; margin: .3rem 0 1rem; }
 .choice-grid { display: grid; gap: .75rem; }
 .choice {
