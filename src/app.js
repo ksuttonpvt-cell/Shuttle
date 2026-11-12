@@ -2,7 +2,7 @@ const path = require('node:path');
 const express = require('express');
 const QRCode = require('qrcode');
 const { hashPassword, verifyPassword, validatePassword, randomToken, parseCookies } = require('./auth');
-const { rankRides } = require('./priority');
+const { rankRides, distanceKm } = require('./priority');
 const { toE164, createTwilioSender } = require('./sms');
 const { createPush } = require('./push');
 
@@ -18,6 +18,7 @@ const DEFAULT_SETTINGS = {
   dealer_lng: '-105.2405',
   public_requests: '1',
   timezone: 'America/Denver',
+  service_radius_mi: '15.5',
   // Automatic customer texts (only sent once Twilio is set up in .env)
   sms_booked: '1',
   sms_en_route: '1',
@@ -42,6 +43,15 @@ function createApp(db, opts = {}) {
     for (const row of q('SELECT key, value FROM settings').all()) s[row.key] = row.value;
     return s;
   }
+  // Only these settings ever leave the server (never the notification keys).
+  function shareableSettings() {
+    const s = getSettings(); const out = {};
+    for (const k of Object.keys(DEFAULT_SETTINGS)) out[k] = s[k];
+    return out;
+  }
+  // How far from the dealership the shuttle will go, in miles (0 = no limit).
+  const serviceRadius = () => Math.max(0, Number(getSettings().service_radius_mi) || 0);
+  const milesFromDealer = (lat, lng) => distanceKm(dealerOrigin(), { lat, lng }) * 0.621371;
   function dealerOrigin() {
     const s = getSettings();
     return { lat: Number(s.dealer_lat), lng: Number(s.dealer_lng) };
@@ -187,7 +197,7 @@ function createApp(db, opts = {}) {
   app.get('/healthz', (req, res) => { q('SELECT 1').get(); res.json({ ok: true }); });
 
   app.get('/api/me', (req, res) => {
-    res.json({ user: publicUser(req.user) || null, settings: getSettings(), base_url: baseUrl(req) });
+    res.json({ user: publicUser(req.user) || null, settings: shareableSettings(), base_url: baseUrl(req) });
   });
 
   app.post('/api/me/password', requireRole(), (req, res) => {
@@ -330,7 +340,8 @@ function createApp(db, opts = {}) {
   });
 
   // ---------- rides ----------
-  function cleanRide(b, existing = {}) {
+  // byAdmin: admins may book outside the service area.
+  function cleanRide(b, existing = {}, { byAdmin = false, forCustomer = false } = {}) {
     const r = { ...existing };
     const set = (k, v) => { if (b[k] !== undefined) r[k] = v; };
     set('type', b.type);
@@ -356,6 +367,17 @@ function createApp(db, opts = {}) {
     if (!r.scheduled_at) return { error: 'Pick a date and time.' };
     r.priority = r.priority === 'urgent' ? 'urgent' : 'normal';
     r.passengers = Math.min(Math.max(r.passengers || 1, 1), 15);
+    // Service area: refuse a new or moved location that's too far from the dealership.
+    const moved = r.lat != null && r.lng != null && (r.lat !== existing.lat || r.lng !== existing.lng);
+    const radius = serviceRadius();
+    if (moved && radius > 0 && !byAdmin) {
+      const mi = milesFromDealer(r.lat, r.lng);
+      if (mi > radius) {
+        const phone = getSettings().dealer_phone;
+        return { error: `That address is ${mi.toFixed(1)} miles from the dealership. The shuttle only goes up to ${radius} miles. ${
+          forCustomer ? `Please call the service department${phone ? ` at ${phone}` : ''} and we'll help you make other arrangements.` : '(An admin can book it if needed.)'}` };
+      }
+    }
     return { r };
   }
 
@@ -400,7 +422,7 @@ function createApp(db, opts = {}) {
   });
 
   app.post('/api/rides', requireRole('advisor'), (req, res) => {
-    const { r, error } = cleanRide(req.body);
+    const { r, error } = cleanRide(req.body, {}, { byAdmin: req.user.role === 'admin' });
     if (error) return bad(res, error);
     // "Customer ready": a drop off booked from a pick up remembers which one.
     let returnOf = null;
@@ -425,7 +447,7 @@ function createApp(db, opts = {}) {
 
     // Details: advisors/admins can edit.
     if (role !== 'driver' && RIDE_FIELDS.some((f) => b[f] !== undefined)) {
-      const { r, error } = cleanRide(b, ride);
+      const { r, error } = cleanRide(b, ride, { byAdmin: role === 'admin' });
       if (error) return bad(res, error);
       for (const f of RIDE_FIELDS) updates[f] = r[f];
     }
@@ -510,6 +532,7 @@ function createApp(db, opts = {}) {
     res.json({
       dealer_name: s.dealer_name, dealer_address: s.dealer_address, dealer_phone: s.dealer_phone,
       dealer_lat: Number(s.dealer_lat), dealer_lng: Number(s.dealer_lng), public_requests: s.public_requests === '1',
+      service_radius_mi: serviceRadius(),
     });
   });
 
@@ -522,8 +545,11 @@ function createApp(db, opts = {}) {
     hits.push(t); publicHits.set(key, hits);
     if (!str(req.body.customer_phone)) return bad(res, 'A phone number is required so the driver can reach you.');
     const body = { ...req.body, priority: 'normal' };
-    const { r, error } = cleanRide(body);
+    const { r, error } = cleanRide(body, {}, { forCustomer: true });
     if (error) return bad(res, error);
+    if (serviceRadius() > 0 && (r.lat == null || r.lng == null)) {
+      return bad(res, `Please choose your address from the suggestions, or tap the map, so we can check it's within our ${serviceRadius()}-mile shuttle area.`);
+    }
     const ride = insertRide(r, { source: 'customer' });
     notifyCustomer(ride.id, 'booked', baseUrl(req));
     pushNewRide(ride.id);
@@ -567,9 +593,14 @@ function createApp(db, opts = {}) {
       if ((k === 'dealer_lat' || k === 'dealer_lng') && Number.isNaN(Number(v))) return bad(res, 'Latitude/longitude must be numbers.');
       if (YES_NO_SETTINGS.includes(k)) v = req.body[k] && req.body[k] !== '0' ? '1' : '0';
       if (k === 'timezone') { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); } catch { return bad(res, 'Unknown time zone.'); } }
+      if (k === 'service_radius_mi') {
+        const n = Number(v);
+        if (v === '' || Number.isNaN(n) || n < 0 || n > 500) return bad(res, 'The service distance must be a number of miles (0 means no limit).');
+        v = String(Math.round(n * 10) / 10);
+      }
       q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
     }
-    res.json({ settings: getSettings() });
+    res.json({ settings: shareableSettings() });
   });
 
   // ---------- phone notifications (sign up / test) ----------

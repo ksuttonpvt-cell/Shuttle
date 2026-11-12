@@ -37,10 +37,22 @@ const App = (() => {
     el.className = 'topbar';
     el.innerHTML = `
       <a class="brand" href="/"><span class="logo">🚐</span><span>Shuttle<small>${esc(settings.dealer_name)}</small></span></a>
-      <nav>${nav}<button id="pwBtn" title="Change password">Password</button><button id="logoutBtn">Sign out</button></nav>
+      <nav>${nav}<button id="themeBtn" title="Light or dark screen"></button><button id="pwBtn" title="Change password">Password</button><button id="logoutBtn">Sign out</button></nav>
       <span class="who">${esc(user.name)} · ${esc(user.role)}</span>`;
     $('#logoutBtn').onclick = async () => { await api('/api/logout', { body: {} }); location.href = '/login'; };
     $('#pwBtn').onclick = changePassword;
+    const paintTheme = () => { $('#themeBtn').textContent = { auto: '🌓 Auto', dark: '🌙 Dark', light: '☀️ Light' }[getTheme()]; };
+    paintTheme();
+    $('#themeBtn').onclick = () => { setTheme({ auto: 'dark', dark: 'light', light: 'auto' }[getTheme()]); paintTheme(); };
+  }
+
+  // Light / dark screen: 'auto' follows the device setting. Saved on this device only.
+  function getTheme() {
+    try { const t = localStorage.getItem('shuttle.theme'); return t === 'dark' || t === 'light' ? t : 'auto'; } catch { return 'auto'; }
+  }
+  function setTheme(t) {
+    try { if (t === 'auto') localStorage.removeItem('shuttle.theme'); else localStorage.setItem('shuttle.theme', t); } catch { /* storage blocked */ }
+    if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
   }
 
   function changePassword() {
@@ -115,8 +127,31 @@ const App = (() => {
   }
   const carIcon = () => L.divIcon({ className: '', html: '<div class="car">🚐</div>', iconSize: [26, 26], iconAnchor: [13, 13] });
   function dealerMarker(map, s) {
+    // Dashed circle = the shuttle's service area (when a limit is set).
+    const radius = Number(s.service_radius_mi) || 0;
+    if (radius > 0) {
+      L.circle([Number(s.dealer_lat), Number(s.dealer_lng)], {
+        radius: radius * 1609.344, color: '#eb0a1e', weight: 2, dashArray: '6 6', fillOpacity: 0.04, interactive: false,
+      }).addTo(map);
+    }
     return L.marker([Number(s.dealer_lat), Number(s.dealer_lng)], { icon: pinIcon('dealer', 'T'), zIndexOffset: 1000 })
       .bindPopup(`<b>${esc(s.dealer_name)}</b><br>${esc(s.dealer_address)}`).addTo(map);
+  }
+
+  // Miles from the dealership, and a short note for under an address box.
+  function milesFromDealer(lat, lng, s = App.settings) {
+    const toRad = (d) => (d * Math.PI) / 180;
+    const aLat = Number(s.dealer_lat); const aLng = Number(s.dealer_lng);
+    const h = Math.sin(toRad(lat - aLat) / 2) ** 2 + Math.cos(toRad(aLat)) * Math.cos(toRad(lat)) * Math.sin(toRad(lng - aLng) / 2) ** 2;
+    return 2 * 6371 * Math.asin(Math.sqrt(h)) * 0.621371;
+  }
+  function distanceNote(lat, lng, s = App.settings) {
+    const mi = milesFromDealer(lat, lng, s); const max = Number(s.service_radius_mi) || 0;
+    if (max > 0 && mi > max) {
+      const admin = App.user && App.user.role === 'admin';
+      return { ok: false, text: `⚠️ ${mi.toFixed(1)} miles from the dealership. That's outside the ${max}-mile shuttle area.${admin ? ' As an admin you can still book it.' : ''}` };
+    }
+    return { ok: true, text: `📍 Spot marked · ${mi.toFixed(1)} miles from the dealership` };
   }
 
   // Shows open rides + on-duty drivers on a map layer. Returns a function to refresh.
@@ -291,7 +326,7 @@ const App = (() => {
 
   return {
     esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
-    directionsUrl, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, typeChips,
+    directionsUrl, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
 })();

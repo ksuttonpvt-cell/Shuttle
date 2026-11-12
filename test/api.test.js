@@ -119,6 +119,9 @@ test('full shuttle flow', async () => {
 
   // Public request form, then admin turns it off.
   r = await anon('/api/public/rides', { body: { type: 'pickup', customer_name: 'Web Walt', customer_phone: '303', address: '3 Elm', scheduled_at: later } });
+  assert.equal(r.status, 400, 'customers must pin their address so the distance can be checked');
+  assert.match(r.data.error, /15\.5-mile/);
+  r = await anon('/api/public/rides', { body: { type: 'pickup', customer_name: 'Web Walt', customer_phone: '303', address: '3 Elm', scheduled_at: later, lat: 40.03, lng: -105.25 } });
   assert.equal(r.status, 201);
   await admin('/api/settings', { method: 'PATCH', body: { public_requests: '0' } });
   r = await anon('/api/public/rides', { body: { type: 'pickup', customer_name: 'Web Walt', customer_phone: '303', address: '3 Elm', scheduled_at: later } });
@@ -163,4 +166,53 @@ test('pages are never cached and link version-stamped scripts', async () => {
   assert.equal(js.status, 200);
   assert.match(js.headers.get('cache-control'), /max-age=2592000/);
   assert.equal((await anon('/login')).status, 200);
+});
+
+test('15.5-mile service area (admins can bypass), and settings never leak private keys', async () => {
+  const admin = client();
+  await admin('/api/login', { body: { email: 'admin@test.local', password: 'adminpass1' } });
+  await admin('/api/users', { body: { name: 'Rae Advisor', email: 'rae@test.local', role: 'advisor', password: 'advisorpw1' } });
+  const adv = client();
+  await adv('/api/login', { body: { email: 'rae@test.local', password: 'advisorpw1' } });
+  const at = new Date(Date.now() + 3600000).toISOString();
+  const denver = { lat: 39.7392, lng: -104.9903 }; // about 23 miles from the dealership
+  const lafayette = { lat: 39.9936, lng: -105.0897 }; // about 8 miles
+
+  let r = await adv('/api/rides', { body: { type: 'pickup', customer_name: 'Far Away', address: 'Denver', scheduled_at: at, ...denver } });
+  assert.equal(r.status, 400);
+  assert.match(r.data.error, /^That address is 2\d\.\d miles from the dealership\. The shuttle only goes up to 15\.5 miles\./);
+  r = await adv('/api/rides', { body: { type: 'pickup', customer_name: 'Near By', address: 'Lafayette', scheduled_at: at, ...lafayette } });
+  assert.equal(r.status, 201);
+  const near = r.data.ride;
+  assert.equal((await adv(`/api/rides/${near.id}`, { method: 'PATCH', body: { ...denver } })).status, 400, 'advisors cannot move a ride too far');
+  assert.equal((await adv(`/api/rides/${near.id}`, { method: 'PATCH', body: { notes: 'side door' } })).status, 200);
+
+  await admin('/api/settings', { method: 'PATCH', body: { public_requests: '1' } });
+  r = await (await fetch(base + '/api/public/rides', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'pickup', customer_name: 'Web Far', customer_phone: '3035550000', address: 'Denver', scheduled_at: at, ...denver }) })).json();
+  assert.match(r.error, /Please call the service department/, 'customers are told to call, not about admins');
+  assert.doesNotMatch(r.error, /admin/i);
+
+  // Admins can bypass the limit, when booking or editing.
+  r = await admin('/api/rides', { body: { type: 'pickup', customer_name: 'Admin Special', address: 'Denver', scheduled_at: at, ...denver } });
+  assert.equal(r.status, 201, 'admin can book outside the area');
+  assert.equal((await admin(`/api/rides/${near.id}`, { method: 'PATCH', body: { ...denver } })).status, 200, 'admin can move a ride outside the area');
+  // ...and the ride stays editable by advisors as long as its location doesn't change.
+  assert.equal((await adv(`/api/rides/${r.data.ride.id}`, { method: 'PATCH', body: { notes: 'call first', ...denver } })).status, 200);
+
+  // Admin can change the limit (0 = no limit) and it's validated.
+  assert.equal((await admin('/api/settings', { method: 'PATCH', body: { service_radius_mi: 'far' } })).status, 400);
+  await admin('/api/settings', { method: 'PATCH', body: { service_radius_mi: '30' } });
+  assert.equal((await adv('/api/rides', { body: { type: 'pickup', customer_name: 'Far OK', address: 'Denver', scheduled_at: at, ...denver } })).status, 201);
+  const info = await (await fetch(base + '/api/public/info')).json();
+  assert.equal(info.service_radius_mi, 30);
+  await admin('/api/settings', { method: 'PATCH', body: { service_radius_mi: '15.5' } });
+
+  // Settings sent to browsers never include the notification keys.
+  const me = await (await fetch(base + '/api/me')).json();
+  assert.equal(me.settings.vapid_private, undefined);
+  assert.equal(me.settings.vapid_public, undefined);
+  assert.equal(me.settings.service_radius_mi, '15.5');
+  const saved = (await admin('/api/settings', { method: 'PATCH', body: { dealer_phone: '303-555-0000' } })).data.settings;
+  assert.equal(saved.vapid_private, undefined);
 });

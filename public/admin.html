@@ -1,7 +1,8 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="utf-8">
+<script>/* apply the saved light/dark choice before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shuttle Admin</title>
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/css/app.css">
@@ -145,6 +146,9 @@
       </div>
       <p class="small muted">Tip: tap the map to set the dealership pin.</p>
       <div id="setMap" class="map map-sm"></div>
+      <label>Shuttle service area (miles from the dealership)</label>
+      <input name="service_radius_mi" type="number" min="0" max="500" step="0.1">
+      <p class="small muted" style="margin:.25rem 0 0">Rides farther than this are refused, and maps show it as a dashed circle. Use 0 for no limit.</p>
       <label>Time zone (used in texts and reports)</label>
       <select name="timezone">
         <option value="America/Denver">Mountain (Denver)</option>
@@ -247,7 +251,7 @@
         <td>${esc(r.customer_name)}<br><span class="small muted">${esc(r.customer_phone || '')}</span></td>
         <td class="small">${esc(r.address)}</td><td>${esc(r.advisor_name || (r.source === 'customer' ? 'Customer' : '—'))}</td>
         <td>${esc(r.driver_name || '—')}<br><span class="small muted">${esc(r.vehicle_name || '')}</span></td>
-        <td>${statusBadge(r.status)}${r.status === 'cancelled' && r.cancel_reason ? `<div class="small" style="color:#8a0010;margin-top:.25rem">${esc(r.cancel_reason)}${r.cancelled_by_name ? `<br><span class="muted">by ${esc(r.cancelled_by_name)}</span>` : ''}</div>` : ''}</td>
+        <td>${statusBadge(r.status)}${r.status === 'cancelled' && r.cancel_reason ? `<div class="small" style="color:var(--red-fg);margin-top:.25rem">${esc(r.cancel_reason)}${r.cancelled_by_name ? `<br><span class="muted">by ${esc(r.cancelled_by_name)}</span>` : ''}</div>` : ''}</td>
         <td><button class="btn-ghost btn-sm" data-share>Link</button> <button class="btn-ghost btn-sm" data-del>Delete</button></td></tr>`).join('')}
       </table>` : '<div class="empty">No rides yet.</div>';
   }
@@ -418,7 +422,7 @@
     $('#smsInfo').innerHTML = s.configured
       ? `✅ Texting is set up. Messages come from <b>${esc(s.from)}</b>.`
       : `⚠️ <b>Texting isn't set up yet</b>, so no texts are sent. To turn it on, create an account at twilio.com, get a phone number, then add these three lines to the <code>.env</code> file on the server and restart the site:
-        <pre class="small" style="background:#f4f5f7;padding:.6rem;border-radius:8px;overflow:auto">TWILIO_ACCOUNT_SID=AC...\nTWILIO_AUTH_TOKEN=...\nTWILIO_FROM=+13035550123</pre>`;
+        <pre class="small" style="background:var(--subtle);padding:.6rem;border-radius:8px;overflow:auto">TWILIO_ACCOUNT_SID=AC...\nTWILIO_AUTH_TOKEN=...\nTWILIO_FROM=+13035550123</pre>`;
     $('#smsTest').classList.toggle('hidden', !s.configured);
     $('#smsLog').innerHTML = s.log.length ? `<h3>Recent texts</h3><div class="table-wrap"><table><tr><th>When</th><th>To</th><th>Type</th><th>Result</th></tr>
       ${s.log.map((l) => `<tr title="${esc(l.body || '')}"><td class="small">${fmtTime(l.created_at.replace(' ', 'T') + (l.created_at.endsWith('Z') ? '' : 'Z'))}</td>
@@ -442,7 +446,8 @@
   const sf = $('#setForm'); let setMap = null; let setPin = null;
   async function loadSettings() {
     const { settings } = await api('/api/me');
-    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone']) sf.elements[k].value = settings[k] || '';
+    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi']) sf.elements[k].value = settings[k] || '';
+    if (sf.elements.service_radius_mi.value === '') sf.elements.service_radius_mi.value = '0';
     if (!sf.elements.timezone.value) sf.elements.timezone.value = 'America/Denver';
     sf.elements.public_requests.checked = settings.public_requests === '1';
     const at = [Number(settings.dealer_lat), Number(settings.dealer_lng)];

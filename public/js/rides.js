@@ -37,7 +37,9 @@ const Rides = (() => {
       input: form.elements.address, results: $('[data-results]', form), map,
       onPick: ({ lat, lng }) => {
         form.elements.lat.value = lat.toFixed(6); form.elements.lng.value = lng.toFixed(6);
-        $('[data-pinmsg]', form).textContent = '📍 Location set';
+        const note = App.distanceNote(lat, lng);
+        const el = $('[data-pinmsg]', form);
+        el.textContent = note.text; el.classList.toggle('late', !note.ok);
       },
     });
     if (form.elements.lat.value) picker.set(Number(form.elements.lat.value), Number(form.elements.lng.value));
