@@ -150,3 +150,17 @@ test('priority puts on-board, overdue and urgent rides first', () => {
   ];
   assert.deepEqual(rankRides(rides, null, now).map((r) => r.id), [4, 3, 2, 1]);
 });
+
+test('pages are never cached and link version-stamped scripts', async () => {
+  const anon = client();
+  const res = await fetch(base + '/advisor');
+  assert.equal(res.headers.get('cache-control'), 'no-store');
+  const html = await res.text();
+  assert.match(html, /src="\/js\/common\.js\?v=[a-z0-9]+"/);
+  assert.match(html, /href="\/css\/app\.css\?v=[a-z0-9]+"/);
+  assert.match(html, /\/vendor\/leaflet\/leaflet\.js\?v=/);
+  const js = await fetch(base + '/js/common.js?v=x');
+  assert.equal(js.status, 200);
+  assert.match(js.headers.get('cache-control'), /max-age=2592000/);
+  assert.equal((await anon('/login')).status, 200);
+});
