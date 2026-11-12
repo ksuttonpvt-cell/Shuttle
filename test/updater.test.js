@@ -17,6 +17,8 @@ function setup() {
   for (const [k, v] of [['user.email', 't@t'], ['user.name', 'T'], ['commit.gpgsign', 'false']]) git(dev, 'config', k, v);
   fs.writeFileSync(path.join(dev, 'app.txt'), 'v1');
   fs.writeFileSync(path.join(dev, 'package-lock.json'), '{"v":1}');
+  fs.writeFileSync(path.join(dev, '.env.example'), 'SAMPLE=1');
+  fs.writeFileSync(path.join(dev, '.gitignore'), '.env\n');
   git(dev, 'add', '.'); git(dev, 'commit', '-qm', 'v1'); git(dev, 'push', '-q', 'origin', 'HEAD:main');
   git(dir, 'clone', '-q', '-b', 'main', origin, server);
   const push = (file, content) => {
@@ -48,6 +50,14 @@ test('installs new versions, restarts, and handles problems', async () => {
   assert.equal(installs, 1, 'package change triggers npm install');
   assert.equal(fs.readFileSync(path.join(server, 'package-lock.json'), 'utf8'), '{"v":2}');
 
+  // Settings typed into .env.example are kept in .env and don't block the update.
+  push('.env.example', 'SAMPLE=2');
+  fs.writeFileSync(path.join(server, '.env.example'), 'PUBLIC_URL=https://mine.example');
+  assert.equal(await u.check(), 'updated');
+  assert.equal(fs.readFileSync(path.join(server, '.env'), 'utf8'), 'PUBLIC_URL=https://mine.example');
+  assert.equal(fs.readFileSync(path.join(server, '.env.example'), 'utf8'), 'SAMPLE=2');
+  await new Promise((r) => setTimeout(r, 600));
+
   // Local edits to app files block the pull; the site keeps running and reports it.
   fs.writeFileSync(path.join(server, 'app.txt'), 'edited on the server');
   push('app.txt', 'v3');
@@ -55,7 +65,7 @@ test('installs new versions, restarts, and handles problems', async () => {
   assert.match(u.state.lastError, /pull failed/);
   assert.equal(await u.check(), 'error', 'does not retry the same failed update');
   await new Promise((r) => setTimeout(r, 600));
-  assert.equal(restarts, 2);
+  assert.equal(restarts, 3);
 
   fs.rmSync(dir, { recursive: true, force: true });
 });

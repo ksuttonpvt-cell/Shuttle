@@ -567,9 +567,20 @@ function createApp(db, opts = {}) {
 
   // ---------- pages ----------
   const pub = path.join(__dirname, '..', 'public');
-  app.use(express.static(pub, { extensions: ['html'], index: false }));
-  app.use('/vendor/leaflet', express.static(path.join(path.dirname(require.resolve('leaflet/package.json')), 'dist'), { maxAge: '7d' }));
-  const page = (file) => (req, res) => res.sendFile(path.join(pub, file));
+  // Pages are never cached, and every script/stylesheet link in them carries a
+  // version stamp that changes on each start. After an update (which restarts the
+  // app) browsers and Cloudflare fetch the new files instead of showing old ones.
+  const assetVersion = opts.assetVersion || Date.now().toString(36);
+  const pageCache = new Map();
+  const page = (file) => (req, res, next) => {
+    let html = pageCache.get(file);
+    if (!html) {
+      try { html = require('node:fs').readFileSync(path.join(pub, file), 'utf8'); } catch (e) { return next(e); }
+      html = html.replace(/((?:src|href)="\/(?:js|css|vendor\/leaflet)\/[^"?]+\.(?:js|css))"/g, `$1?v=${assetVersion}"`);
+      pageCache.set(file, html);
+    }
+    res.set('Cache-Control', 'no-store').type('html').send(html);
+  };
   app.get('/', (req, res) => {
     if (!req.user) return res.redirect('/login');
     res.redirect(`/${req.user.role}`);
@@ -580,6 +591,12 @@ function createApp(db, opts = {}) {
   app.get('/admin', page('admin.html'));
   app.get('/request', page('request.html'));
   app.get('/t/:token', page('track.html'));
+  // Scripts and styles: their links are version-stamped, so they can be cached.
+  app.use(express.static(pub, {
+    index: false, maxAge: '30d',
+    setHeaders: (res, file) => { if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-store'); },
+  }));
+  app.use('/vendor/leaflet', express.static(path.join(path.dirname(require.resolve('leaflet/package.json')), 'dist'), { maxAge: '30d' }));
 
   app.use('/api', (req, res) => bad(res, 'Not found.', 404));
   // eslint-disable-next-line no-unused-vars
