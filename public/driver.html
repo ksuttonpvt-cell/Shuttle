@@ -123,7 +123,6 @@
           <div>🕒 ${fmtTime(r.scheduled_at)} · ${relTime(r.scheduled_at)} · ${r.passengers} passenger${r.passengers > 1 ? 's' : ''}</div>
           <div>📍 ${dest}${r.distance_mi != null ? ` · ${r.distance_mi} mi` : ''}</div>
           ${r.notes ? `<div>📝 ${esc(r.notes)}</div>` : ''}
-          ${r.customer_vehicle || r.ro_number ? `<div>🔧 ${esc([r.customer_vehicle, r.ro_number].filter(Boolean).join(' · '))}</div>` : ''}
           ${r.driver_name && !mine ? `<div>🚐 ${esc(r.driver_name)}</div>` : ''}
           ${r.reasons ? `<div class="small">Why this order: ${esc(r.reasons.join(' · '))}</div>` : ''}
         </div>
