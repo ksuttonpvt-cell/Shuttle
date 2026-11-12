@@ -84,6 +84,7 @@ const Rides = (() => {
           <div>👤 Advisor: ${esc(r.advisor_name || (r.source === 'customer' ? 'Customer request' : '—'))}
             ${r.driver_name ? ` · 🚐 ${esc(r.driver_name)}${r.vehicle_name ? ' in ' + esc(r.vehicle_name) : ''}` : ''}</div>
         </div>
+        ${App.cancelNote(r)}
         ${open && mode === 'staff' ? `
         <div class="actions">
           <select data-assign style="width:auto;flex:1;min-width:150px"><option value="">— Assign driver —</option>${driverOpts}</select>
@@ -110,8 +111,7 @@ const Rides = (() => {
       if (btn.hasAttribute('data-share')) {
         App.share({ title: `Shuttle tracking for ${ride.customer_name}`, url: ride.track_url, phone: ride.customer_phone, email: ride.customer_email, message: App.rideMessage(ride) });
       } else if (btn.hasAttribute('data-cancel')) {
-        if (!confirm(`Cancel the ride for ${ride.customer_name}?`)) return;
-        await api(`/api/rides/${ride.id}`, { method: 'PATCH', body: { status: 'cancelled' } }); refresh();
+        if (await App.cancelRide(ride)) refresh();
       } else if (btn.hasAttribute('data-edit')) {
         edit(ride, refresh);
       }

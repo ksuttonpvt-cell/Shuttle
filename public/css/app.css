@@ -111,6 +111,9 @@ button:disabled { opacity: .55; cursor: default; }
 .s-completed { background: #e3f5ea; color: var(--green); }
 .s-cancelled { background: #fde8ea; color: #8a0010; }
 .late { color: var(--red); font-weight: 700; }
+.reasons { display: grid; gap: .1rem; }
+.reasons .check { margin: .2rem 0; font-size: .95rem; }
+.cancel-note { margin-top: .35rem; padding: .4rem .6rem; border-radius: 7px; background: #fde8ea; color: #8a0010; font-size: .88rem; }
 .empty { text-align: center; color: var(--muted); padding: 1.5rem .5rem; }
 
 /* ---------- maps ---------- */

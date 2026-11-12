@@ -27,6 +27,10 @@
         <p class="small muted" style="margin-top:-.4rem">Numbered in the order the shuttle should handle them — overdue, urgent and soonest first, then closest.</p>
         <div id="rides"></div>
       </div>
+      <div class="card hidden" id="cancelledCard">
+        <div class="card-head"><h2>Cancelled today</h2></div>
+        <div id="cancelled"></div>
+      </div>
       <div class="card">
         <div class="card-head"><h2>Map</h2><span class="small muted">🚐 drivers on duty · numbered pins = queue order</span></div>
         <div id="map" class="map"></div>
@@ -67,7 +71,7 @@
   const map = App.makeMap($('#map'), { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng) });
   App.dealerMarker(map, App.settings);
   const draw = App.ridesLayer(map);
-  let rides = []; let drivers = [];
+  let rides = []; let drivers = []; let cancelledRides = [];
   async function refresh() {
     const mine = $('#mineOnly').checked ? '&mine=1' : '';
     const [r, d] = await Promise.all([api('/api/rides?scope=open' + mine), api('/api/drivers')]);
@@ -79,8 +83,16 @@
       <td>${x.on_duty ? '<span class="badge s-completed">On duty</span>' : '<span class="badge s-requested">Off</span>'}</td>
       <td>${esc(x.vehicle_name || '—')}</td><td>${x.open_rides}</td></tr>`).join('')}</table></div>` : '<div class="empty">No drivers yet. An admin can add them.</div>';
     draw(rides, drivers);
+    const today = await api('/api/rides?scope=today' + mine);
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const cancelled = today.rides.filter((x) => x.status === 'cancelled' && new Date(x.cancelled_at || x.updated_at) >= start)
+      .sort((a, b) => new Date(b.cancelled_at || b.updated_at) - new Date(a.cancelled_at || a.updated_at));
+    $('#cancelledCard').classList.toggle('hidden', !cancelled.length);
+    cancelledRides = cancelled;
+    $('#cancelled').innerHTML = cancelled.map((x) => Rides.card(x, { drivers })).join('');
   }
   Rides.bind($('#rides'), (id) => rides.find((r) => r.id === id), refresh);
+  Rides.bind($('#cancelled'), (id) => cancelledRides.find((r) => r.id === id), refresh);
   $('#mineOnly').onchange = refresh;
   $('#shareRequest').onclick = () => App.share({ title: 'Request a shuttle ride', url: App.baseUrl + '/request',
     message: `Need a ride from ${App.settings.dealer_name}? Request the shuttle here: ${App.baseUrl}/request` });

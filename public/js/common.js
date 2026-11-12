@@ -209,6 +209,42 @@ const App = (() => {
     if (nat) nat.onclick = () => navigator.share({ title, text: message || title, url }).catch(() => {});
   }
 
+  // Asks for a cancel reason, then cancels the ride. Resolves true if it was cancelled.
+  const CANCEL_REASONS = ['Customer no-show', 'Customer cancelled', 'Customer found another ride',
+    "Can't find the address / customer", 'Shuttle or vehicle problem', 'Duplicate ride', 'Other'];
+  function cancelRide(ride) {
+    return new Promise((resolve) => {
+      const m = modal(`
+        <h2>Cancel ride for ${esc(ride.customer_name)}?</h2>
+        <p class="muted small">${TYPE_LABEL[ride.type]} · ${fmtTime(ride.scheduled_at)} · ${esc(ride.address)}</p>
+        <form>
+          <label>Reason *</label>
+          <div class="reasons">${CANCEL_REASONS.map((r, i) => `<label class="check"><input type="radio" name="pick" value="${esc(r)}" ${i === 0 ? 'required' : ''}> ${esc(r)}</label>`).join('')}</div>
+          <label>Details <span class="muted">(required for “Other”)</span></label>
+          <textarea name="details" maxlength="400" placeholder="e.g. Waited 10 min, called twice, no answer"></textarea>
+          <div class="msg"></div>
+          <div class="actions"><button class="btn-dark">Cancel ride</button><button type="button" class="btn-ghost" data-close>Keep ride</button></div>
+        </form>`);
+      const form = $('form', m);
+      const done = (v) => { m.remove(); resolve(v); };
+      m.addEventListener('click', (e) => { if (e.target === m || e.target.closest('[data-close]')) resolve(false); });
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const pick = form.elements.pick.value;
+        const details = form.elements.details.value.trim();
+        if (pick === 'Other' && details.length < 3) return flash($('.msg', m), 'Please describe the reason.');
+        const reason = details ? (pick === 'Other' ? details : `${pick}: ${details}`) : pick;
+        try { await api(`/api/rides/${ride.id}`, { method: 'PATCH', body: { status: 'cancelled', cancel_reason: reason } }); done(true); }
+        catch (err) { flash($('.msg', m), err.message); }
+      };
+    });
+  }
+
+  function cancelNote(r) {
+    if (r.status !== 'cancelled' || !r.cancel_reason) return '';
+    return `<div class="cancel-note">❌ Cancelled${r.cancelled_by_name ? ' by ' + esc(r.cancelled_by_name) : ''}${r.cancelled_at ? ' at ' + fmtTime(r.cancelled_at) : ''}: ${esc(r.cancel_reason)}</div>`;
+  }
+
   function rideMessage(ride) {
     const dealer = App.settings?.dealer_name || 'the dealership';
     const what = ride.type === 'pickup' ? 'shuttle pick up' : 'shuttle ride';
@@ -226,7 +262,7 @@ const App = (() => {
 
   return {
     esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
-    directionsUrl, telLink, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll,
+    directionsUrl, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll,
     STATUS_LABEL, TYPE_LABEL,
   };
 })();

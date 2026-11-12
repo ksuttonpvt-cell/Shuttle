@@ -52,8 +52,10 @@ function createApp(db, opts = {}) {
 
   const RIDE_SELECT = `
     SELECT r.*, a.name AS advisor_name, d.name AS driver_name, d.phone AS driver_phone,
-           v.name AS vehicle_name, v.color AS vehicle_color, v.plate AS vehicle_plate, v.make_model AS vehicle_make_model
+           v.name AS vehicle_name, v.color AS vehicle_color, v.plate AS vehicle_plate, v.make_model AS vehicle_make_model,
+           c.name AS cancelled_by_name
     FROM rides r
+    LEFT JOIN users c ON c.id = r.cancelled_by
     LEFT JOIN users a ON a.id = r.advisor_id
     LEFT JOIN users d ON d.id = r.driver_id
     LEFT JOIN vehicles v ON v.id = r.vehicle_id`;
@@ -314,7 +316,8 @@ function createApp(db, opts = {}) {
     if (scope === 'open') where.push(`r.status IN (${OPEN_STATUSES.map(() => '?').join(',')})`), args.push(...OPEN_STATUSES);
     else if (scope === 'today') {
       const start = new Date(); start.setHours(0, 0, 0, 0);
-      where.push('(r.scheduled_at >= ? OR r.status IN (\'requested\',\'assigned\',\'en_route\',\'onboard\'))'); args.push(start.toISOString());
+      where.push('(r.scheduled_at >= ? OR r.cancelled_at >= ? OR r.completed_at >= ? OR r.status IN (\'requested\',\'assigned\',\'en_route\',\'onboard\'))');
+      args.push(start.toISOString(), start.toISOString(), start.toISOString());
     }
     if (req.query.mine === '1' && req.user.role === 'advisor') { where.push('r.advisor_id = ?'); args.push(req.user.id); }
     if (req.query.mine === '1' && req.user.role === 'driver') { where.push('r.driver_id = ?'); args.push(req.user.id); }
@@ -386,7 +389,17 @@ function createApp(db, opts = {}) {
       if (role === 'driver' && ride.driver_id !== req.user.id && updates.driver_id !== req.user.id) {
         return bad(res, 'Claim this ride before updating it.', 403);
       }
-      if (role === 'driver' && b.status === 'cancelled') return bad(res, 'Ask an advisor to cancel rides.', 403);
+      if (b.status === 'cancelled') {
+        if (['completed', 'cancelled'].includes(ride.status)) return bad(res, `This ride is already ${ride.status}.`);
+        const reason = str(b.cancel_reason, 500);
+        if (!reason || reason.length < 3) return bad(res, 'Please give a reason for cancelling.');
+        updates.cancel_reason = reason;
+        updates.cancelled_by = req.user.id;
+        updates.cancelled_at = now();
+      } else if (ride.status === 'cancelled') {
+        // Re-opening a cancelled ride clears the cancellation.
+        updates.cancel_reason = null; updates.cancelled_by = null; updates.cancelled_at = null;
+      }
       updates.status = b.status;
       updates.completed_at = b.status === 'completed' ? now() : null;
       if (['en_route', 'onboard', 'completed'].includes(b.status) && !ride.driver_id && !updates.driver_id && role === 'driver') {
