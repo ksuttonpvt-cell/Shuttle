@@ -4,6 +4,7 @@ const QRCode = require('qrcode');
 const { hashPassword, verifyPassword, validatePassword, randomToken, parseCookies } = require('./auth');
 const { rankRides } = require('./priority');
 const { toE164, createTwilioSender } = require('./sms');
+const { createPush } = require('./push');
 
 const SESSION_DAYS = 14;
 const RIDE_STATUSES = ['requested', 'assigned', 'en_route', 'onboard', 'completed', 'cancelled'];
@@ -82,6 +83,15 @@ function createApp(db, opts = {}) {
 
   // ---------- automatic customer texts ----------
   const sms = opts.sms || createTwilioSender();
+
+  // ---------- driver phone notifications ----------
+  const push = createPush(db, { sender: opts.pushSender });
+  const rideLine = (r) => `${r.customer_name} — ${r.type === 'pickup' ? 'Pick up' : 'Drop off'} ${fmtWhen(r.scheduled_at)}${r.address ? ` · ${r.address}` : ''}`;
+  const quietly = (p) => Promise.resolve(p).catch((e) => console.error('Notification failed:', e.message));
+  function pushNewRide(rideId) {
+    const r = q('SELECT * FROM rides WHERE id = ?').get(rideId);
+    if (r) quietly(push.notifyOnDutyDrivers({ title: '🚐 New shuttle ride', body: rideLine(r), tag: `ride-${r.id}` }));
+  }
   function smsMessage(event, ride, trackUrl) {
     const s = getSettings();
     const first = (ride.customer_name || '').split(' ')[0] || 'there';
@@ -403,6 +413,7 @@ function createApp(db, opts = {}) {
     }
     const ride = insertRide(r, { source: 'advisor', advisor_id: req.user.id, return_of: returnOf });
     notifyCustomer(ride.id, 'booked', baseUrl(req));
+    pushNewRide(ride.id);
     res.status(201).json({ ride: withLinks(req, ride) });
   });
 
@@ -477,6 +488,14 @@ function createApp(db, opts = {}) {
     if (updates.status && updates.status !== ride.status && ['en_route', 'cancelled'].includes(updates.status)) {
       notifyCustomer(ride.id, updates.status, baseUrl(req));
     }
+    // Tell the driver when someone else gives them a ride, or cancels one of theirs.
+    const after = q('SELECT * FROM rides WHERE id = ?').get(ride.id);
+    if (after.driver_id && after.driver_id !== ride.driver_id && after.driver_id !== req.user.id) {
+      quietly(push.notifyUsers([after.driver_id], { title: '🚐 Ride assigned to you', body: rideLine(after), tag: `ride-${after.id}` }));
+    }
+    if (updates.status === 'cancelled' && ride.status !== 'cancelled' && ride.driver_id && ride.driver_id !== req.user.id) {
+      quietly(push.notifyUsers([ride.driver_id], { title: '❌ Ride cancelled', body: `${rideLine(after)}${after.cancel_reason ? ` — ${after.cancel_reason}` : ''}`, tag: `ride-${after.id}` }));
+    }
     res.json({ ride: withLinks(req, q(`${RIDE_SELECT} WHERE r.id = ?`).get(ride.id)) });
   });
 
@@ -507,6 +526,7 @@ function createApp(db, opts = {}) {
     if (error) return bad(res, error);
     const ride = insertRide(r, { source: 'customer' });
     notifyCustomer(ride.id, 'booked', baseUrl(req));
+    pushNewRide(ride.id);
     res.status(201).json({ track_url: `${baseUrl(req)}/t/${ride.track_token}`, token: ride.track_token });
   });
 
@@ -550,6 +570,25 @@ function createApp(db, opts = {}) {
       q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
     }
     res.json({ settings: getSettings() });
+  });
+
+  // ---------- phone notifications (sign up / test) ----------
+  app.get('/api/push', requireRole('driver'), (req, res) => {
+    res.json({ key: push.publicKey, devices: push.countFor(req.user.id) });
+  });
+  app.post('/api/push/subscribe', requireRole('driver'), (req, res) => {
+    try { push.subscribe(req.user.id, req.body.subscription, req.get('user-agent')); }
+    catch (e) { return bad(res, e.message); }
+    res.json({ ok: true, devices: push.countFor(req.user.id) });
+  });
+  app.post('/api/push/unsubscribe', requireRole('driver'), (req, res) => {
+    push.unsubscribe(req.body.endpoint);
+    res.json({ ok: true, devices: push.countFor(req.user.id) });
+  });
+  app.post('/api/push/test', requireRole('driver'), async (req, res) => {
+    const r = await push.notifyUsers([req.user.id], { title: '🔔 Test notification', body: 'Notifications are working on this phone.', tag: 'test' });
+    if (!r.sent) return bad(res, r.failed ? 'The phone\'s notification service refused it. Try turning notifications off and on again.' : 'Notifications aren\'t turned on for any of your phones yet.');
+    res.json({ ok: true, sent: r.sent });
   });
 
   // ---------- reports ----------
@@ -734,6 +773,10 @@ function createApp(db, opts = {}) {
   app.get('/admin', page('admin.html'));
   app.get('/request', page('request.html'));
   app.get('/t/:token', page('track.html'));
+  // The notification worker and app manifest must always be fresh, so they're never cached.
+  for (const [route, file, type] of [['/sw.js', 'sw.js', 'application/javascript'], ['/manifest.webmanifest', 'manifest.webmanifest', 'application/manifest+json']]) {
+    app.get(route, (req, res) => res.set('Cache-Control', 'no-cache').type(type).sendFile(path.join(pub, file)));
+  }
   // Scripts and styles: their links are version-stamped, so they can be cached.
   app.use(express.static(pub, {
     index: false, maxAge: '30d',

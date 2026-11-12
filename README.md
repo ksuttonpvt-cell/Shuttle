@@ -18,6 +18,13 @@ Every open ride gets a queue number. Ride in progress (on board or en route) com
 ### Logins
 Each person has their **own email + password** (8+ characters). Passwords are hashed with scrypt, and sign-in is rate-limited. Admins create accounts and reset passwords, and anyone can change their own password from the top bar.
 
+### Driver lock-screen notifications
+Drivers can get new rides on their phone's lock screen, even when the shuttle app is closed. There's nothing to sign up for: the server makes its own notification keys the first time it starts.
+- **Android (Chrome):** open the site, sign in, go to the **Phone notifications** card, tap **Turn on notifications**, then **Allow**. **Install the Shuttle app** adds an icon to the home screen.
+- **iPhone (iOS 16.4 or newer):** in Safari tap **Share → Add to Home Screen**, open **Shuttle** from the home screen and sign in there, then tap **Turn on notifications**. Apple only allows notifications for sites added to the Home Screen.
+- **What they get:** a new ride (sent to drivers who are on duty), a ride assigned to them, and their ride being cancelled by someone else. **Send a test** checks it's working.
+- The site must be on **https** (the Cloudflare address), and the server needs normal internet access to reach Google's and Apple's notification services.
+
 ### Customer texts (optional)
 The site can text customers automatically when their ride is booked, when the driver is on the way, and if the ride is cancelled. It uses **Twilio** (about 1¢ per text):
 1. Create an account at twilio.com and buy a phone number. US numbers also need the free "A2P 10DLC" business registration.
