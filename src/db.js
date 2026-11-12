@@ -80,6 +80,15 @@ function openDb(file) {
       value TEXT
     );
   `);
+
+  // Add columns introduced after the first release (safe to run every start).
+  const addColumn = (table, column, type) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+    if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  };
+  addColumn('rides', 'cancel_reason', 'TEXT');
+  addColumn('rides', 'cancelled_by', 'INTEGER REFERENCES users(id) ON DELETE SET NULL');
+  addColumn('rides', 'cancelled_at', 'TEXT');
   return db;
 }
 

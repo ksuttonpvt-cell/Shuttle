@@ -123,7 +123,6 @@
           <div>🕒 ${fmtTime(r.scheduled_at)} · ${relTime(r.scheduled_at)} · ${r.passengers} passenger${r.passengers > 1 ? 's' : ''}</div>
           <div>📍 ${dest}${r.distance_mi != null ? ` · ${r.distance_mi} mi` : ''}</div>
           ${r.notes ? `<div>📝 ${esc(r.notes)}</div>` : ''}
-          ${r.customer_vehicle || r.ro_number ? `<div>🔧 ${esc([r.customer_vehicle, r.ro_number].filter(Boolean).join(' · '))}</div>` : ''}
           ${r.driver_name && !mine ? `<div>🚐 ${esc(r.driver_name)}</div>` : ''}
           ${r.reasons ? `<div class="small">Why this order: ${esc(r.reasons.join(' · '))}</div>` : ''}
         </div>
@@ -134,6 +133,7 @@
           ${r.customer_phone ? `<a class="btn btn-ghost" href="${App.telLink(r.customer_phone)}">📞 Call</a>
             <a class="btn btn-ghost" href="sms:${r.customer_phone.replace(/[^\d+]/g, '')}">💬 Text</a>` : ''}
           ${mine && r.status === 'assigned' ? `<button class="btn-ghost" data-release>Give back</button>` : ''}
+          ${mine ? `<button class="btn-ghost" data-cancel>Cancel ride</button>` : ''}
         </div>
       </div>`;
   }
@@ -165,6 +165,7 @@
       if (btn.hasAttribute('data-claim')) await api(`/api/rides/${id}`, { method: 'PATCH', body: { driver_id: me.id } });
       else if (btn.hasAttribute('data-release')) await api(`/api/rides/${id}`, { method: 'PATCH', body: { driver_id: null } });
       else if (btn.dataset.status) await api(`/api/rides/${id}`, { method: 'PATCH', body: { status: btn.dataset.status } });
+      else if (btn.hasAttribute('data-cancel')) { if (!(await App.cancelRide(rides.find((x) => x.id === id)))) return; }
       else return;
       refresh();
     } catch (err) { alert(err.message); refresh(); }

@@ -25,10 +25,6 @@ const Rides = (() => {
         <div><label>Date &amp; time *</label><input name="scheduled_at" type="datetime-local" required value="${toLocalInput(when)}"></div>
         <div><label>Passengers</label><input name="passengers" type="number" min="1" max="15" value="${r.passengers || 1}"></div>
       </div>
-      <div class="row">
-        <div><label>RO / ticket #</label><input name="ro_number" value="${esc(r.ro_number)}"></div>
-        <div><label>Customer's vehicle</label><input name="customer_vehicle" placeholder="2021 RAV4, blue" value="${esc(r.customer_vehicle)}"></div>
-      </div>
       <label>Notes for the driver</label><textarea name="notes" placeholder="Gate code, which door, wheelchair, car seat…">${esc(r.notes)}</textarea>
       <label class="check"><input type="checkbox" name="priority" value="urgent" ${r.priority === 'urgent' ? 'checked' : ''}> Urgent — move to the front of the line</label>`;
   }
@@ -79,11 +75,11 @@ const Rides = (() => {
           <div>🕒 ${fmtTime(r.scheduled_at)} ${open ? '· ' + relTime(r.scheduled_at) : ''} · ${r.passengers} pax</div>
           <div>📍 ${esc(r.address)}${r.distance_mi != null ? ` · ${r.distance_mi} mi` : ''}${r.lat == null ? ' <span class="late">(no map pin)</span>' : ''}</div>
           ${r.customer_phone ? `<div>📞 <a href="${App.telLink(r.customer_phone)}">${esc(r.customer_phone)}</a></div>` : ''}
-          ${r.ro_number || r.customer_vehicle ? `<div>🔧 ${esc([r.ro_number, r.customer_vehicle].filter(Boolean).join(' · '))}</div>` : ''}
           ${r.notes ? `<div>📝 ${esc(r.notes)}</div>` : ''}
           <div>👤 Advisor: ${esc(r.advisor_name || (r.source === 'customer' ? 'Customer request' : '—'))}
             ${r.driver_name ? ` · 🚐 ${esc(r.driver_name)}${r.vehicle_name ? ' in ' + esc(r.vehicle_name) : ''}` : ''}</div>
         </div>
+        ${App.cancelNote(r)}
         ${open && mode === 'staff' ? `
         <div class="actions">
           <select data-assign style="width:auto;flex:1;min-width:150px"><option value="">— Assign driver —</option>${driverOpts}</select>
@@ -110,8 +106,7 @@ const Rides = (() => {
       if (btn.hasAttribute('data-share')) {
         App.share({ title: `Shuttle tracking for ${ride.customer_name}`, url: ride.track_url, phone: ride.customer_phone, email: ride.customer_email, message: App.rideMessage(ride) });
       } else if (btn.hasAttribute('data-cancel')) {
-        if (!confirm(`Cancel the ride for ${ride.customer_name}?`)) return;
-        await api(`/api/rides/${ride.id}`, { method: 'PATCH', body: { status: 'cancelled' } }); refresh();
+        if (await App.cancelRide(ride)) refresh();
       } else if (btn.hasAttribute('data-edit')) {
         edit(ride, refresh);
       }

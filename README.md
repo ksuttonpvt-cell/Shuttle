@@ -82,7 +82,10 @@ In Notepad, fill in your admin email, name and password, plus `PUBLIC_URL` (the 
 
 Then right-click the task and choose **Run**. Also go to **Settings → System → Power** and set sleep to **Never**.
 
-**Updating later:** in PowerShell, run `cd C:\Shuttle`, then `git pull`, then `npm install --omit=dev`. Then end and run the `Shuttle` task in Task Scheduler.
+**Updates install themselves.** While the site is running, it checks GitHub every 5 minutes. When changes have been merged into `main`, it downloads them and restarts itself in a couple of seconds. Open pages carry on by themselves, and nobody has to restart anything. If the site ever crashes, it restarts after 10 seconds. **Admin → Settings → Software updates** shows the running version and when it last checked, and has a **Check for updates now** button.
+- This works when the app is started with `start-shuttle.bat` or `npm start`.
+- If Settings shows an update problem mentioning sign-in or authentication, open PowerShell in the app folder and run `git pull` once. Git will ask you to sign in to GitHub and remember it.
+- To turn automatic updates off, add `AUTO_UPDATE=0` to `.env`. To change how often it checks, set `UPDATE_CHECK_MINUTES`.
 
 **Backups:** everything (rides, logins, vehicles) is stored in `C:\Shuttle\data`. Copy that folder somewhere safe regularly, such as a USB drive or OneDrive. The most reliable copy is one made while the task is stopped.
 

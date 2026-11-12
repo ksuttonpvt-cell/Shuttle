@@ -88,7 +88,28 @@ test('full shuttle flow', async () => {
   assert.equal(r.data.ride.vehicle.plate, 'ABC123');
   r = await driver(`/api/rides/${sue.id}`, { method: 'PATCH', body: { status: 'completed' } });
   assert.ok(r.data.ride.completed_at);
-  assert.equal((await driver(`/api/rides/${sue.id}`, { method: 'PATCH', body: { status: 'cancelled' } })).status, 403);
+  assert.equal((await driver(`/api/rides/${sue.id}`, { method: 'PATCH', body: { status: 'cancelled', cancel_reason: 'Customer no-show' } })).status, 400, 'completed rides cannot be cancelled');
+
+  // Cancelling: drivers can cancel their own rides, and everyone must give a reason.
+  const larry = (await advisor('/api/rides')).data.rides.find((x) => x.customer_name === 'Later Larry');
+  assert.equal((await driver(`/api/rides/${larry.id}`, { method: 'PATCH', body: { status: 'cancelled', cancel_reason: 'No-show' } })).status, 403, "can't cancel a ride that isn't yours");
+  await driver(`/api/rides/${larry.id}`, { method: 'PATCH', body: { driver_id: driverId } });
+  r = await driver(`/api/rides/${larry.id}`, { method: 'PATCH', body: { status: 'cancelled' } });
+  assert.equal(r.status, 400, 'reason is required');
+  assert.match(r.data.error, /reason/);
+  r = await driver(`/api/rides/${larry.id}`, { method: 'PATCH', body: { status: 'cancelled', cancel_reason: 'Customer no-show: waited 10 min' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.ride.status, 'cancelled');
+  assert.equal(r.data.ride.cancel_reason, 'Customer no-show: waited 10 min');
+  assert.equal(r.data.ride.cancelled_by_name, 'Dan Driver');
+  assert.ok(r.data.ride.cancelled_at);
+  r = await anon(`/api/public/track/${larry.track_url.split('/t/')[1]}`);
+  assert.equal(r.data.ride.status, 'cancelled');
+  assert.equal(r.data.ride.cancel_reason, undefined, 'customers do not see the internal reason');
+  r = await advisor('/api/rides', { body: { type: 'pickup', customer_name: 'Dup Dave', address: '9 Oak', scheduled_at: later } });
+  assert.equal((await advisor(`/api/rides/${r.data.ride.id}`, { method: 'PATCH', body: { status: 'cancelled' } })).status, 400);
+  r = await advisor(`/api/rides/${r.data.ride.id}`, { method: 'PATCH', body: { status: 'cancelled', cancel_reason: 'Duplicate ride' } });
+  assert.equal(r.data.ride.cancelled_by_name, 'Ava Advisor');
 
   // QR codes: only for this site.
   r = await advisor(`/api/qr?text=${encodeURIComponent(sue.track_url)}`);

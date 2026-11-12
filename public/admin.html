@@ -120,6 +120,11 @@
       <div id="setMsg"></div>
       <button style="margin-top:1rem">Save settings</button>
     </form>
+    <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
+    <h2>Software updates</h2>
+    <div id="verInfo" class="small muted">Loading…</div>
+    <div id="verMsg"></div>
+    <button type="button" class="btn-ghost" id="checkUpdates" style="margin-top:.6rem">Check for updates now</button>
   </section>
 </main>
 <script src="/vendor/leaflet/leaflet.js"></script>
@@ -178,10 +183,10 @@
     $('#history').innerHTML = hist.length ? `<table>
       <tr><th>When</th><th>Type</th><th>Customer</th><th>Address</th><th>Advisor</th><th>Driver / vehicle</th><th>Status</th><th></th></tr>
       ${hist.map((r) => `<tr data-id="${r.id}"><td>${fmtTime(r.scheduled_at)}</td><td>${typeBadge(r.type)}</td>
-        <td>${esc(r.customer_name)}<br><span class="small muted">${esc(r.customer_phone || '')} ${esc(r.ro_number || '')}</span></td>
+        <td>${esc(r.customer_name)}<br><span class="small muted">${esc(r.customer_phone || '')}</span></td>
         <td class="small">${esc(r.address)}</td><td>${esc(r.advisor_name || (r.source === 'customer' ? 'Customer' : '—'))}</td>
         <td>${esc(r.driver_name || '—')}<br><span class="small muted">${esc(r.vehicle_name || '')}</span></td>
-        <td>${statusBadge(r.status)}</td>
+        <td>${statusBadge(r.status)}${r.status === 'cancelled' && r.cancel_reason ? `<div class="small" style="color:#8a0010;margin-top:.25rem">${esc(r.cancel_reason)}${r.cancelled_by_name ? `<br><span class="muted">by ${esc(r.cancelled_by_name)}</span>` : ''}</div>` : ''}</td>
         <td><button class="btn-ghost btn-sm" data-share>Link</button> <button class="btn-ghost btn-sm" data-del>Delete</button></td></tr>`).join('')}
       </table>` : '<div class="empty">No rides yet.</div>';
   }
@@ -194,7 +199,7 @@
     if (e.target.closest('[data-del]') && confirm(`Permanently delete the ride for ${r.customer_name}?`)) { await api(`/api/rides/${r.id}`, { method: 'DELETE' }); loadHistory(); }
   });
   $('#exportCsv').onclick = () => {
-    const cols = ['id', 'scheduled_at', 'type', 'status', 'customer_name', 'customer_phone', 'customer_email', 'address', 'ro_number', 'customer_vehicle', 'advisor_name', 'driver_name', 'vehicle_name', 'passengers', 'priority', 'created_at', 'completed_at', 'notes'];
+    const cols = ['id', 'scheduled_at', 'type', 'status', 'customer_name', 'customer_phone', 'customer_email', 'address', 'advisor_name', 'driver_name', 'vehicle_name', 'passengers', 'priority', 'created_at', 'completed_at', 'cancelled_at', 'cancelled_by_name', 'cancel_reason', 'notes'];
     const csv = [cols.join(',')].concat(hist.map((r) => cols.map((c) => `"${String(r[c] ?? '').replace(/"/g, '""')}"`).join(','))).join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
@@ -315,7 +320,27 @@
     }
     setTimeout(() => setMap.invalidateSize(), 100);
   }
-  loaders.settings = loadSettings;
+  async function loadVersion() {
+    try {
+      const v = await api('/api/version');
+      const when = v.version_date ? new Date(v.version_date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+      $('#verInfo').innerHTML = `Running version <b>${esc(v.version || 'unknown')}</b>${when ? ` from ${when}` : ''}.<br>` +
+        (v.auto_update ? `✅ Updates install automatically.${v.last_check ? ` Last checked ${fmtTime(v.last_check)}.` : ''}` : `⚠️ Automatic updates are off. ${esc(v.reason || '')}`) +
+        (v.last_error ? `<div class="alert alert-err" style="margin-top:.5rem">Last update problem: ${esc(v.last_error)}</div>` : '');
+      $('#checkUpdates').classList.toggle('hidden', !v.auto_update);
+    } catch (err) { $('#verInfo').textContent = err.message; }
+  }
+  $('#checkUpdates').onclick = async (e) => {
+    e.target.disabled = true; e.target.textContent = 'Checking…'; App.flash($('#verMsg'), '');
+    try {
+      const r = await api('/api/updates/check', { body: {} });
+      App.flash($('#verMsg'), r.message, true);
+      if (r.result === 'updated') setTimeout(() => location.reload(), 6000);
+    } catch (err) { App.flash($('#verMsg'), err.message); }
+    e.target.disabled = false; e.target.textContent = 'Check for updates now';
+    loadVersion();
+  };
+  loaders.settings = () => { loadVersion(); return loadSettings(); };
   sf.onsubmit = async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(sf));
