@@ -26,6 +26,12 @@
       <button data-tab="open">Unassigned <span id="openCount"></span></button>
       <button data-tab="all">Everything open</button>
     </div>
+    <div class="chips" role="group" aria-label="Show ride type">
+      <span class="small muted">Show:</span>
+      <button data-type="all" class="active">All <span data-count="all"></span></button>
+      <button data-type="pickup">⬆ Pick ups <span data-count="pickup"></span></button>
+      <button data-type="dropoff">⬇ Drop offs <span data-count="dropoff"></span></button>
+    </div>
     <p class="small muted" style="margin-top:0">Numbers show the order to handle rides: on board / en route first, then overdue, urgent, and soonest — closest to you breaks ties.</p>
     <div id="list"></div>
   </section>
@@ -42,6 +48,10 @@
   const { $, $$, api, esc, fmtTime, relTime, statusBadge, typeBadge } = App;
   let me = await App.requireUser('driver');
   let vehicles = []; let rides = []; let tab = 'mine'; let watchId = null;
+  // Pick up / drop off filter, remembered on this phone.
+  let typeFilter = 'all';
+  try { typeFilter = localStorage.getItem('shuttle.typeFilter') || 'all'; } catch { /* storage blocked */ }
+  if (!['all', 'pickup', 'dropoff'].includes(typeFilter)) typeFilter = 'all';
 
   // ---------- shift / vehicle / location ----------
   async function drawShift() {
@@ -141,20 +151,27 @@
   async function refresh() {
     const r = await api('/api/rides?scope=open');
     rides = r.queue.map((id) => r.rides.find((x) => x.id === id));
-    const mine = rides.filter((x) => x.driver_id === me.id);
-    const open = rides.filter((x) => !x.driver_id);
+    // Counts on the filter buttons are for the tab being viewed.
+    const inTab = (x) => (tab === 'mine' ? x.driver_id === me.id : tab === 'open' ? !x.driver_id : true);
+    for (const t of ['all', 'pickup', 'dropoff']) {
+      $(`[data-count="${t}"]`).textContent = `(${rides.filter((x) => inTab(x) && (t === 'all' || x.type === t)).length})`;
+    }
+    const shown = typeFilter === 'all' ? rides : rides.filter((x) => x.type === typeFilter);
+    const mine = shown.filter((x) => x.driver_id === me.id);
+    const open = shown.filter((x) => !x.driver_id);
     $('#mineCount').textContent = `(${mine.length})`;
     $('#openCount').textContent = `(${open.length})`;
-    const list = tab === 'mine' ? mine : tab === 'open' ? open : rides;
+    const list = tab === 'mine' ? mine : tab === 'open' ? open : shown;
+    const what = { all: '', pickup: ' pick ups', dropoff: ' drop offs' }[typeFilter];
     $('#list').innerHTML = list.length ? list.map((x) => rideHtml(x)).join('')
-      : `<div class="empty">${tab === 'mine' ? 'Nothing assigned to you. Check “Unassigned” to take a ride.' : 'Nothing here right now.'}</div>`;
+      : `<div class="empty">${tab === 'mine' ? `No${what || 'thing'} assigned to you. Check “Unassigned” to take a ride.` : `No${what || 'thing'} here right now.`}</div>`;
 
     const next = mine[0] || open[0];
     $('#nextCard').classList.toggle('hidden', !next);
-    if (next) $('#nextCard').innerHTML = `<h2>👉 Do this next</h2>${rideHtml(next, true)}`;
+    if (next) $('#nextCard').innerHTML = `<h2>👉 Do this next${what ? ` <span class="small muted">(${what.trim()} only)</span>` : ''}</h2>${rideHtml(next, true)}`;
 
     const { drivers } = await api('/api/drivers');
-    draw(rides, drivers.filter((d) => d.id !== me.id));
+    draw(shown, drivers.filter((d) => d.id !== me.id));
   }
 
   document.body.addEventListener('click', async (e) => {
@@ -171,6 +188,13 @@
     } catch (err) { alert(err.message); refresh(); }
   });
 
+  const showType = () => $$('[data-type]').forEach((x) => x.classList.toggle('active', x.dataset.type === typeFilter));
+  showType();
+  $$('[data-type]').forEach((b) => b.onclick = () => {
+    typeFilter = b.dataset.type; showType();
+    try { localStorage.setItem('shuttle.typeFilter', typeFilter); } catch { /* storage blocked */ }
+    refresh();
+  });
   $$('[data-tab]').forEach((b) => b.onclick = () => {
     tab = b.dataset.tab; $$('[data-tab]').forEach((x) => x.classList.toggle('active', x === b)); refresh();
   });

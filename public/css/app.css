@@ -136,6 +136,10 @@ th { font-size: .78rem; text-transform: uppercase; color: var(--muted); letter-s
 .tabs { display: flex; gap: .3rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .tabs button { background: #fff; color: var(--ink); border: 1px solid var(--line); }
 .tabs button.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin: 0 0 .6rem; }
+.chips button { background: #fff; color: var(--ink); border: 1px solid var(--line); padding: .35rem .75rem; font-size: .9rem; border-radius: 99px; }
+.chips button:hover { background: #f0f1f3; }
+.chips button.active { background: var(--blue); color: #fff; border-color: var(--blue); }
 
 /* ---------- modal ---------- */
 .modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: grid; place-items: center; z-index: 2000; padding: 1rem; }
