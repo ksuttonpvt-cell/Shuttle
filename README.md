@@ -18,6 +18,14 @@ Every open ride gets a queue number. Ride in progress (on board or en route) com
 ### Logins
 Each person has their **own email + password** (8+ characters). Passwords are hashed with scrypt, and sign-in is rate-limited. Admins create accounts and reset passwords, and anyone can change their own password from the top bar.
 
+### Customer texts (optional)
+The site can text customers automatically when their ride is booked, when the driver is on the way, and if the ride is cancelled. It uses **Twilio** (about 1¢ per text):
+1. Create an account at twilio.com and buy a phone number. US numbers also need the free "A2P 10DLC" business registration.
+2. Add `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM` to `.env`, then restart the site.
+3. In **Admin → Settings → Customer texts**, choose which messages to send, and use **Send test** to check it works. Recent texts and any failures are listed there.
+
+Without these settings no texts are sent, and the advisor's **Text** button still opens their own phone's messaging app.
+
 ## Run it
 
 Requires **Node.js 22.13 or newer** (the database is Node's built-in SQLite, so nothing else to install).

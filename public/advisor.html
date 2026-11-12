@@ -25,7 +25,13 @@
           </div>
         </div>
         <p class="small muted" style="margin-top:-.4rem">Numbered in the order the shuttle should handle them — overdue, urgent and soonest first, then closest.</p>
+        <div id="typeChips"></div>
         <div id="rides"></div>
+      </div>
+      <div class="card hidden" id="readyCard">
+        <div class="card-head"><h2>Customers at the dealership</h2></div>
+        <p class="small muted" style="margin-top:-.4rem">Picked up by the shuttle today. When their car is done, tap <b>Customer ready</b> to book the ride back.</p>
+        <div id="ready"></div>
       </div>
       <div class="card hidden" id="cancelledCard">
         <div class="card-head"><h2>Cancelled today</h2></div>
@@ -71,20 +77,35 @@
   const map = App.makeMap($('#map'), { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng) });
   App.dealerMarker(map, App.settings);
   const draw = App.ridesLayer(map);
-  let rides = []; let drivers = []; let cancelledRides = [];
+  let rides = []; let drivers = []; let cancelledRides = []; let readyRides = [];
+  const chips = App.typeChips($('#typeChips'), 'shuttle.advisorType', () => refresh());
   async function refresh() {
     const mine = $('#mineOnly').checked ? '&mine=1' : '';
     const [r, d] = await Promise.all([api('/api/rides?scope=open' + mine), api('/api/drivers')]);
     rides = r.queue.map((id) => r.rides.find((x) => x.id === id));
     drivers = d.drivers;
-    $('#rides').innerHTML = rides.length ? rides.map((x) => Rides.card(x, { drivers })).join('') : '<div class="empty">No open rides. Add one on the left.</div>';
+    const shown = chips.apply(rides);
+    $('#rides').innerHTML = shown.length ? shown.map((x) => Rides.card(x, { drivers })).join('')
+      : `<div class="empty">${rides.length ? 'No rides of this type right now.' : 'No open rides. Add one on the left.'}</div>`;
     $('#drivers').innerHTML = drivers.length ? `<div class="table-wrap"><table><tr><th>Driver</th><th>Status</th><th>Vehicle</th><th>Open rides</th></tr>
       ${drivers.map((x) => `<tr><td>${esc(x.name)}${x.phone ? `<br><a class="small" href="${App.telLink(x.phone)}">${esc(x.phone)}</a>` : ''}</td>
       <td>${x.on_duty ? '<span class="badge s-completed">On duty</span>' : '<span class="badge s-requested">Off</span>'}</td>
       <td>${esc(x.vehicle_name || '—')}</td><td>${x.open_rides}</td></tr>`).join('')}</table></div>` : '<div class="empty">No drivers yet. An admin can add them.</div>';
-    draw(rides, drivers);
+    draw(shown, drivers);
     const today = await api('/api/rides?scope=today' + mine);
     const start = new Date(); start.setHours(0, 0, 0, 0);
+    // Pick ups finished today whose customer may need a ride back.
+    readyRides = today.rides.filter((x) => x.type === 'pickup' && x.status === 'completed' && !x.return_ride_id && !x.no_return
+      && new Date(x.completed_at) >= start).sort((a, b) => new Date(a.completed_at) - new Date(b.completed_at));
+    $('#readyCard').classList.toggle('hidden', !readyRides.length);
+    $('#ready').innerHTML = readyRides.map((x) => `
+      <div class="ride" data-id="${x.id}">
+        <div class="ride-top"><span class="ride-name">${esc(x.customer_name)}</span><span class="small muted">arrived ${App.fmtTime(x.completed_at)}</span></div>
+        <div class="ride-meta"><div>📍 ${esc(x.address)}</div>${x.customer_phone ? `<div>📞 <a href="${App.telLink(x.customer_phone)}">${esc(x.customer_phone)}</a></div>` : ''}
+          <div>👤 Advisor: ${esc(x.advisor_name || '—')}</div></div>
+        <div class="actions"><button class="btn-green" data-ready>Customer ready → book drop off</button>
+          <button class="btn-ghost btn-sm" data-noreturn title="They're driving their own car home">No ride back needed</button></div>
+      </div>`).join('');
     const cancelled = today.rides.filter((x) => x.status === 'cancelled' && new Date(x.cancelled_at || x.updated_at) >= start)
       .sort((a, b) => new Date(b.cancelled_at || b.updated_at) - new Date(a.cancelled_at || a.updated_at));
     $('#cancelledCard').classList.toggle('hidden', !cancelled.length);
@@ -93,6 +114,34 @@
   }
   Rides.bind($('#rides'), (id) => rides.find((r) => r.id === id), refresh);
   Rides.bind($('#cancelled'), (id) => cancelledRides.find((r) => r.id === id), refresh);
+
+  // Customer ready: open a drop-off form already filled in from their pick up.
+  $('#ready').addEventListener('click', async (e) => {
+    const host = e.target.closest('[data-id]'); if (!host) return;
+    const p = readyRides.find((x) => x.id === Number(host.dataset.id)); if (!p) return;
+    if (e.target.closest('[data-noreturn]')) {
+      await api(`/api/rides/${p.id}`, { method: 'PATCH', body: { no_return: true } }); return refresh();
+    }
+    if (!e.target.closest('[data-ready]')) return;
+    const prefill = { id: `ret${p.id}`, type: 'dropoff', customer_name: p.customer_name, customer_phone: p.customer_phone,
+      customer_email: p.customer_email, address: p.address, lat: p.lat, lng: p.lng, passengers: p.passengers,
+      scheduled_at: new Date(Date.now() + 5 * 60000).toISOString() };
+    const m = App.modal(`<h2>Book ${esc(p.customer_name)}'s ride back</h2>
+      <p class="small muted">Filled in from their pick up. Change the address if they're going somewhere else.</p>
+      <form>${Rides.formHtml(prefill)}<div class="msg"></div>
+      <div class="actions"><button class="btn-green">Book drop off</button><button type="button" class="btn-ghost" data-close>Cancel</button></div></form>`);
+    $('.modal', m).style.maxWidth = '560px';
+    const f = $('form', m);
+    Rides.wireForm(f);
+    f.onsubmit = async (ev) => {
+      ev.preventDefault();
+      try {
+        const { ride } = await api('/api/rides', { body: { ...Rides.formData(f), return_of: p.id } });
+        m.remove(); refresh();
+        App.share({ title: `Shuttle tracking for ${ride.customer_name}`, url: ride.track_url, phone: ride.customer_phone, email: ride.customer_email, message: App.rideMessage(ride) });
+      } catch (err) { App.flash($('.msg', m), err.message); }
+    };
+  });
   $('#mineOnly').onchange = refresh;
   $('#shareRequest').onclick = () => App.share({ title: 'Request a shuttle ride', url: App.baseUrl + '/request',
     message: `Need a ride from ${App.settings.dealer_name}? Request the shuttle here: ${App.baseUrl}/request` });

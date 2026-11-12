@@ -3,6 +3,7 @@ const express = require('express');
 const QRCode = require('qrcode');
 const { hashPassword, verifyPassword, validatePassword, randomToken, parseCookies } = require('./auth');
 const { rankRides } = require('./priority');
+const { toE164, createTwilioSender } = require('./sms');
 
 const SESSION_DAYS = 14;
 const RIDE_STATUSES = ['requested', 'assigned', 'en_route', 'onboard', 'completed', 'cancelled'];
@@ -15,7 +16,13 @@ const DEFAULT_SETTINGS = {
   dealer_lat: '40.0236',
   dealer_lng: '-105.2405',
   public_requests: '1',
+  timezone: 'America/Denver',
+  // Automatic customer texts (only sent once Twilio is set up in .env)
+  sms_booked: '1',
+  sms_en_route: '1',
+  sms_cancelled: '1',
 };
+const YES_NO_SETTINGS = ['public_requests', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
 
 function createApp(db, opts = {}) {
   const app = express();
@@ -53,7 +60,8 @@ function createApp(db, opts = {}) {
   const RIDE_SELECT = `
     SELECT r.*, a.name AS advisor_name, d.name AS driver_name, d.phone AS driver_phone,
            v.name AS vehicle_name, v.color AS vehicle_color, v.plate AS vehicle_plate, v.make_model AS vehicle_make_model,
-           c.name AS cancelled_by_name
+           c.name AS cancelled_by_name,
+           (SELECT x.id FROM rides x WHERE x.return_of = r.id AND x.status <> 'cancelled' LIMIT 1) AS return_ride_id
     FROM rides r
     LEFT JOIN users c ON c.id = r.cancelled_by
     LEFT JOIN users a ON a.id = r.advisor_id
@@ -62,6 +70,47 @@ function createApp(db, opts = {}) {
 
   function withLinks(req, ride) {
     return ride && { ...ride, track_url: `${baseUrl(req)}/t/${ride.track_token}` };
+  }
+
+  // ---------- times in the dealership's time zone ----------
+  function tz() {
+    const zone = getSettings().timezone || 'America/Denver';
+    try { new Intl.DateTimeFormat('en-US', { timeZone: zone }); return zone; } catch { return 'America/Denver'; }
+  }
+  const fmtWhen = (iso) => new Date(iso).toLocaleString('en-US', { timeZone: tz(), weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const localDate = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: tz() }).format(new Date(iso)); // YYYY-MM-DD
+
+  // ---------- automatic customer texts ----------
+  const sms = opts.sms || createTwilioSender();
+  function smsMessage(event, ride, trackUrl) {
+    const s = getSettings();
+    const first = (ride.customer_name || '').split(' ')[0] || 'there';
+    const dealer = s.dealer_name;
+    const call = s.dealer_phone ? ` Questions? Call ${s.dealer_phone}.` : '';
+    const what = ride.type === 'pickup' ? 'shuttle pick up' : 'shuttle ride from the dealership';
+    if (event === 'booked') return `Hi ${first}, your ${dealer} ${what} is booked for ${fmtWhen(ride.scheduled_at)}. Track your driver here: ${trackUrl}`;
+    if (event === 'en_route') {
+      const veh = [ride.vehicle_color, ride.vehicle_make_model].filter(Boolean).join(' ') || ride.vehicle_name;
+      const driver = ride.driver_name ? ride.driver_name.split(' ')[0] : 'Your driver';
+      return `${dealer}: ${driver} is on the way${veh ? ` in a ${veh}` : ''}${ride.vehicle_plate ? ` (plate ${ride.vehicle_plate})` : ''}. Track: ${trackUrl}`;
+    }
+    if (event === 'cancelled') return `${dealer}: your shuttle ride for ${fmtWhen(ride.scheduled_at)} has been cancelled.${call}`;
+    return null;
+  }
+  const smsLog = (rideId, event, to, body, status, error) =>
+    q('INSERT INTO sms_log (ride_id, event, to_number, body, status, error) VALUES (?, ?, ?, ?, ?, ?)').run(rideId, event, to, body, status, error || null);
+  // Sends in the background so a slow or failed text never holds up the page.
+  function notifyCustomer(rideId, event, trackBase) {
+    if (!sms.configured || getSettings()[`sms_${event}`] !== '1') return null;
+    const ride = q(`${RIDE_SELECT} WHERE r.id = ?`).get(rideId);
+    if (!ride) return null;
+    const body = smsMessage(event, ride, `${trackBase}/t/${ride.track_token}`);
+    const to = toE164(ride.customer_phone);
+    if (!to) { smsLog(ride.id, event, ride.customer_phone, body, 'skipped', 'No valid mobile number'); return null; }
+    return Promise.resolve()
+      .then(() => sms.send(to, body))
+      .then(() => smsLog(ride.id, event, to, body, 'sent'))
+      .catch((e) => { smsLog(ride.id, event, to, body, 'failed', e.message); console.error('Text failed:', e.message); });
   }
 
   // ---------- auth middleware ----------
@@ -304,8 +353,8 @@ function createApp(db, opts = {}) {
     'scheduled_at', 'priority', 'passengers', 'ro_number', 'customer_vehicle', 'notes'];
 
   function insertRide(r, extra) {
-    const cols = [...RIDE_FIELDS, 'status', 'source', 'advisor_id', 'track_token'];
-    const vals = [...RIDE_FIELDS.map((f) => r[f] ?? null), extra.status || 'requested', extra.source, extra.advisor_id ?? null, randomToken(12)];
+    const cols = [...RIDE_FIELDS, 'status', 'source', 'advisor_id', 'track_token', 'return_of'];
+    const vals = [...RIDE_FIELDS.map((f) => r[f] ?? null), extra.status || 'requested', extra.source, extra.advisor_id ?? null, randomToken(12), extra.return_of ?? null];
     const res = q(`INSERT INTO rides (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
     return q(`${RIDE_SELECT} WHERE r.id = ?`).get(res.lastInsertRowid);
   }
@@ -343,7 +392,17 @@ function createApp(db, opts = {}) {
   app.post('/api/rides', requireRole('advisor'), (req, res) => {
     const { r, error } = cleanRide(req.body);
     if (error) return bad(res, error);
-    const ride = insertRide(r, { source: 'advisor', advisor_id: req.user.id });
+    // "Customer ready": a drop off booked from a pick up remembers which one.
+    let returnOf = null;
+    if (req.body.return_of != null) {
+      const from = q('SELECT id, type FROM rides WHERE id = ?').get(num(req.body.return_of));
+      if (!from || from.type !== 'pickup') return bad(res, 'That pick up was not found.');
+      const existing = q("SELECT id FROM rides WHERE return_of = ? AND status <> 'cancelled'").get(from.id);
+      if (existing) return bad(res, 'A drop off is already booked for this customer.');
+      returnOf = from.id;
+    }
+    const ride = insertRide(r, { source: 'advisor', advisor_id: req.user.id, return_of: returnOf });
+    notifyCustomer(ride.id, 'booked', baseUrl(req));
     res.status(201).json({ ride: withLinks(req, ride) });
   });
 
@@ -382,6 +441,7 @@ function createApp(db, opts = {}) {
       }
     }
     if (b.vehicle_id !== undefined && role !== 'driver') updates.vehicle_id = num(b.vehicle_id);
+    if (b.no_return !== undefined && role !== 'driver') updates.no_return = b.no_return ? 1 : 0;
 
     // Status.
     if (b.status !== undefined) {
@@ -402,6 +462,9 @@ function createApp(db, opts = {}) {
       }
       updates.status = b.status;
       updates.completed_at = b.status === 'completed' ? now() : null;
+      // Timestamps for the reports (kept from the first time each step happened).
+      if (b.status === 'en_route' && !ride.en_route_at) updates.en_route_at = now();
+      if (b.status === 'onboard' && !ride.onboard_at) updates.onboard_at = now();
       if (['en_route', 'onboard', 'completed'].includes(b.status) && !ride.driver_id && !updates.driver_id && role === 'driver') {
         updates.driver_id = req.user.id;
       }
@@ -411,6 +474,9 @@ function createApp(db, opts = {}) {
     if (!keys.length) return bad(res, 'Nothing to update.');
     q(`UPDATE rides SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`)
       .run(...keys.map((k) => updates[k] ?? null), now(), ride.id);
+    if (updates.status && updates.status !== ride.status && ['en_route', 'cancelled'].includes(updates.status)) {
+      notifyCustomer(ride.id, updates.status, baseUrl(req));
+    }
     res.json({ ride: withLinks(req, q(`${RIDE_SELECT} WHERE r.id = ?`).get(ride.id)) });
   });
 
@@ -440,6 +506,7 @@ function createApp(db, opts = {}) {
     const { r, error } = cleanRide(body);
     if (error) return bad(res, error);
     const ride = insertRide(r, { source: 'customer' });
+    notifyCustomer(ride.id, 'booked', baseUrl(req));
     res.status(201).json({ track_url: `${baseUrl(req)}/t/${ride.track_token}`, token: ride.track_token });
   });
 
@@ -478,10 +545,86 @@ function createApp(db, opts = {}) {
       if (req.body[k] === undefined) continue;
       let v = String(req.body[k]).slice(0, 300);
       if ((k === 'dealer_lat' || k === 'dealer_lng') && Number.isNaN(Number(v))) return bad(res, 'Latitude/longitude must be numbers.');
-      if (k === 'public_requests') v = req.body[k] && req.body[k] !== '0' ? '1' : '0';
+      if (YES_NO_SETTINGS.includes(k)) v = req.body[k] && req.body[k] !== '0' ? '1' : '0';
+      if (k === 'timezone') { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); } catch { return bad(res, 'Unknown time zone.'); } }
       q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
     }
     res.json({ settings: getSettings() });
+  });
+
+  // ---------- reports ----------
+  app.get('/api/reports', requireRole('admin'), (req, res) => {
+    const isDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
+    const today = localDate(now());
+    const to = isDay(req.query.to) ? req.query.to : today;
+    const from = isDay(req.query.from) ? req.query.from : localDate(new Date(Date.now() - 6 * 86400000).toISOString());
+    if (from > to) return bad(res, 'The start date is after the end date.');
+    // Look a day either side in UTC, then keep rides whose local date is in range.
+    const lo = new Date(new Date(from + 'T00:00:00Z').getTime() - 86400000).toISOString();
+    const hi = new Date(new Date(to + 'T00:00:00Z').getTime() + 2 * 86400000).toISOString();
+    const rides = q(`${RIDE_SELECT} WHERE r.scheduled_at >= ? AND r.scheduled_at < ?`).all(lo, hi)
+      .map((r) => ({ ...r, day: localDate(r.scheduled_at) }))
+      .filter((r) => r.day >= from && r.day <= to);
+
+    const mins = (a, b) => (new Date(b) - new Date(a)) / 60000;
+    const isNoShow = (r) => r.status === 'cancelled' && /^customer no-show/i.test(r.cancel_reason || '');
+    const avg = (xs) => (xs.length ? Math.round((xs.reduce((s, x) => s + x, 0) / xs.length) * 10) / 10 : null);
+    function summarize(list) {
+      const done = list.filter((r) => r.status === 'completed');
+      const timed = done.filter((r) => r.onboard_at);
+      const waits = timed.map((r) => Math.max(0, mins(r.scheduled_at, r.onboard_at)));
+      return {
+        rides: list.length,
+        pickups: list.filter((r) => r.type === 'pickup').length,
+        dropoffs: list.filter((r) => r.type === 'dropoff').length,
+        completed: done.length,
+        cancelled: list.filter((r) => r.status === 'cancelled').length,
+        no_shows: list.filter(isNoShow).length,
+        open: list.filter((r) => OPEN_STATUSES.includes(r.status)).length,
+        avg_wait_min: avg(waits),
+        on_time_pct: timed.length ? Math.round((waits.filter((w) => w <= 10).length / timed.length) * 100) : null,
+        avg_ride_min: avg(timed.filter((r) => r.completed_at).map((r) => mins(r.onboard_at, r.completed_at))),
+      };
+    }
+    const days = [];
+    for (let d = new Date(from + 'T12:00:00Z'); localDate(d.toISOString()) <= to && days.length < 400; d = new Date(d.getTime() + 86400000)) {
+      const day = d.toISOString().slice(0, 10);
+      days.push({ day, ...summarize(rides.filter((r) => r.day === day)) });
+    }
+    const group = (keyFn) => {
+      const m = new Map();
+      for (const r of rides) { const k = keyFn(r); if (k) m.set(k, [...(m.get(k) || []), r]); }
+      return [...m.entries()].map(([name, list]) => ({ name, ...summarize(list) })).sort((a, b) => b.rides - a.rides);
+    };
+    const reasons = new Map();
+    for (const r of rides.filter((x) => x.status === 'cancelled')) {
+      const k = (r.cancel_reason || 'No reason given').split(':')[0].trim();
+      reasons.set(k, (reasons.get(k) || 0) + 1);
+    }
+    res.json({
+      from, to, timezone: tz(),
+      totals: summarize(rides),
+      days,
+      drivers: group((r) => r.driver_name),
+      advisors: group((r) => r.advisor_name || (r.source === 'customer' ? 'Customer (online request)' : null)),
+      cancel_reasons: [...reasons.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
+    });
+  });
+
+  // ---------- customer texting (admin) ----------
+  app.get('/api/sms', requireRole('admin'), (req, res) => {
+    res.json({
+      configured: sms.configured, from: sms.from || null,
+      log: q(`SELECT l.*, r.customer_name FROM sms_log l LEFT JOIN rides r ON r.id = l.ride_id ORDER BY l.id DESC LIMIT 25`).all(),
+    });
+  });
+  app.post('/api/sms/test', requireRole('admin'), async (req, res) => {
+    if (!sms.configured) return bad(res, 'Texting is not set up yet. Add your Twilio details to the .env file first.');
+    const to = toE164(req.body.to);
+    if (!to) return bad(res, 'Enter a valid mobile number.');
+    const body = `Test message from the ${getSettings().dealer_name} shuttle website. Customer texts are working.`;
+    try { await sms.send(to, body); smsLog(null, 'test', to, body, 'sent'); res.json({ ok: true }); }
+    catch (e) { smsLog(null, 'test', to, body, 'failed', e.message); bad(res, `Twilio said: ${e.message}`, 502); }
   });
 
   // ---------- version + updates ----------

@@ -251,18 +251,47 @@ const App = (() => {
     return `Hi ${ride.customer_name.split(' ')[0]}, your ${dealer} ${what} is scheduled for ${fmtTime(ride.scheduled_at)}. Track your driver here: ${ride.track_url}`;
   }
 
-  function poll(fn, ms) {
-    fn();
-    let id = setInterval(fn, ms);
+  // "Show: All / Pick ups / Drop offs" buttons. Remembers the choice on this device.
+  // apply(list) updates the counts and returns the rides to show.
+  function typeChips(el, storageKey, onChange) {
+    let value = 'all';
+    try { value = localStorage.getItem(storageKey) || 'all'; } catch { /* storage blocked */ }
+    if (!['all', 'pickup', 'dropoff'].includes(value)) value = 'all';
+    el.classList.add('chips'); el.setAttribute('role', 'group'); el.setAttribute('aria-label', 'Show ride type');
+    el.innerHTML = '<span class="small muted">Show:</span>' + [['all', 'All'], ['pickup', '⬆ Pick ups'], ['dropoff', '⬇ Drop offs']]
+      .map(([k, l]) => `<button type="button" data-type="${k}">${l} <span data-count="${k}"></span></button>`).join('');
+    const paint = () => $$('[data-type]', el).forEach((b) => b.classList.toggle('active', b.dataset.type === value));
+    paint();
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-type]'); if (!b) return;
+      value = b.dataset.type; paint();
+      try { localStorage.setItem(storageKey, value); } catch { /* storage blocked */ }
+      onChange(value);
+    });
+    return {
+      get value() { return value; },
+      apply(list) {
+        for (const t of ['all', 'pickup', 'dropoff']) $(`[data-count="${t}"]`, el).textContent = `(${list.filter((x) => t === 'all' || x.type === t).length})`;
+        return value === 'all' ? list : list.filter((x) => x.type === value);
+      },
+    };
+  }
+
+  // Runs fn now and every ms. Pauses while the page is hidden unless background is true.
+  function poll(fn, ms, { background = false } = {}) {
+    const run = () => Promise.resolve().then(fn).catch(() => { /* try again next time */ });
+    run();
+    let id = setInterval(run, ms);
     document.addEventListener('visibilitychange', () => {
+      if (background) { if (!document.hidden) run(); return; }
       clearInterval(id);
-      if (!document.hidden) { fn(); id = setInterval(fn, ms); }
+      if (!document.hidden) { run(); id = setInterval(run, ms); }
     });
   }
 
   return {
     esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
-    directionsUrl, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll,
+    directionsUrl, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, typeChips,
     STATUS_LABEL, TYPE_LABEL,
   };
 })();

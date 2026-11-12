@@ -63,9 +63,11 @@
         <div><h2 style="margin:0">On duty ✅</h2>
           <div class="muted small">Driving <b>${esc(veh?.name || '—')}</b>${veh ? ` · ${esc([veh.color, veh.make_model, veh.plate].filter(Boolean).join(' · '))} · ${veh.seats} seats` : ''}</div>
           <div class="small" id="gps">${watchId != null ? '📡 Sharing location' : '📡 Location off'}</div>
+          <div class="small">${alerts.on ? '🔔 New-ride alerts on' : '🔕 New-ride alerts off'}</div>
         </div>
         <div class="actions" style="margin:0">
           <button class="btn-ghost btn-sm" id="gpsBtn">${watchId != null ? 'Stop sharing location' : 'Share my location'}</button>
+          <button class="btn-ghost btn-sm" id="alertBtn">${alerts.on ? 'Turn alerts off' : 'Turn alerts on'}</button>
           <button class="btn-dark btn-sm" id="endShift">End shift</button>
         </div>
       </div>` : `
@@ -82,8 +84,10 @@
     if (me.on_duty) {
       $('#endShift').onclick = async () => { ({ user: me } = await api('/api/driver/shift', { body: { on_duty: false } })); stopGps(); drawShift(); };
       $('#gpsBtn').onclick = () => { watchId != null ? stopGps() : startGps(); drawShift(); };
+      $('#alertBtn').onclick = () => { alerts.set(!alerts.on); drawShift(); };
     } else {
       $('#startShift').onclick = async () => {
+        alerts.unlock(); // a tap lets the phone play the alert sound later
         try {
           ({ user: me } = await api('/api/driver/shift', { body: { on_duty: true, vehicle_id: Number($('#vehSel').value) } }));
           startGps(); drawShift(); refresh();
@@ -148,9 +152,65 @@
       </div>`;
   }
 
+  // ---------- new-ride alerts ----------
+  // Beep + vibrate + banner when a new ride comes in or one is assigned to you.
+  // When the app is in the background, a phone notification is shown instead (if allowed).
+  const alerts = (() => {
+    let on = true; let audio = null; let seen = null;
+    try { on = localStorage.getItem('shuttle.alerts') !== 'off'; } catch { /* storage blocked */ }
+    function unlock() {
+      try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch { /* no audio */ }
+      if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+    }
+    function beep() {
+      if (!audio) return;
+      const t = audio.currentTime;
+      [0, 0.25].forEach((d) => {
+        const o = audio.createOscillator(); const g = audio.createGain();
+        o.frequency.value = 880; o.connect(g); g.connect(audio.destination);
+        g.gain.setValueAtTime(0.0001, t + d); g.gain.exponentialRampToValueAtTime(0.4, t + d + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.2);
+        o.start(t + d); o.stop(t + d + 0.22);
+      });
+    }
+    function banner(text) {
+      let el = $('#rideAlert');
+      if (!el) { el = document.createElement('div'); el.id = 'rideAlert'; el.className = 'ride-alert'; document.body.appendChild(el); el.onclick = () => el.remove(); }
+      el.innerHTML = `🔔 ${esc(text)}<span class="small"> · tap to close</span>`;
+      clearTimeout(el._t); el._t = setTimeout(() => el.remove(), 20000);
+    }
+    return {
+      get on() { return on; },
+      set(v) { on = v; if (on) unlock(); try { localStorage.setItem('shuttle.alerts', on ? 'on' : 'off'); } catch { /* storage blocked */ } },
+      unlock,
+      // Compare this refresh's rides with the last one and alert on anything new for this driver.
+      check(list) {
+        const mineOrOpen = list.filter((r) => !r.driver_id || r.driver_id === me.id);
+        const key = (r) => `${r.id}:${r.driver_id === me.id ? 'me' : 'open'}`;
+        const now = new Set(mineOrOpen.map(key));
+        if (seen && on && me.on_duty) {
+          const fresh = mineOrOpen.filter((r) => !seen.has(key(r)));
+          if (fresh.length) {
+            const r = fresh[0];
+            const text = `${r.driver_id === me.id ? 'Ride assigned to you' : 'New ride'}: ${r.customer_name} — ${App.TYPE_LABEL[r.type]} ${fmtTime(r.scheduled_at)}${fresh.length > 1 ? ` (+${fresh.length - 1} more)` : ''}`;
+            beep();
+            if (navigator.vibrate) navigator.vibrate([250, 120, 250]);
+            banner(text);
+            if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+              try { new Notification('Shuttle', { body: text, tag: 'shuttle-ride' }); } catch { /* not allowed here */ }
+            }
+          }
+        }
+        seen = now;
+      },
+    };
+  })();
+  document.addEventListener('click', () => { if (alerts.on) alerts.unlock(); }, { once: true });
+
   async function refresh() {
     const r = await api('/api/rides?scope=open');
     rides = r.queue.map((id) => r.rides.find((x) => x.id === id));
+    alerts.check(rides);
     // Counts on the filter buttons are for the tab being viewed.
     const inTab = (x) => (tab === 'mine' ? x.driver_id === me.id : tab === 'open' ? !x.driver_id : true);
     for (const t of ['all', 'pickup', 'dropoff']) {
@@ -207,7 +267,8 @@
 
   await drawShift();
   if (me.on_duty) { startGps(); drawShift(); }
-  App.poll(refresh, 15000);
+  // Keep checking while the app is in the background so alerts still arrive (phones may slow this down).
+  App.poll(refresh, 15000, { background: true });
 })();
 </script>
 </body>
