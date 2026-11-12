@@ -1,7 +1,8 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="utf-8">
+<script>/* apply the saved light/dark choice before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Request a Shuttle</title>
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/css/app.css">
@@ -39,7 +40,8 @@
     <div data-results></div>
     <input type="hidden" name="lat"><input type="hidden" name="lng">
     <div class="map map-sm" id="map" style="margin-top:.5rem"></div>
-    <div class="small muted" id="pinmsg">Tip: tap the map to mark the exact spot.</div>
+    <div class="small muted" id="pinmsg">Pick your address from the list, or tap the map to mark the spot.</div>
+    <div class="small muted" id="areaNote"></div>
     <div class="row">
       <div><label id="whenLabel">When? *</label><input name="scheduled_at" type="datetime-local" required></div>
       <div><label>Passengers</label><input name="passengers" type="number" min="1" max="7" value="1"></div>
@@ -56,7 +58,7 @@
 (async () => {
   const { $, api } = App;
   const info = await api('/api/public/info');
-  App.settings = { dealer_name: info.dealer_name, dealer_address: info.dealer_address, dealer_lat: info.dealer_lat, dealer_lng: info.dealer_lng };
+  App.settings = { dealer_name: info.dealer_name, dealer_address: info.dealer_address, dealer_lat: info.dealer_lat, dealer_lng: info.dealer_lng, service_radius_mi: info.service_radius_mi };
   $('#dealer').textContent = `${info.dealer_name} · ${info.dealer_address}`;
   if (!info.public_requests) {
     $('#off').hidden = false;
@@ -89,7 +91,17 @@
   App.dealerMarker(map, App.settings);
   App.addressPicker({
     input: f.elements.address, results: $('[data-results]', f), map, geocodePath: '/api/public/geocode',
-    onPick: ({ lat, lng }) => { f.elements.lat.value = lat; f.elements.lng.value = lng; $('#pinmsg').textContent = '📍 Spot marked'; },
+    onPick: ({ lat, lng }) => {
+      f.elements.lat.value = lat; f.elements.lng.value = lng;
+      const note = App.distanceNote(lat, lng);
+      $('#pinmsg').textContent = note.text; $('#pinmsg').classList.toggle('late', !note.ok);
+    },
+  });
+  if (info.service_radius_mi > 0) $('#areaNote').textContent = `The shuttle serves addresses within ${info.service_radius_mi} miles of the dealership (the dashed circle).`;
+  // Typing a new address clears the old pin, so the distance is always checked for the right spot.
+  f.elements.address.addEventListener('input', () => {
+    f.elements.lat.value = ''; f.elements.lng.value = '';
+    $('#pinmsg').textContent = 'Pick your address from the list, or tap the map to mark the spot.'; $('#pinmsg').classList.remove('late');
   });
   // A link can skip the question: /request?type=pickup or /request?type=dropoff
   const preset = new URLSearchParams(location.search).get('type');
