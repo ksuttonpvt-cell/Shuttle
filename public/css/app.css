@@ -34,7 +34,7 @@ h1, h2, h3 { margin: 0 0 .5rem; line-height: 1.2; }
 h1 { font-size: 1.4rem; } h2 { font-size: 1.15rem; } h3 { font-size: 1rem; }
 .muted { color: var(--muted); }
 .small { font-size: .85rem; }
-.hidden { display: none !important; }
+.hidden, [hidden] { display: none !important; }
 
 /* ---------- top bar ---------- */
 .topbar {

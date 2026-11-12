@@ -58,16 +58,46 @@
   await App.requireUser('advisor');
 
   // New ride form
+  // Step 1 asks pick up or drop off; step 2 is the rest of the form.
   const form = $('#newRide');
-  form.innerHTML = Rides.formHtml() + `<div id="formMsg"></div>
-    <button class="btn-block btn-lg" style="margin-top:1rem">Add to shuttle queue</button>`;
+  form.innerHTML = `
+    <div data-ask>
+      <h3 class="ask-title" style="font-size:1.15rem;margin-top:0">Is this a pick up or a drop off?</h3>
+      <div class="choice-grid">
+        <button type="button" class="choice" data-choose="pickup"><span class="choice-icon">⬆</span><b>Pick up</b><span>Bring the customer to the dealership</span></button>
+        <button type="button" class="choice" data-choose="dropoff"><span class="choice-icon">⬇</span><b>Drop off</b><span>Take the customer from the dealership</span></button>
+      </div>
+    </div>
+    <div id="formMsg"></div>
+    <div data-fields hidden>
+      <div class="chosen" style="margin-bottom:.4rem"><span data-chosen></span><button type="button" class="btn-ghost btn-sm" data-change>Change</button></div>
+      ${Rides.formHtml()}
+      <button class="btn-block btn-lg" style="margin-top:1rem">Add to shuttle queue</button>
+    </div>`;
+  $('.seg', form).hidden = true; // the banner above shows the choice instead
   const wired = Rides.wireForm(form);
+  const CHOSEN = {
+    pickup: { banner: '⬆ <b>Pick up</b> — customer to the dealership', address: 'Where are we picking them up? *' },
+    dropoff: { banner: '⬇ <b>Drop off</b> — dealership to the customer', address: 'Where are we taking them? *' },
+  };
+  function chooseType(type) {
+    form.querySelector(`[name=type][value=${type}]`).checked = true;
+    $('[data-chosen]', form).innerHTML = CHOSEN[type].banner;
+    $('[data-addr-label]', form).textContent = CHOSEN[type].address;
+    $('[data-ask]', form).hidden = true; $('[data-fields]', form).hidden = false;
+    wired.map.invalidateSize();
+    form.elements.customer_name.focus();
+  }
+  function askType() { $('[data-fields]', form).hidden = true; $('[data-ask]', form).hidden = false; }
+  form.querySelectorAll('[data-choose]').forEach((b) => b.onclick = () => { App.flash($('#formMsg'), ''); chooseType(b.dataset.choose); });
+  $('[data-change]', form).onclick = askType;
   form.onsubmit = async (e) => {
     e.preventDefault();
     try {
       const { ride } = await api('/api/rides', { body: Rides.formData(form) });
       form.reset(); wired.reset();
       form.elements.scheduled_at.value = App.toLocalInput(new Date(Date.now() + 30 * 60000));
+      askType(); // ready for the next ride
       App.flash($('#formMsg'), `Added ${ride.customer_name}.`, true);
       refresh();
       App.share({ title: `Shuttle tracking for ${ride.customer_name}`, url: ride.track_url, phone: ride.customer_phone, email: ride.customer_email, message: App.rideMessage(ride) });
