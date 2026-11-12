@@ -10,10 +10,24 @@
 <div class="hero"><div style="font-size:2rem">🚐</div><h1>Request a shuttle ride</h1><div id="dealer" class="muted" style="color:#ccc"></div></div>
 <main class="wrap" style="max-width:560px">
   <div class="card" id="off" hidden><h2>Online requests are off</h2><p>Please call the service department<span id="offPhone"></span> and we'll get you scheduled.</p></div>
+  <section class="card" id="ask" hidden>
+    <h2 class="ask-title">Do you need a pick up or drop off?</h2>
+    <div class="choice-grid">
+      <button type="button" class="choice" data-choose="pickup">
+        <span class="choice-icon">⬆</span><b>Pick up</b>
+        <span>We'll pick you up and bring you to the dealership</span>
+      </button>
+      <button type="button" class="choice" data-choose="dropoff">
+        <span class="choice-icon">⬇</span><b>Drop off</b>
+        <span>We'll take you from the dealership to home or work</span>
+      </button>
+    </div>
+  </section>
   <form class="card" id="f" hidden>
-    <div class="seg">
-      <input type="radio" name="type" value="pickup" id="pu" checked><label for="pu">Pick me up<br><span class="small">bring me to the dealership</span></label>
-      <input type="radio" name="type" value="dropoff" id="do"><label for="do">Take me home / work<br><span class="small">from the dealership</span></label>
+    <input type="hidden" name="type">
+    <div class="chosen">
+      <span id="chosenText"></span>
+      <button type="button" class="btn-ghost btn-sm" id="change">Change</button>
     </div>
     <label>Your name *</label><input name="customer_name" required autocomplete="name">
     <div class="row">
@@ -27,7 +41,7 @@
     <div class="map map-sm" id="map" style="margin-top:.5rem"></div>
     <div class="small muted" id="pinmsg">Tip: tap the map to mark the exact spot.</div>
     <div class="row">
-      <div><label>When? *</label><input name="scheduled_at" type="datetime-local" required></div>
+      <div><label id="whenLabel">When? *</label><input name="scheduled_at" type="datetime-local" required></div>
       <div><label>Passengers</label><input name="passengers" type="number" min="1" max="7" value="1"></div>
     </div>
     <label>Anything the driver should know?</label><textarea name="notes" placeholder="Building entrance, gate code, car seat…"></textarea>
@@ -49,17 +63,37 @@
     if (info.dealer_phone) $('#offPhone').innerHTML = ` at <a href="${App.telLink(info.dealer_phone)}">${App.esc(info.dealer_phone)}</a>`;
     return;
   }
-  const f = $('#f'); f.hidden = false;
+  const f = $('#f');
   f.elements.scheduled_at.value = App.toLocalInput(new Date(Date.now() + 30 * 60000));
-  f.querySelectorAll('[name=type]').forEach((r) => r.onchange = () => {
-    $('#addrLabel').textContent = f.elements.type.value === 'pickup' ? 'Where should we pick you up? *' : 'Where are you going? *';
-  });
+
+  // Step 1: ask pick up or drop off. Step 2: the form, worded for that choice.
+  const WORDING = {
+    pickup: { chosen: '⬆ <b>Pick up</b> — we\'ll bring you to the dealership', address: 'Where should we pick you up? *', when: 'What time should we pick you up? *' },
+    dropoff: { chosen: '⬇ <b>Drop off</b> — we\'ll take you from the dealership', address: 'Where are we taking you? *', when: 'What time do you need to leave the dealership? *' },
+  };
+  function choose(type) {
+    f.elements.type.value = type;
+    $('#chosenText').innerHTML = WORDING[type].chosen;
+    $('#addrLabel').textContent = WORDING[type].address;
+    $('#whenLabel').textContent = WORDING[type].when;
+    $('#ask').hidden = true; f.hidden = false;
+    map.invalidateSize();
+    window.scrollTo(0, 0);
+    f.elements.customer_name.focus({ preventScroll: true });
+  }
+  function ask() { f.hidden = true; $('#ask').hidden = false; window.scrollTo(0, 0); }
+  document.querySelectorAll('[data-choose]').forEach((b) => b.onclick = () => choose(b.dataset.choose));
+  $('#change').onclick = ask;
+
   const map = App.makeMap($('#map'), { lat: info.dealer_lat, lng: info.dealer_lng }, 12);
   App.dealerMarker(map, App.settings);
   App.addressPicker({
     input: f.elements.address, results: $('[data-results]', f), map, geocodePath: '/api/public/geocode',
     onPick: ({ lat, lng }) => { f.elements.lat.value = lat; f.elements.lng.value = lng; $('#pinmsg').textContent = '📍 Spot marked'; },
   });
+  // A link can skip the question: /request?type=pickup or /request?type=dropoff
+  const preset = new URLSearchParams(location.search).get('type');
+  if (WORDING[preset]) choose(preset); else ask();
   f.onsubmit = async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(f));
