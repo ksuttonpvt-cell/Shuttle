@@ -3,6 +3,14 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Driver App</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#111111">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Shuttle">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/css/app.css">
 <style>
@@ -17,6 +25,8 @@
 <main class="wrap grid" style="max-width:900px">
 
   <section class="card" id="shift"></section>
+
+  <section class="card" id="pushCard"></section>
 
   <section class="card next hidden" id="nextCard"></section>
 
@@ -160,7 +170,6 @@
     try { on = localStorage.getItem('shuttle.alerts') !== 'off'; } catch { /* storage blocked */ }
     function unlock() {
       try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch { /* no audio */ }
-      if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
     }
     function beep() {
       if (!audio) return;
@@ -195,10 +204,7 @@
             const text = `${r.driver_id === me.id ? 'Ride assigned to you' : 'New ride'}: ${r.customer_name} — ${App.TYPE_LABEL[r.type]} ${fmtTime(r.scheduled_at)}${fresh.length > 1 ? ` (+${fresh.length - 1} more)` : ''}`;
             beep();
             if (navigator.vibrate) navigator.vibrate([250, 120, 250]);
-            banner(text);
-            if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-              try { new Notification('Shuttle', { body: text, tag: 'shuttle-ride' }); } catch { /* not allowed here */ }
-            }
+            banner(text); // When the app is closed or the phone is locked, push notifications cover it instead.
           }
         }
         seen = now;
@@ -206,6 +212,80 @@
     };
   })();
   document.addEventListener('click', () => { if (alerts.on) alerts.unlock(); }, { once: true });
+
+  // ---------- lock-screen notifications (push) ----------
+  // Works even when the app is closed or the phone is locked. On iPhone the site must be
+  // added to the Home Screen and opened from there first (an Apple rule).
+  const pushUI = (() => {
+    const card = $('#pushCard');
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const installed = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+    const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    let reg = null; let sub = null; let installPrompt = null; let msg = '';
+    window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; draw(); });
+    const toKey = (b64) => {
+      const s = atob((b64 + '='.repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+      return Uint8Array.from(s, (c) => c.charCodeAt(0));
+    };
+    function draw() {
+      const say = msg ? `<div class="small" style="margin-top:.5rem">${msg}</div>` : '';
+      const install = installPrompt && !installed ? '<button class="btn-ghost btn-sm" data-push="install">📲 Install the Shuttle app</button>' : '';
+      let body;
+      if (isIOS && !installed) {
+        body = `<p class="small" style="margin:.3rem 0">To get ride alerts on an iPhone's lock screen:</p>
+          <ol class="small" style="margin:.2rem 0 0;padding-left:1.2rem">
+            <li>Tap the <b>Share</b> button <span aria-hidden="true">(⬆ square with an arrow)</span> in Safari.</li>
+            <li>Choose <b>Add to Home Screen</b>, then <b>Add</b>.</li>
+            <li>Open <b>Shuttle</b> from your home screen and sign in.</li>
+            <li>Come back to this card and tap <b>Turn on notifications</b>.</li></ol>`;
+      } else if (!supported) {
+        body = '<p class="small" style="margin:.3rem 0">This browser can\'t show lock-screen notifications. Use <b>Chrome</b> on Android, or <b>Safari</b> on iPhone (added to the Home Screen).</p>';
+      } else if (Notification.permission === 'denied') {
+        body = `<p class="small" style="margin:.3rem 0">⚠️ Notifications are <b>blocked</b> for this site. Allow them in your phone's settings for ${installed ? 'the Shuttle app' : 'this browser'}, then reload this page.</p>`;
+      } else if (sub) {
+        body = `<p class="small" style="margin:.3rem 0">✅ <b>On for this phone.</b> New rides, rides assigned to you, and cancelled rides show on your lock screen, even when the app is closed. (They come while you're on duty.)</p>
+          <div class="actions"><button class="btn-ghost btn-sm" data-push="test">Send a test</button><button class="btn-ghost btn-sm" data-push="off">Turn off</button>${install}</div>`;
+      } else {
+        body = `<p class="small" style="margin:.3rem 0">Get new rides on your lock screen, even when the app is closed or the phone is locked.</p>
+          <div class="actions"><button class="btn-blue" data-push="on">🔔 Turn on notifications</button>${install}</div>`;
+      }
+      card.innerHTML = `<h2 style="margin:0">📲 Phone notifications</h2>${body}${say}`;
+    }
+    async function act(what) {
+      msg = '';
+      try {
+        if (what === 'install') { installPrompt.prompt(); await installPrompt.userChoice; installPrompt = null; }
+        if (what === 'on') {
+          if (await Notification.requestPermission() !== 'granted') { msg = 'Notifications were not allowed. Tap Turn on again and choose <b>Allow</b>.'; return; }
+          reg = reg || await navigator.serviceWorker.register('/sw.js');
+          await navigator.serviceWorker.ready;
+          const { key } = await api('/api/push');
+          try { sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: toKey(key) }); } catch (e) {
+            throw new Error(`This phone couldn't sign up for notifications. Check it's online and tap Turn on again. (${e.message})`);
+          }
+          await api('/api/push/subscribe', { body: { subscription: sub.toJSON() } });
+          msg = 'Done. Tap <b>Send a test</b> to see one.';
+        }
+        if (what === 'test') { await api('/api/push/test', { body: {} }); msg = 'Test sent. It should appear in a few seconds.'; }
+        if (what === 'off') {
+          await api('/api/push/unsubscribe', { body: { endpoint: sub.endpoint } }).catch(() => {});
+          await sub.unsubscribe().catch(() => {}); sub = null; msg = 'Notifications are off for this phone.';
+        }
+      } catch (err) { msg = `⚠️ ${esc(err.message)}`; } finally { draw(); }
+    }
+    card.addEventListener('click', (e) => { const b = e.target.closest('[data-push]'); if (b) act(b.dataset.push); });
+    (async () => {
+      if (supported) {
+        try {
+          reg = await navigator.serviceWorker.register('/sw.js');
+          sub = await reg.pushManager.getSubscription();
+          // Re-send it in case the server forgot this phone (harmless if it already knows it).
+          if (sub && Notification.permission === 'granted') await api('/api/push/subscribe', { body: { subscription: sub.toJSON() } }).catch(() => {});
+        } catch { /* leave it off */ }
+      }
+      draw();
+    })();
+  })();
 
   async function refresh() {
     const r = await api('/api/rides?scope=open');
