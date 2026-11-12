@@ -1,5 +1,6 @@
 @echo off
 REM Starts the shuttle website. Settings come from the .env file in this folder.
+REM Updates install themselves while it runs; see src\supervisor.js.
 cd /d "%~dp0"
 title Shuttle website
 
@@ -35,10 +36,10 @@ if not exist ".env" (
 
 echo.
 echo  Starting... Leave this window open. Open http://localhost:3000 in a browser.
+echo  Updates install themselves; the site restarts on its own when one arrives.
 echo.
-node --env-file-if-exists=.env src\server.js
-echo.
-echo  The shuttle website stopped. The message above says why.
+node src\supervisor.js
+exit /b
 
 :fail
 echo.

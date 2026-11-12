@@ -120,6 +120,11 @@
       <div id="setMsg"></div>
       <button style="margin-top:1rem">Save settings</button>
     </form>
+    <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
+    <h2>Software updates</h2>
+    <div id="verInfo" class="small muted">Loading…</div>
+    <div id="verMsg"></div>
+    <button type="button" class="btn-ghost" id="checkUpdates" style="margin-top:.6rem">Check for updates now</button>
   </section>
 </main>
 <script src="/vendor/leaflet/leaflet.js"></script>
@@ -315,7 +320,27 @@
     }
     setTimeout(() => setMap.invalidateSize(), 100);
   }
-  loaders.settings = loadSettings;
+  async function loadVersion() {
+    try {
+      const v = await api('/api/version');
+      const when = v.version_date ? new Date(v.version_date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+      $('#verInfo').innerHTML = `Running version <b>${esc(v.version || 'unknown')}</b>${when ? ` from ${when}` : ''}.<br>` +
+        (v.auto_update ? `✅ Updates install automatically.${v.last_check ? ` Last checked ${fmtTime(v.last_check)}.` : ''}` : `⚠️ Automatic updates are off. ${esc(v.reason || '')}`) +
+        (v.last_error ? `<div class="alert alert-err" style="margin-top:.5rem">Last update problem: ${esc(v.last_error)}</div>` : '');
+      $('#checkUpdates').classList.toggle('hidden', !v.auto_update);
+    } catch (err) { $('#verInfo').textContent = err.message; }
+  }
+  $('#checkUpdates').onclick = async (e) => {
+    e.target.disabled = true; e.target.textContent = 'Checking…'; App.flash($('#verMsg'), '');
+    try {
+      const r = await api('/api/updates/check', { body: {} });
+      App.flash($('#verMsg'), r.message, true);
+      if (r.result === 'updated') setTimeout(() => location.reload(), 6000);
+    } catch (err) { App.flash($('#verMsg'), err.message); }
+    e.target.disabled = false; e.target.textContent = 'Check for updates now';
+    loadVersion();
+  };
+  loaders.settings = () => { loadVersion(); return loadSettings(); };
   sf.onsubmit = async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(sf));

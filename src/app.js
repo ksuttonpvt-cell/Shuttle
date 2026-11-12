@@ -484,6 +484,21 @@ function createApp(db, opts = {}) {
     res.json({ settings: getSettings() });
   });
 
+  // ---------- version + updates ----------
+  app.get('/api/version', requireRole('admin'), (req, res) => {
+    const u = opts.updater?.state || {};
+    res.json({ version: u.version || null, version_date: u.versionDate || null, auto_update: !!u.enabled,
+      reason: u.reason || null, last_check: u.lastCheck || null, last_error: u.lastError || null });
+  });
+  app.post('/api/updates/check', requireRole('admin'), async (req, res) => {
+    if (!opts.updater) return bad(res, 'Updates are not available here.');
+    const result = await opts.updater.check();
+    const msg = { 'up-to-date': 'You already have the latest version.', updated: 'Update installed. The site is restarting — reload in a few seconds.',
+      busy: 'Already checking — try again in a moment.', skipped: opts.updater.state.reason || 'Automatic updates are off.',
+      error: opts.updater.state.lastError || 'The update check failed.' }[result];
+    res.status(result === 'error' ? 502 : 200).json({ result, message: msg });
+  });
+
   // ---------- QR codes + share links ----------
   app.get('/api/links', requireRole(), (req, res) => {
     const base = baseUrl(req);
