@@ -15,7 +15,7 @@ const Rides = (() => {
         <div><label>Mobile phone</label><input name="customer_phone" type="tel" value="${esc(r.customer_phone)}"></div>
       </div>
       <label>Email</label><input name="customer_email" type="email" value="${esc(r.customer_email)}">
-      <label>Address *</label>
+      <label data-addr-label>Address *</label>
       <input name="address" required autocomplete="off" placeholder="Start typing, or tap the map" value="${esc(r.address)}">
       <div data-results></div>
       <input type="hidden" name="lat" value="${r.lat ?? ''}"><input type="hidden" name="lng" value="${r.lng ?? ''}">
