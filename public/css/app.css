@@ -262,3 +262,11 @@ th { font-size: .78rem; text-transform: uppercase; color: var(--muted); letter-s
 @media print {
   :root { --ink: #1a1a1a !important; --muted: #5f6368 !important; --card: #fff !important; --line: #e2e4e8 !important; --bg: #fff !important; color-scheme: light !important; }
 }
+
+/* Shown while the server can't be reached */
+.net-banner {
+  position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 3000;
+  width: min(560px, calc(100% - 24px)); padding: .7rem 1rem; border-radius: 10px;
+  background: #3a2a12; color: #ffd38a; font-weight: 600; font-size: .92rem; text-align: center;
+  box-shadow: 0 6px 20px rgba(0,0,0,.3);
+}

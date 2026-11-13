@@ -35,7 +35,7 @@ function createPush(db, { sender, subject } = {}) {
     return `mailto:${admin?.email || 'shuttle@example.com'}`;
   }
   const send = sender || ((sub, payload) => webpush.sendNotification(sub, payload, {
-    vapidDetails: { subject: contact(), publicKey, privateKey }, TTL: 600, urgency: 'high',
+    vapidDetails: { subject: contact(), publicKey, privateKey }, TTL: 600, urgency: 'high', timeout: 10000,
   }));
 
   function subscribe(userId, sub, device) {
