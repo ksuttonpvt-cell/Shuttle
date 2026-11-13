@@ -122,6 +122,7 @@
         <button class="btn-dark">Show</button>
         <button type="button" class="btn-ghost" id="repCsv">Download CSV</button>
       </form>
+      <div id="repChips" style="margin-top:.75rem"></div>
       <p class="small muted" style="margin-bottom:0"><b>Wait</b> is how long after the scheduled time the customer got in the shuttle. <b>On time</b> means within 10 minutes. Wait and ride times only count rides from this update onward.</p>
     </div>
     <div class="stats" id="repStats"></div>
@@ -391,10 +392,12 @@
   const statTable = (rows, first, label) => rows.length ? `<table><tr><th>${label}</th>${statCols.map(([, l]) => `<th>${l}</th>`).join('')}</tr>
     ${rows.map((r) => `<tr><td><b>${esc(first(r))}</b></td>${statCols.map(([k, , u]) => `<td>${dash(r[k], u)}</td>`).join('')}</tr>`).join('')}</table>`
     : '<div class="empty">No rides in this range.</div>';
+  const repChips = App.typeChips($('#repChips'), 'shuttle.reportType', () => loadReport());
   async function loadReport() {
     if (!rf.elements.from.value) setRange(6);
-    try { report = await api(`/api/reports?from=${rf.elements.from.value}&to=${rf.elements.to.value}`); }
+    try { report = await api(`/api/reports?from=${rf.elements.from.value}&to=${rf.elements.to.value}&type=${repChips.value}`); }
     catch (err) { $('#repStats').innerHTML = `<div class="alert alert-err">${esc(err.message)}</div>`; return; }
+    for (const [k, n] of Object.entries(report.type_counts)) $(`#repChips [data-count="${k}"]`).textContent = `(${n})`;
     const t = report.totals;
     $('#repStats').innerHTML = [[t.rides, 'Rides'], [`${t.pickups} / ${t.dropoffs}`, 'Pick ups / drop offs'], [t.completed, 'Completed'],
       [t.cancelled, 'Cancelled'], [t.no_shows, 'No-shows'], [dash(t.avg_wait_min, ' min'), 'Average wait'], [dash(t.on_time_pct, '%'), 'On time']]
@@ -417,7 +420,8 @@
     const csv = [cols.join(',')].concat(report.days.map((d) => cols.map((c) => d[c] ?? '').join(','))).join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    a.download = `shuttle-report-${report.from}-to-${report.to}.csv`; a.click();
+    const kind = { all: '', pickup: '-pick-ups', dropoff: '-drop-offs' }[report.type] || '';
+    a.download = `shuttle-report${kind}-${report.from}-to-${report.to}.csv`; a.click();
   };
 
   // ---------- customer texts ----------
