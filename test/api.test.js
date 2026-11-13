@@ -5,11 +5,12 @@ const { openDb } = require('../src/db');
 const { createApp, ensureAdmin } = require('../src/app');
 const { rankRides } = require('../src/priority');
 
-let server; let base;
+let server; let base; let theApp;
 before(async () => {
   const db = openDb(':memory:');
   ensureAdmin(db, { email: 'admin@test.local', password: 'adminpass1', name: 'Admin' });
   const app = createApp(db, { geocoder: async () => [{ label: 'Somewhere', lat: 40, lng: -105 }] });
+  theApp = app;
   await new Promise((r) => { server = app.listen(0, r); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -215,4 +216,28 @@ test('15.5-mile service area (admins can bypass), and settings never leak privat
   assert.equal(me.settings.service_radius_mi, '15.5');
   const saved = (await admin('/api/settings', { method: 'PATCH', body: { dealer_phone: '303-555-0000' } })).data.settings;
   assert.equal(saved.vapid_private, undefined);
+});
+
+test('everyone is signed out automatically at midnight (dealership time)', async () => {
+  const admin = client();
+  await admin('/api/login', { body: { email: 'admin@test.local', password: 'adminpass1' } });
+  await admin('/api/settings', { method: 'PATCH', body: { auto_sign_out: '00:00' } });
+  const signOut = theApp.locals.autoSignOut;
+  // Denver is UTC-7 in November. First check at 10 PM: midnight already passed today, so it waits.
+  assert.equal(signOut(new Date('2026-11-14T05:00:00Z')), 0, 'installing never signs everyone out on the spot');
+  assert.equal((await admin('/api/rides')).status, 200);
+  assert.equal(signOut(new Date('2026-11-14T06:30:00Z')), 0, '11:30 PM: not yet');
+  assert.ok(signOut(new Date('2026-11-14T07:01:00Z')) >= 1, '12:01 AM: everyone signed out');
+  assert.equal((await admin('/api/rides')).status, 401, 'must sign in again');
+  await admin('/api/login', { body: { email: 'admin@test.local', password: 'adminpass1' } });
+  assert.equal(signOut(new Date('2026-11-14T15:00:00Z')), 0, 'only once a day');
+  assert.equal((await admin('/api/rides')).status, 200);
+  // Admin can change or turn it off.
+  assert.equal((await admin('/api/settings', { method: 'PATCH', body: { auto_sign_out: 'midnight' } })).status, 400);
+  await admin('/api/settings', { method: 'PATCH', body: { auto_sign_out: '' } });
+  assert.equal(signOut(new Date('2026-11-15T07:05:00Z')), 0, 'turned off');
+  assert.equal((await admin('/api/rides')).status, 200);
+  const s = (await admin('/api/settings', { method: 'PATCH', body: { auto_sign_out: '00:00' } })).data.settings;
+  assert.equal(s.auto_sign_out, '00:00');
+  assert.equal(s.auto_signout_last, undefined, 'internal bookkeeping is not sent to browsers');
 });
