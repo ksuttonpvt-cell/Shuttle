@@ -241,3 +241,24 @@ test('everyone is signed out automatically at midnight (dealership time)', async
   assert.equal(s.auto_sign_out, '00:00');
   assert.equal(s.auto_signout_last, undefined, 'internal bookkeeping is not sent to browsers');
 });
+
+test('a sign-out time set for later today still runs tonight', async () => {
+  const admin = client();
+  await admin('/api/login', { body: { email: 'admin@test.local', password: 'adminpass1' } });
+  const signOut = theApp.locals.autoSignOut;
+  const reset = theApp.locals.resetSignOutSchedule;
+  // 10:00 PM Denver: an admin changes the time to 11:00 PM.
+  await admin('/api/settings', { method: 'PATCH', body: { auto_sign_out: '23:00' } });
+  reset('23:00', new Date('2026-11-20T05:00:00Z'));
+  assert.equal(signOut(new Date('2026-11-20T05:30:00Z')), 0, '10:30 PM: not yet');
+  assert.equal((await admin('/api/rides')).status, 200);
+  assert.ok(signOut(new Date('2026-11-20T06:01:00Z')) >= 1, '11:01 PM the same night: everyone signed out');
+  assert.equal((await admin('/api/rides')).status, 401);
+  await admin('/api/login', { body: { email: 'admin@test.local', password: 'adminpass1' } });
+  assert.equal(signOut(new Date('2026-11-20T06:30:00Z')), 0, 'once per night');
+  // Changing the time to one that already passed today waits until tomorrow.
+  reset('21:00', new Date('2026-11-20T05:00:00Z'));
+  assert.equal(signOut(new Date('2026-11-20T05:05:00Z')), 0, 'already past today: wait for tomorrow');
+  assert.equal((await admin('/api/rides')).status, 200);
+  await admin('/api/settings', { method: 'PATCH', body: { auto_sign_out: '00:00' } });
+});

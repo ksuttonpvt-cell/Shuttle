@@ -604,7 +604,9 @@ function createApp(db, opts = {}) {
         if (v === '' || Number.isNaN(n) || n < 0 || n > 500) return bad(res, 'The service distance must be a number of miles (0 means no limit).');
         v = String(Math.round(n * 10) / 10);
       }
+      const changed = getSettings()[k] !== v;
       q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
+      if (k === 'auto_sign_out' && changed) resetSignOutSchedule(v);
     }
     res.json({ settings: shareableSettings() });
   });
@@ -656,6 +658,13 @@ function createApp(db, opts = {}) {
   // out on every device, and any driver still on shift is taken off. The first time the
   // server sees the setting after its time has already passed today, it waits for the next
   // day, so installing this never signs everyone out on the spot.
+  const markSignOutPending = () => q("INSERT INTO settings (key, value) VALUES ('auto_signout_last', 'pending') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
+  // Called when an admin saves a new sign-out time: a time later today still runs tonight.
+  function resetSignOutSchedule(cutoff, at = new Date()) {
+    q("DELETE FROM settings WHERE key = 'auto_signout_last'").run();
+    if (cutoff) autoSignOut(at); // records 'pending' or today, without signing anyone out
+  }
+  app.locals.resetSignOutSchedule = resetSignOutSchedule;
   function autoSignOut(at = new Date()) {
     const s = getSettings();
     const cutoff = (s.auto_sign_out || '').trim();
@@ -663,7 +672,9 @@ function createApp(db, opts = {}) {
     const nowHM = new Intl.DateTimeFormat('en-GB', { timeZone: tz(), hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at);
     const today = localDate(at.toISOString());
     const setLast = () => q("INSERT INTO settings (key, value) VALUES ('auto_signout_last', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(today);
-    if (!s.auto_signout_last) { if (nowHM >= cutoff) setLast(); return 0; }
+    // First time this setting is seen: if its time already passed today, start tomorrow;
+    // otherwise mark it 'pending' so it still runs later today.
+    if (!s.auto_signout_last) { if (nowHM >= cutoff) setLast(); else markSignOutPending(); return 0; }
     if (nowHM < cutoff || s.auto_signout_last === today) return 0;
     setLast();
     const signedOut = q('DELETE FROM sessions').run().changes;
