@@ -489,6 +489,9 @@ function createApp(db, opts = {}) {
     else start = { ...dealer, label: 'Dealership' };
 
     const skipped = rides.filter((r) => r.lat == null).map((r) => r.customer_name);
+    // keep_order: save the exact order the driver just previewed (and sent to Google Maps).
+    const keepOrder = !!req.body.keep_order;
+    if (keepOrder) rides.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
     const stops = rides.filter((r) => r.lat != null && !(r.type === 'pickup' && r.status === 'onboard')).map((r) => ({
       lat: r.lat, lng: r.lng, kind: r.type, ride_id: r.id, label: `${r.type === 'pickup' ? 'Pick up' : 'Drop off'} ${r.customer_name}`, address: r.address,
     }));
@@ -496,7 +499,7 @@ function createApp(db, opts = {}) {
     const atDealer = distanceKm(start, dealer) < 0.25;
     const needDealer = rides.some((r) => r.type === 'dropoff' && r.status !== 'onboard') && !atDealer;
     const via = needDealer ? { ...dealer, label: 'Dealership: pick up drop-off customers' } : null;
-    const plan = await planRoute({ start, via, stops, end: { ...dealer, label: 'Back to the dealership' }, router: opts.router, log: (m) => console.log(new Date().toLocaleString(), '[routes]', m) });
+    const plan = await planRoute({ start, via, stops, end: { ...dealer, label: 'Back to the dealership' }, router: opts.router, keepOrder, log: (m) => console.log(new Date().toLocaleString(), '[routes]', m) });
 
     let t = Date.now(); let miles = 0; let mins = 0;
     const out = plan.legs.map((leg, i) => {

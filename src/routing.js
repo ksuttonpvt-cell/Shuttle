@@ -85,9 +85,9 @@ function bestOrder(cost, fixed, free, end) {
 }
 
 // start: {lat,lng,label}; via: optional fixed stop right after start (e.g. the dealership);
-// stops: [{lat,lng,...}] in any order; end: {lat,lng,label} or null.
+// stops: [{lat,lng,...}] in any order (or in driving order with keepOrder); end: {lat,lng,label} or null.
 // Returns { legs: [{ point, meters, seconds }], path, source }.
-async function planRoute({ start, via = null, stops, end = null, router = null, log = () => {} }) {
+async function planRoute({ start, via = null, stops, end = null, router = null, keepOrder = false, log = () => {} }) {
   const points = [start, ...(via ? [via] : []), ...stops, ...(end ? [end] : [])];
   const fixed = via ? [0, 1] : [0];
   const first = fixed.length;
@@ -102,7 +102,7 @@ async function planRoute({ start, via = null, stops, end = null, router = null, 
     } catch (e) { log(`Road routing unavailable, using an estimate: ${e.message}`); m = null; }
   }
   if (!m) m = estimateMatrix(points);
-  const order = bestOrder(m.seconds, fixed, free, endIdx);
+  const order = keepOrder ? free : bestOrder(m.seconds, fixed, free, endIdx); // keepOrder: stops are already in the order to drive
   const seq = [...fixed, ...order, ...(endIdx == null ? [] : [endIdx])];
   const legs = seq.slice(1).map((idx, i) => ({ point: points[idx], meters: m.meters[seq[i]][idx], seconds: m.seconds[seq[i]][idx] }));
   let path = seq.map((i) => [points[i].lat, points[i].lng]);

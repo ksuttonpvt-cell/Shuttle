@@ -316,6 +316,14 @@
           .bindPopup(`<b>${i + 1}. ${esc(x.label)}</b><br>${esc(x.address || '')}<br>about ${fmtTime(x.eta)}`).addTo(pathLayer);
       });
     }
+    // "Leave now → Pat 8:38 → Kim 8:50 → Back at dealership 9:28"
+    const shortName = (x) => (x.kind === 'dealer' ? (x.label.startsWith('Back') ? 'Back at dealership' : 'Dealership') : x.label);
+    const timeline = (rt) => `<div class="timeline">
+        <div class="tl-row"><span class="tl-dot tl-start"></span><b>Leave now</b><span class="muted small">${fmtTime(rt.planned_at)}</span></div>
+        ${rt.stops.map((x, i) => `<div class="tl-leg small muted">🚐 ${x.leg_min} min · ${x.leg_mi} mi</div>
+          <div class="tl-row"><span class="tl-dot ${x.kind === 'dealer' ? 'tl-dealer' : ''}">${i + 1}</span><b>${esc(shortName(x))}</b><span><b>${fmtTime(x.eta)}</b></span></div>`).join('')}
+        <div class="route-total" style="margin-top:.5rem">Back at the dealership about ${fmtTime(rt.finish_at)} · ${rt.total_mi} mi total</div>
+        <div class="small muted">${rt.source === 'roads' ? 'Real road driving times' : 'Estimated times (road info unavailable)'}, plus 3 min at each stop.</div></div>`;
     const stopList = (rt, live) => `<ol class="route-list">${rt.stops.map((x, i) => `
       <li class="${live && i === 0 ? 'is-next' : ''}"><span class="stop-num ${x.kind === 'dealer' ? 'done' : ''}">${i + 1}</span>
         <div class="grow"><b>${esc(x.label)}</b><div class="small muted">${esc(x.address || '')}</div>
@@ -328,14 +336,17 @@
       const list = candidates();
       if (saved) {
         card.innerHTML = `<div class="card-head" style="margin:0"><h2 style="margin:0">🗺 Your route</h2><span class="small muted">planned ${fmtTime(saved.planned_at)}</span></div>
-          ${stopList(saved, true)}
-          <div class="actions"><a class="btn btn-blue" target="_blank" rel="noopener" href="${App.routeUrl(saved.stops)}">🧭 Navigate whole route</a>
+          ${timeline(saved)}
+          <a class="btn btn-blue btn-lg btn-block" target="_blank" rel="noopener" href="${App.routeUrl(saved.stops)}" style="margin-top:.8rem">🧭 Open route in Google Maps</a>
+          <details style="margin-top:.6rem"><summary class="small">Stops with directions one at a time</summary>${stopList(saved, true)}</details>
+          <div class="actions">
             <button class="btn-ghost" data-r="replan">🔄 Re-plan from here</button><button class="btn-ghost" data-r="edit">Change stops</button><button class="btn-ghost" data-r="clear">Clear route</button></div>${msg}`;
       } else if (preview) {
-        card.innerHTML = `<h2 style="margin:0">🗺 Best order</h2>${stopList(preview, false)}
-          <div class="actions"><button class="btn-green" data-r="save">✅ Use this route</button>
-            <a class="btn btn-ghost" target="_blank" rel="noopener" href="${App.routeUrl(preview.stops)}">🧭 Open in Google Maps</a>
-            <button class="btn-ghost" data-r="back">Back</button></div>${msg}`;
+        card.innerHTML = `<h2 style="margin:0">🗺 Your trip</h2>${timeline(preview)}
+          <a class="btn btn-green btn-lg btn-block" data-r="go" target="_blank" rel="noopener" href="${App.routeUrl(preview.stops)}" style="margin-top:.8rem">🧭 Start route in Google Maps</a>
+          <p class="small muted" style="margin:.4rem 0 0">Opens Google Maps with every stop in this order, for turn-by-turn directions to each customer and back to the dealership. This also saves the route here.</p>
+          <details style="margin-top:.6rem"><summary class="small">See each stop</summary>${stopList(preview, false)}</details>
+          <div class="actions"><button class="btn-ghost" data-r="save">Save without opening maps</button><button class="btn-ghost" data-r="back">Back</button></div>${msg}`;
       } else {
         if (list.length < 1) { card.classList.add('hidden'); return; }
         if (!picking) picking = new Set(list.filter((r) => r.driver_id === me.id).map((r) => r.id));
@@ -349,10 +360,10 @@
       }
       card.classList.remove('hidden');
     }
-    async function plan(ids, save) {
+    async function plan(ids, save, keepOrder = false) {
       msg = '<div class="small muted" style="margin-top:.5rem">Working out the quickest order…</div>'; paint();
       try {
-        const r = await api('/api/route', { body: { ride_ids: ids, from: here(), save } });
+        const r = await api('/api/route', { body: { ride_ids: ids, from: keepOrder && preview ? preview.start : here(), save, keep_order: keepOrder } });
         skipped = r.skipped || []; msg = '';
         if (save) { saved = r.route; preview = null; picking = null; } else preview = r.route;
         drawPath(saved || preview);
@@ -368,9 +379,21 @@
       const b = e.target.closest('[data-r]'); if (!b) return;
       msg = '';
       const act = b.dataset.r;
+      if (act === 'go') {
+        // The link opens Google Maps; save the same order here in the background.
+        const ids = preview.stops.filter((x) => x.ride_id).map((x) => x.ride_id);
+        alerts.tookMyself(ids);
+        fetch('/api/route', { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ride_ids: ids, from: preview.start, save: true, keep_order: true }) })
+          .then((r) => r.json()).then((d) => {
+            if (d.route) { saved = d.route; preview = null; picking = null; drawPath(saved); refresh(); }
+            else { msg = `<div class="alert alert-err">${esc(d.error || 'Could not save the route.')}</div>`; paint(); }
+          }).catch(() => {});
+        return; // don't redraw now, so the link can open
+      }
       if (act === 'plan') return plan([...picking], false);
       if (act === 'save') alerts.tookMyself(preview.stops.filter((x) => x.ride_id).map((x) => x.ride_id));
-      if (act === 'save') return plan(preview.stops.filter((x) => x.ride_id).map((x) => x.ride_id), true);
+      if (act === 'save') return plan(preview.stops.filter((x) => x.ride_id).map((x) => x.ride_id), true, true);
       if (act === 'replan') return plan(saved.stops.filter((x) => x.ride_id).map((x) => x.ride_id), true);
       if (act === 'back') { preview = null; drawPath(null); }
       if (act === 'edit') { picking = new Set(saved.stops.filter((x) => x.ride_id).map((x) => x.ride_id)); saved = null; await api('/api/route', { method: 'DELETE' }).catch(() => {}); drawPath(null); }

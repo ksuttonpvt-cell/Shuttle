@@ -141,6 +141,13 @@ test('drivers plan, save and share routes; maps get live positions', async () =>
   mine = (await dana('/api/route')).data.route;
   assert.ok(!mine.stops.some((x) => x.ride_id === west.id));
 
+  // keep_order saves exactly the order given (the one sent to Google Maps).
+  await dana('/api/rides', { method: 'GET' });
+  r = await dana('/api/route', { body: { ride_ids: [east.id, home.id], save: true, keep_order: true } });
+  assert.deepEqual(r.data.route.stops.filter((x) => x.ride_id).map((x) => x.ride_id), [east.id, home.id]);
+  r = await dana('/api/route', { body: { ride_ids: [home.id, east.id], save: true, keep_order: true } });
+  assert.deepEqual(r.data.route.stops.filter((x) => x.ride_id).map((x) => x.ride_id), [home.id, east.id]);
+
   // Clearing, and ending the shift, remove the route.
   await dana('/api/route', { method: 'DELETE' });
   assert.equal((await dana('/api/route')).data.route, null);
