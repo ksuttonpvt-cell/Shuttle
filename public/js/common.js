@@ -4,19 +4,48 @@ const App = (() => {
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
+  // Talks to the server. Gives up after 20 s, and turns network trouble into plain words.
+  // A banner appears while the server can't be reached and goes away when it's back.
+  const OFFLINE = "Can't reach the shuttle server. Check your internet connection and try again.";
   async function api(path, opts = {}) {
-    const res = await fetch(path, {
-      method: opts.method || (opts.body ? 'POST' : 'GET'),
-      headers: opts.body ? { 'Content-Type': 'application/json' } : {},
-      body: opts.body ? JSON.stringify(opts.body) : undefined,
-      credentials: 'same-origin',
-    });
+    let res;
+    try {
+      res = await fetch(path, {
+        method: opts.method || (opts.body ? 'POST' : 'GET'),
+        headers: opts.body ? { 'Content-Type': 'application/json' } : {},
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+        credentials: 'same-origin',
+        signal: AbortSignal.timeout ? AbortSignal.timeout(20000) : undefined,
+      });
+    } catch {
+      connection(false);
+      throw new Error(OFFLINE);
+    }
     let data = {};
-    try { data = await res.json(); } catch { /* not json */ }
+    try { data = await res.json(); } catch { /* not json (e.g. a Cloudflare error page) */ }
+    // 502/503/504/530 come from Cloudflare when the shuttle server itself is off or unreachable.
+    if ([502, 503, 504, 520, 521, 522, 523, 524, 530].includes(res.status)) { connection(false); throw new Error("The shuttle server isn't responding right now. It may be restarting. Try again in a minute."); }
+    connection(true);
     if (res.status === 401 && !opts.allow401) { location.href = '/login?next=' + encodeURIComponent(location.pathname); throw new Error('Please sign in.'); }
-    if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+    if (!res.ok) throw new Error(data.error || `Something went wrong (${res.status}). Please try again.`);
     return data;
   }
+  let offlineSince = null;
+  function connection(ok) {
+    if (ok) {
+      offlineSince = null;
+      const el = document.getElementById('netBanner'); if (el) el.remove();
+      return;
+    }
+    offlineSince = offlineSince || Date.now();
+    if (document.getElementById('netBanner') || !document.body) return;
+    const el = document.createElement('div');
+    el.id = 'netBanner'; el.className = 'net-banner'; el.setAttribute('role', 'status');
+    el.textContent = "⚠️ Can't reach the shuttle server — showing the last information. Retrying…";
+    document.body.appendChild(el);
+  }
+  window.addEventListener('online', () => { /* the next refresh clears the banner */ });
+  window.addEventListener('offline', () => connection(false));
 
   // Ensures the visitor is signed in with one of the given roles (admin always allowed).
   async function requireUser(...roles) {

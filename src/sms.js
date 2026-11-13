@@ -31,6 +31,7 @@ function createTwilioSender({
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({ To: to, From: from, Body: body }),
+        signal: AbortSignal.timeout(15000), // never let a slow Twilio hold things up
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.message || `Twilio error ${res.status}`);

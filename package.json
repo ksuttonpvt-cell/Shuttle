@@ -7,7 +7,8 @@
     "start": "node src/supervisor.js",
     "seed:demo": "node src/seed-demo.js",
     "test": "node --test test/*.test.js",
-    "serve": "node --env-file-if-exists=.env src/server.js"
+    "serve": "node --env-file-if-exists=.env src/server.js",
+    "load-test": "node scripts/load-test.js"
   },
   "repository": {
     "type": "git",

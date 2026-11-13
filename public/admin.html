@@ -498,7 +498,7 @@
   };
 
   show(location.hash.slice(1) in loaders ? location.hash.slice(1) : 'dash');
-  setInterval(() => { if (!$('[data-pane="dash"]').classList.contains('hidden') && !document.hidden) loadDash(); }, 15000);
+  setInterval(() => { if (!$('[data-pane="dash"]').classList.contains('hidden') && !document.hidden) loadDash().catch(() => {}); }, 15000);
 })();
 </script>
 </body>

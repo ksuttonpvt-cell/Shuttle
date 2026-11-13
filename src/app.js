@@ -1,7 +1,7 @@
 const path = require('node:path');
 const express = require('express');
 const QRCode = require('qrcode');
-const { hashPassword, verifyPassword, validatePassword, randomToken, parseCookies } = require('./auth');
+const { hashPassword, hashPasswordAsync, verifyPasswordAsync, validatePassword, randomToken, parseCookies } = require('./auth');
 const { rankRides, distanceKm } = require('./priority');
 const { toE164, createTwilioSender } = require('./sms');
 const { createPush } = require('./push');
@@ -30,8 +30,28 @@ const YES_NO_SETTINGS = ['public_requests', 'sms_booked', 'sms_en_route', 'sms_c
 
 function createApp(db, opts = {}) {
   const app = express();
-  app.set('trust proxy', true);
+  // Only trust forwarding headers from this same computer (the Cloudflare Tunnel program).
+  // Trusting everyone let visitors fake their address to get around the sign-in and
+  // request limits.
+  app.set('trust proxy', 'loopback');
+  // The visitor's real address: Cloudflare sends it in CF-Connecting-IP via the tunnel.
+  const clientIp = (req) => {
+    const peer = req.socket.remoteAddress || '';
+    const fromTunnel = peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
+    return (fromTunnel && req.get('cf-connecting-ip')) || req.ip || peer;
+  };
   app.use(express.json({ limit: '100kb' }));
+
+  // Express 4 doesn't catch errors from async handlers; an unhandled one stops the whole
+  // server. Wrap every async handler so its errors go to the normal error handler instead.
+  for (const method of ['get', 'post', 'patch', 'put', 'delete']) {
+    const original = app[method].bind(app);
+    app[method] = (path, ...handlers) => {
+      if (!handlers.length) return original(path); // app.get('setting') reads a setting
+      return original(path, ...handlers.map((h) => (typeof h === 'function' && h.constructor.name === 'AsyncFunction'
+        ? (req, res, next) => h(req, res, next).catch(next) : h)));
+    };
+  }
 
   // ---------- helpers ----------
   const q = (sql) => db.prepare(sql);
@@ -151,13 +171,14 @@ function createApp(db, opts = {}) {
     next();
   };
 
-  // Simple in-memory login throttle: 10 failures per 15 min per IP+email.
+  // Sign-in throttle: 10 wrong passwords per 15 min from one address for one email, and
+  // 30 per 15 min for one email from anywhere (stops guessing spread over many addresses).
   const failures = new Map();
-  function throttled(key) {
+  function throttled(key, limit = 10) {
     const f = failures.get(key);
     if (!f) return false;
     if (Date.now() - f.first > 15 * 60000) { failures.delete(key); return false; }
-    return f.count >= 10;
+    return f.count >= limit;
   }
   function recordFailure(key) {
     const f = failures.get(key) || { count: 0, first: Date.now() };
@@ -170,15 +191,17 @@ function createApp(db, opts = {}) {
   }
 
   // ---------- auth routes ----------
-  app.post('/api/login', (req, res) => {
+  app.post('/api/login', async (req, res) => {
     const email = str(req.body.email, 200);
-    const password = String(req.body.password || '');
+    const password = String(req.body.password || '').slice(0, 200);
     if (!email || !password) return bad(res, 'Enter your email and password.');
-    const key = `${req.ip}|${email.toLowerCase()}`;
-    if (throttled(key)) return bad(res, 'Too many attempts. Try again in 15 minutes.', 429);
+    const key = `${clientIp(req)}|${email.toLowerCase()}`;
+    const emailKey = `any|${email.toLowerCase()}`;
+    if (throttled(key) || throttled(emailKey, 30)) return bad(res, 'Too many attempts. Try again in 15 minutes.', 429);
     const user = q('SELECT * FROM users WHERE email = ?').get(email);
-    if (!user || !user.active || !verifyPassword(password, user.password_hash)) {
-      recordFailure(key);
+    const ok = await verifyPasswordAsync(password, user && user.password_hash); // same time whether or not the email exists
+    if (!user || !user.active || !ok) {
+      recordFailure(key); recordFailure(emailKey);
       return bad(res, 'Email or password is incorrect.', 401);
     }
     failures.delete(key);
@@ -202,12 +225,17 @@ function createApp(db, opts = {}) {
     res.json({ user: publicUser(req.user) || null, settings: shareableSettings(), base_url: baseUrl(req) });
   });
 
-  app.post('/api/me/password', requireRole(), (req, res) => {
+  app.post('/api/me/password', requireRole(), async (req, res) => {
     const { current, next: nextPw } = req.body;
-    if (!verifyPassword(String(current || ''), req.user.password_hash)) return bad(res, 'Current password is incorrect.');
+    const key = `pw|${req.user.id}`;
+    if (throttled(key)) return bad(res, 'Too many attempts. Try again in 15 minutes.', 429);
+    if (!(await verifyPasswordAsync(String(current || '').slice(0, 200), req.user.password_hash))) {
+      recordFailure(key);
+      return bad(res, 'Current password is incorrect.');
+    }
     const err = validatePassword(nextPw);
     if (err) return bad(res, err);
-    q('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(nextPw), req.user.id);
+    q('UPDATE users SET password_hash = ? WHERE id = ?').run(await hashPasswordAsync(nextPw), req.user.id);
     q('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(req.user.id, req.sessionToken);
     res.json({ ok: true });
   });
@@ -218,7 +246,7 @@ function createApp(db, opts = {}) {
     res.json({ users: rows.map(publicUser) });
   });
 
-  app.post('/api/users', requireRole('admin'), (req, res) => {
+  app.post('/api/users', requireRole('admin'), async (req, res) => {
     const name = str(req.body.name, 100);
     const email = str(req.body.email, 200);
     const role = req.body.role;
@@ -228,11 +256,11 @@ function createApp(db, opts = {}) {
     if (err) return bad(res, err);
     if (q('SELECT id FROM users WHERE email = ?').get(email)) return bad(res, 'That email already has an account.');
     const r = q('INSERT INTO users (name, email, phone, role, password_hash) VALUES (?, ?, ?, ?, ?)')
-      .run(name, email, str(req.body.phone, 40), role, hashPassword(req.body.password));
+      .run(name, email, str(req.body.phone, 40), role, await hashPasswordAsync(req.body.password));
     res.status(201).json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid)) });
   });
 
-  app.patch('/api/users/:id', requireRole('admin'), (req, res) => {
+  app.patch('/api/users/:id', requireRole('admin'), async (req, res) => {
     const user = q('SELECT * FROM users WHERE id = ?').get(Number(req.params.id));
     if (!user) return bad(res, 'User not found.', 404);
     const b = req.body;
@@ -259,7 +287,7 @@ function createApp(db, opts = {}) {
     if (b.password) {
       const err = validatePassword(b.password);
       if (err) return bad(res, err);
-      q('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(b.password), user.id);
+      q('UPDATE users SET password_hash = ? WHERE id = ?').run(await hashPasswordAsync(b.password), user.id);
       q('DELETE FROM sessions WHERE user_id = ?').run(user.id);
     }
     if (!user.active) q('DELETE FROM sessions WHERE user_id = ?').run(user.id);
@@ -541,7 +569,7 @@ function createApp(db, opts = {}) {
   const publicHits = new Map();
   app.post('/api/public/rides', (req, res) => {
     if (getSettings().public_requests !== '1') return bad(res, 'Online ride requests are turned off. Please call the dealership.', 403);
-    const key = req.ip; const t = Date.now();
+    const key = clientIp(req); const t = Date.now();
     const hits = (publicHits.get(key) || []).filter((x) => t - x < 3600000);
     if (hits.length >= 10) return bad(res, 'Too many requests. Please call the dealership.', 429);
     hits.push(t); publicHits.set(key, hits);
@@ -799,6 +827,7 @@ function createApp(db, opts = {}) {
     const text = String(req.query.text || '');
     // Only make QR codes for links to this site, so it can't be used as an open QR generator.
     if (!text.startsWith(baseUrl(req) + '/')) return bad(res, 'QR codes can only point to this site.');
+    if (text.length > 500) return bad(res, 'That link is too long for a QR code.');
     const png = await QRCode.toBuffer(text, { width: Math.min(num(req.query.size) || 320, 1024), margin: 2, errorCorrectionLevel: 'M' });
     res.type('png').set('Cache-Control', 'private, max-age=3600').send(png);
   });
@@ -817,36 +846,55 @@ function createApp(db, opts = {}) {
   });
 
   // ---------- geocoding (address search) ----------
-  const geoCache = new Map();
+  // Address search uses OpenStreetMap's free Nominatim service, which allows about one
+  // lookup a second and blocks sites that go over. Lookups are cached, shared when two
+  // people type the same thing, paced to one at a time, and time out after 8 seconds.
+  const geoCache = new Map(); const geoInFlight = new Map(); let geoNextSlot = 0;
+  const geoHits = new Map(); // customer page: lookups per address per hour
   app.get('/api/geocode', requireRole(), async (req, res) => geocode(req, res));
   app.get('/api/public/geocode', async (req, res) => {
     if (getSettings().public_requests !== '1') return bad(res, 'Disabled.', 403);
+    const ip = clientIp(req); const t = Date.now();
+    const hits = (geoHits.get(ip) || []).filter((x) => t - x < 3600000);
+    if (hits.length >= 60) return res.json({ results: [], error: 'Too many searches. Tap the map to drop a pin instead.' });
+    hits.push(t); geoHits.set(ip, hits);
     return geocode(req, res);
   });
+  async function lookupAddress(text) {
+    const wait = Math.max(0, geoNextSlot - Date.now());
+    if (wait > 5000) throw new Error('busy'); // too many people searching at once
+    geoNextSlot = Math.max(Date.now(), geoNextSlot) + 1100;
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    const o = dealerOrigin();
+    const url = new URL('https://nominatim.openstreetmap.org/search');
+    url.search = new URLSearchParams({
+      q: text, format: 'jsonv2', limit: '5', countrycodes: 'us',
+      viewbox: `${o.lng - 0.6},${o.lat + 0.4},${o.lng + 0.6},${o.lat - 0.4}`, bounded: '0',
+    });
+    const r = await fetch(url, { headers: { 'User-Agent': 'DealershipShuttleApp/1.0', 'Accept-Language': 'en' }, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error(`geocoder ${r.status}`);
+    const data = await r.json();
+    return data.map((d) => ({ label: d.display_name, lat: Number(d.lat), lng: Number(d.lon) }));
+  }
   async function geocode(req, res) {
     const text = str(req.query.q, 200);
     if (!text || text.length < 3) return res.json({ results: [] });
-    if (geoCache.has(text)) return res.json({ results: geoCache.get(text) });
-    if (opts.geocoder) {
-      const results = await opts.geocoder(text);
-      return res.json({ results });
-    }
+    const key = text.toLowerCase().replace(/\s+/g, ' ');
+    if (geoCache.has(key)) return res.json({ results: geoCache.get(key) });
     try {
-      const o = dealerOrigin();
-      const url = new URL('https://nominatim.openstreetmap.org/search');
-      url.search = new URLSearchParams({
-        q: text, format: 'jsonv2', limit: '5', countrycodes: 'us',
-        viewbox: `${o.lng - 0.6},${o.lat + 0.4},${o.lng + 0.6},${o.lat - 0.4}`, bounded: '0',
-      });
-      const r = await fetch(url, { headers: { 'User-Agent': 'DealershipShuttleApp/1.0', 'Accept-Language': 'en' } });
-      if (!r.ok) throw new Error(`geocoder ${r.status}`);
-      const data = await r.json();
-      const results = data.map((d) => ({ label: d.display_name, lat: Number(d.lat), lng: Number(d.lon) }));
-      geoCache.set(text, results);
+      let job = geoInFlight.get(key);
+      if (!job) {
+        job = (opts.geocoder ? Promise.resolve(opts.geocoder(text)) : lookupAddress(text)).finally(() => geoInFlight.delete(key));
+        geoInFlight.set(key, job);
+      }
+      const results = await job;
+      geoCache.set(key, results);
       if (geoCache.size > 500) geoCache.delete(geoCache.keys().next().value);
       res.json({ results });
     } catch (e) {
-      res.json({ results: [], error: 'Address search is unavailable right now. Tap the map to drop a pin instead.' });
+      const busy = e.message === 'busy';
+      res.json({ results: [], error: busy ? 'Lots of people are searching right now. Keep typing, or tap the map to drop a pin.'
+        : 'Address search is unavailable right now. Tap the map to drop a pin instead.' });
     }
   }
 
@@ -893,6 +941,15 @@ function createApp(db, opts = {}) {
     console.error(err);
     res.status(500).json({ error: 'Something went wrong.' });
   });
+
+  // Forget old sign-in failures and request counts so these lists can't grow forever.
+  if (!opts.noTimers) {
+    setInterval(() => {
+      const t = Date.now();
+      for (const [k, f] of failures) if (t - f.first > 15 * 60000) failures.delete(k);
+      for (const m of [publicHits, geoHits]) for (const [k, v] of m) if (!v.some((x) => t - x < 3600000)) m.delete(k);
+    }, 10 * 60000).unref();
+  }
 
   return app;
 }

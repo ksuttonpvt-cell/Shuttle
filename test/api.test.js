@@ -262,3 +262,37 @@ test('a sign-out time set for later today still runs tonight', async () => {
   assert.equal((await admin('/api/rides')).status, 200);
   await admin('/api/settings', { method: 'PATCH', body: { auto_sign_out: '00:00' } });
 });
+
+test('hardening: lockouts, crash guard, damaged cookies', async () => {
+  const post = (path, body, headers = {}) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  await post('/api/users', {}); // warm up
+  // Per-address lockout uses the real address Cloudflare reports, not a faked X-Forwarded-For.
+  let locked = 0;
+  for (let i = 0; i < 12; i++) {
+    const r = await post('/api/login', { email: 'nobody@test.local', password: 'guess' + i }, { 'CF-Connecting-IP': '198.51.100.7', 'X-Forwarded-For': `10.0.0.${i}, 198.51.100.7` });
+    if (r.status === 429) locked++;
+  }
+  assert.equal(locked, 2, 'locked after 10 wrong guesses from one real address');
+  // Account-wide lockout across many addresses.
+  let accountLocked = 0;
+  for (let i = 0; i < 32; i++) {
+    const r = await post('/api/login', { email: 'target@test.local', password: 'g' + i }, { 'CF-Connecting-IP': `203.0.113.${i}` });
+    if (r.status === 429) accountLocked++;
+  }
+  assert.equal(accountLocked, 2, 'locked after 30 wrong guesses for one account from anywhere');
+
+  // A bad request in an async handler is answered, not allowed to stop the server.
+  const admin = client();
+  await admin('/api/login', { body: { email: 'admin@test.local', password: 'adminpass1' } });
+  const longQr = await admin(`/api/qr?text=${encodeURIComponent(base + '/' + 'x'.repeat(5000))}`);
+  assert.equal(longQr.status, 400);
+  assert.equal((await fetch(base + '/healthz')).status, 200, 'still running');
+
+  // A damaged cookie doesn't break pages.
+  assert.equal((await fetch(base + '/api/me', { headers: { Cookie: 'sid=%E0%A4%A' } })).status, 200);
+
+  // Changing your password is limited too.
+  let pwLocked = 0;
+  for (let i = 0; i < 11; i++) if ((await admin('/api/me/password', { body: { current: 'wrong' + i, next: 'newpassword1' } })).status === 429) pwLocked++;
+  assert.equal(pwLocked, 1);
+});
