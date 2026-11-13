@@ -29,8 +29,17 @@
       <div id="msg"></div>
       <button class="btn-block btn-lg" style="margin-top:1rem">Sign in</button>
     </form>
+    <form id="forgot" class="hidden">
+      <h2 style="margin-top:0">Reset your password</h2>
+      <p class="small muted">Enter the email you sign in with. A shuttle admin will get an alert and send you a link to set a new password.</p>
+      <label for="femail">Email</label>
+      <input id="femail" name="email" type="email" autocomplete="username" required>
+      <div id="fmsg"></div>
+      <button class="btn-block btn-lg" style="margin-top:1rem">Ask for a reset link</button>
+      <p class="small" style="text-align:center;margin-top:.8rem"><button type="button" class="linklike" id="backToLogin">← Back to sign in</button></p>
+    </form>
     <p class="small muted" style="text-align:center;margin-top:1rem">
-      Forgot your password? Ask a shuttle admin to reset it.<br>
+      <button type="button" class="linklike" id="forgotLink">Forgot your password?</button><br>
       Customer? <a href="/request">Request a shuttle ride</a>
     </p>
   </div>
@@ -43,6 +52,22 @@
   const next = new URLSearchParams(location.search).get('next');
   const go = (u) => { location.href = next && next.startsWith('/') && !next.startsWith('//') ? next : '/' + u.role; };
   if (user) return go(user);
+  const showForgot = (on) => {
+    App.$('#f').classList.toggle('hidden', on); App.$('#forgot').classList.toggle('hidden', !on);
+    App.$('#forgotLink').parentElement.classList.toggle('hidden', on);
+    if (on) { App.$('#femail').value = App.$('#email').value; App.$('#femail').focus(); } else App.$('#email').focus();
+  };
+  App.$('#forgotLink').onclick = () => showForgot(true);
+  App.$('#backToLogin').onclick = () => showForgot(false);
+  App.$('#forgot').onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('.btn-lg'); btn.disabled = true;
+    try {
+      await App.api('/api/password-reset/request', { body: { email: App.$('#femail').value } });
+      App.flash(App.$('#fmsg'), "Got it. If that email has an account, a shuttle admin has been alerted and will send you a reset link. You can also ask them in person.", true);
+    } catch (err) { App.flash(App.$('#fmsg'), err.message); }
+    btn.disabled = false;
+  };
   App.$('#f').onsubmit = async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(e.target));

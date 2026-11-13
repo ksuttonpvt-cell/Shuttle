@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script>/* apply the saved light/dark choice before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shuttle Password Reset</title>
+<meta name="referrer" content="no-referrer">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#111111">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Shuttle">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="center-page">
+  <div class="card auth-card">
+    <div style="text-align:center;margin-bottom:1rem">
+      <div style="font-size:2.4rem">🔑</div>
+      <h1>Set a new password</h1>
+      <div class="muted" id="who">Checking your link…</div>
+    </div>
+    <form id="f" class="hidden">
+      <input type="email" name="username" id="username" autocomplete="username" hidden>
+      <label for="pw">New password (8+ characters)</label>
+      <input id="pw" type="password" autocomplete="new-password" minlength="8" required>
+      <label for="pw2">Type it again</label>
+      <input id="pw2" type="password" autocomplete="new-password" minlength="8" required>
+      <label class="small" style="display:flex;gap:.4rem;align-items:center;font-weight:normal"><input type="checkbox" id="showPw" style="width:auto;min-height:0"> Show password</label>
+      <div id="msg"></div>
+      <button class="btn-block btn-lg" style="margin-top:1rem">Save and sign in</button>
+    </form>
+    <div id="bad"></div>
+    <p class="small muted" style="text-align:center;margin-top:1rem"><a href="/login">Back to sign in</a></p>
+  </div>
+</div>
+<script src="/js/common.js"></script>
+<script>
+(async () => {
+  const token = location.pathname.split('/').pop();
+  const f = App.$('#f');
+  try {
+    const r = await App.api('/api/password-reset/' + encodeURIComponent(token));
+    App.$('#who').textContent = `${r.name} · ${r.email}`;
+    App.$('#username').value = r.email;
+    f.classList.remove('hidden'); App.$('#pw').focus();
+  } catch (err) {
+    App.$('#who').textContent = '';
+    App.flash(App.$('#bad'), err.message);
+    return;
+  }
+  App.$('#showPw').onchange = (e) => { for (const id of ['#pw', '#pw2']) App.$(id).type = e.target.checked ? 'text' : 'password'; };
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    if (App.$('#pw').value !== App.$('#pw2').value) return App.flash(App.$('#msg'), "The two passwords don't match.");
+    const btn = f.querySelector('.btn-lg'); btn.disabled = true;
+    try {
+      const { user } = await App.api('/api/password-reset/' + encodeURIComponent(token), { body: { password: App.$('#pw').value } });
+      App.flash(App.$('#msg'), 'Password saved. Signing you in…', true);
+      setTimeout(() => { location.href = '/' + user.role; }, 900);
+    } catch (err) { App.flash(App.$('#msg'), err.message); btn.disabled = false; }
+  };
+})();
+</script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 const path = require('node:path');
+const crypto = require('node:crypto');
 const express = require('express');
 const QRCode = require('qrcode');
 const { hashPassword, hashPasswordAsync, verifyPasswordAsync, validatePassword, randomToken, parseCookies } = require('./auth');
@@ -84,7 +85,7 @@ function createApp(db, opts = {}) {
   const publicUser = (u) => u && ({
     id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, active: !!u.active,
     on_duty: !!u.on_duty, vehicle_id: u.vehicle_id, last_lat: u.last_lat, last_lng: u.last_lng,
-    last_loc_at: u.last_loc_at, created_at: u.created_at,
+    last_loc_at: u.last_loc_at, created_at: u.created_at, reset_requested_at: u.reset_requested_at || null,
   });
   const str = (v, max = 500) => (v == null ? null : String(v).trim().slice(0, max) || null);
   const num = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Number(v));
@@ -235,9 +236,80 @@ function createApp(db, opts = {}) {
     }
     const err = validatePassword(nextPw);
     if (err) return bad(res, err);
-    q('UPDATE users SET password_hash = ? WHERE id = ?').run(await hashPasswordAsync(nextPw), req.user.id);
+    q('UPDATE users SET password_hash = ?, reset_requested_at = NULL WHERE id = ?').run(await hashPasswordAsync(nextPw), req.user.id);
+    q('DELETE FROM password_resets WHERE user_id = ?').run(req.user.id);
     q('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(req.user.id, req.sessionToken);
     res.json({ ok: true });
+  });
+
+  // ---------- forgot password ----------
+  // There's no email server, so "Forgot password?" alerts the admins, and an admin sends the
+  // person a one-time reset link (valid 24 hours) by text, QR code or however they like.
+  const RESET_HOURS = 24;
+  const hashToken = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+  function validReset(token) {
+    if (!token || String(token).length > 100) return null;
+    return q(`SELECT u.*, r.token_hash FROM password_resets r JOIN users u ON u.id = r.user_id
+              WHERE r.token_hash = ? AND r.expires_at > ? AND u.active = 1`).get(hashToken(token), now()) || null;
+  }
+
+  app.post('/api/password-reset/request', (req, res) => {
+    const email = str(req.body.email, 200);
+    if (!email) return bad(res, 'Enter your email.');
+    const ipKey = `reset|${clientIp(req)}`;
+    if (throttled(ipKey, 5)) return bad(res, 'Too many requests. Try again in 15 minutes.', 429);
+    recordFailure(ipKey);
+    const user = q('SELECT * FROM users WHERE email = ? AND active = 1').get(email);
+    // Only alert admins once an hour per person, so the button can't be used to spam them.
+    if (user && !(user.reset_requested_at && Date.now() - new Date(user.reset_requested_at) < 3600000)) {
+      q('UPDATE users SET reset_requested_at = ? WHERE id = ?').run(now(), user.id);
+      const admins = q("SELECT id FROM users WHERE role = 'admin' AND active = 1").all().map((a) => a.id);
+      quietly(push.notifyUsers(admins, { title: '🔑 Password reset requested', body: `${user.name} (${user.email}) forgot their password. Open Admin → Staff & logins to send a reset link.`, tag: `reset-${user.id}`, url: '/admin#users' }));
+    }
+    // Same answer whether or not the email has an account.
+    res.json({ ok: true });
+  });
+
+  app.post('/api/users/:id/reset-link', requireRole('admin'), (req, res) => {
+    const user = q('SELECT * FROM users WHERE id = ?').get(Number(req.params.id));
+    if (!user) return bad(res, 'User not found.', 404);
+    if (!user.active) return bad(res, 'Enable this account first.');
+    const token = randomToken(24);
+    const expires = new Date(Date.now() + RESET_HOURS * 3600000).toISOString();
+    q('DELETE FROM password_resets WHERE user_id = ? OR expires_at < ?').run(user.id, now()); // only the newest link works
+    q('INSERT INTO password_resets (token_hash, user_id, expires_at, created_by) VALUES (?, ?, ?, ?)').run(hashToken(token), user.id, expires, req.user.id);
+    q('UPDATE users SET reset_requested_at = NULL WHERE id = ?').run(user.id);
+    res.json({ url: `${baseUrl(req)}/reset/${token}`, expires_at: expires, user: publicUser(q('SELECT * FROM users WHERE id = ?').get(user.id)) });
+  });
+
+  app.post('/api/users/:id/dismiss-reset', requireRole('admin'), (req, res) => {
+    q('UPDATE users SET reset_requested_at = NULL WHERE id = ?').run(Number(req.params.id));
+    res.json({ ok: true });
+  });
+
+  app.get('/api/password-reset/:token', (req, res) => {
+    const user = validReset(req.params.token);
+    if (!user) return bad(res, 'This reset link has expired or was already used. Ask a shuttle admin for a new one.', 404);
+    res.json({ name: user.name, email: user.email });
+  });
+
+  app.post('/api/password-reset/:token', async (req, res) => {
+    const ipKey = `resetuse|${clientIp(req)}`;
+    if (throttled(ipKey, 20)) return bad(res, 'Too many attempts. Try again in 15 minutes.', 429);
+    const user = validReset(req.params.token);
+    if (!user) { recordFailure(ipKey); return bad(res, 'This reset link has expired or was already used. Ask a shuttle admin for a new one.', 404); }
+    const err = validatePassword(req.body.password);
+    if (err) return bad(res, err);
+    const hash = await hashPasswordAsync(String(req.body.password));
+    // Check again after the slow hash so two taps can't both use the link.
+    if (!q('SELECT 1 FROM password_resets WHERE token_hash = ?').get(user.token_hash)) return bad(res, 'This reset link was already used.', 404);
+    q('DELETE FROM password_resets WHERE user_id = ?').run(user.id);
+    q('UPDATE users SET password_hash = ?, reset_requested_at = NULL WHERE id = ?').run(hash, user.id);
+    q('DELETE FROM sessions WHERE user_id = ?').run(user.id); // sign out every old device
+    const token = randomToken(32);
+    q('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, user.id, new Date(Date.now() + SESSION_DAYS * 86400000).toISOString());
+    setSessionCookie(req, res, token, SESSION_DAYS * 86400);
+    res.json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(user.id)) });
   });
 
   // ---------- users (admin) ----------
@@ -287,8 +359,9 @@ function createApp(db, opts = {}) {
     if (b.password) {
       const err = validatePassword(b.password);
       if (err) return bad(res, err);
-      q('UPDATE users SET password_hash = ? WHERE id = ?').run(await hashPasswordAsync(b.password), user.id);
+      q('UPDATE users SET password_hash = ?, reset_requested_at = NULL WHERE id = ?').run(await hashPasswordAsync(b.password), user.id);
       q('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+      q('DELETE FROM password_resets WHERE user_id = ?').run(user.id);
     }
     if (!user.active) q('DELETE FROM sessions WHERE user_id = ?').run(user.id);
     res.json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(user.id)) });
@@ -924,6 +997,7 @@ function createApp(db, opts = {}) {
   app.get('/admin', page('admin.html'));
   app.get('/request', page('request.html'));
   app.get('/t/:token', page('track.html'));
+  app.get('/reset/:token', (req, res, next) => { res.set('Referrer-Policy', 'no-referrer'); next(); }, page('reset.html'));
   // The notification worker and app manifest must always be fresh, so they're never cached.
   for (const [route, file, type] of [['/sw.js', 'sw.js', 'application/javascript'], ['/manifest.webmanifest', 'manifest.webmanifest', 'application/manifest+json']]) {
     app.get(route, (req, res) => res.set('Cache-Control', 'no-cache').type(type).sendFile(path.join(pub, file)));
