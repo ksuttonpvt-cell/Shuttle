@@ -4,6 +4,7 @@
 //   ADMIN_EMAIL=admin@load.test ADMIN_PASSWORD=adminpass1 DB_FILE=data/load-test.db PORT=3100 AUTO_UPDATE=0 npm start
 //   npm run load-test -- http://localhost:3100 60 3
 // Arguments: <site address> <seconds> <how many times faster than real pages refresh>
+const B = process.argv[2] || 'http://localhost:3100';
 const SECONDS = Number(process.argv[3] || 120);
 const SPEED = Number(process.argv[4] || 1); // 3 = everyone refreshes 3x as often as real pages
 const stats = new Map(); let errors = []; let reqs = 0;
