@@ -341,6 +341,71 @@ const App = (() => {
     };
   }
 
+  // ---------- live driver map ----------
+  // Van icon with the driver's name and an arrow for the direction they're heading.
+  // Greyed out when the phone hasn't reported in for 2 minutes.
+  const ROUTE_COLORS = ['#1a73e8', '#9c27b0', '#00897b', '#f4511e', '#6d4c41', '#3949ab'];
+  function vanIcon(d, stale) {
+    const arrow = d.heading != null && (d.speed == null || d.speed > 0.8)
+      ? `<span class="van-arrow" style="transform:rotate(${Math.round(d.heading)}deg)">▲</span>` : '';
+    return L.divIcon({ className: '', iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -14],
+      html: `<div class="van ${stale ? 'van-stale' : ''}">${arrow}<span class="car">🚐</span><span class="van-name">${esc((d.name || '').split(' ')[0])}</span></div>` });
+  }
+  const ago = (iso) => {
+    const s = Math.max(0, Math.round((Date.now() - new Date(iso)) / 1000));
+    return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : fmtTime(iso);
+  };
+  // Glide a marker to its new spot instead of jumping.
+  function glide(marker, to, ms = 1200) {
+    const from = marker.getLatLng(); const t0 = performance.now();
+    if (marker._glide) cancelAnimationFrame(marker._glide);
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / ms);
+      marker.setLatLng([from.lat + (to[0] - from.lat) * k, from.lng + (to[1] - from.lng) * k]);
+      if (k < 1) marker._glide = requestAnimationFrame(step);
+    };
+    marker._glide = requestAnimationFrame(step);
+  }
+  // Keeps on-duty drivers (and their planned routes) up to date on a map, every few seconds.
+  function liveDrivers(map, { exclude = null, routes = true, every = 5000, onUpdate = null } = {}) {
+    const markers = new Map(); const lines = new Map(); let latest = [];
+    async function tick() {
+      const { drivers } = await api('/api/drivers/live');
+      latest = drivers;
+      const seen = new Set();
+      drivers.forEach((d, i) => {
+        if (d.id === exclude) return;
+        if (d.lat != null) {
+          seen.add(d.id);
+          const stale = !d.at || Date.now() - new Date(d.at) > 120000;
+          const popup = `<b>${esc(d.name)}</b>${d.vehicle_name ? `<br>${esc(d.vehicle_name)}` : ''}<br><span class="small">${stale ? '⚠️ ' : ''}location ${d.at ? ago(d.at) : 'unknown'}${d.speed != null && !stale ? ` · ${Math.round(d.speed * 2.237)} mph` : ''}</span>${d.route ? `<br><span class="small">${d.route.stops.filter((x) => x.ride_id).length} stop(s) planned · back about ${fmtTime(d.route.finish_at)}</span>` : ''}`;
+          let m = markers.get(d.id);
+          if (!m) { m = L.marker([d.lat, d.lng], { icon: vanIcon(d, stale), zIndexOffset: 600 }).bindPopup(popup).addTo(map); markers.set(d.id, m); }
+          else { m.setIcon(vanIcon(d, stale)); m.setPopupContent(popup); glide(m, [d.lat, d.lng]); }
+        }
+        const old = lines.get(d.id);
+        if (old) { old.remove(); lines.delete(d.id); }
+        if (routes && d.route && d.route.path && d.route.path.length > 1) {
+          const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
+          lines.set(d.id, L.polyline(d.route.path, { color, weight: 4, opacity: 0.55, dashArray: d.route.source === 'roads' ? null : '6 8' })
+            .bindPopup(`<b>${esc(d.name)}'s route</b><br>${d.route.stops.map((x, n) => `${n + 1}. ${esc(x.label)} · ${fmtTime(x.eta)}`).join('<br>')}`).addTo(map));
+        }
+      });
+      for (const [id, m] of markers) if (!seen.has(id)) { m.remove(); markers.delete(id); }
+      for (const [id, l] of lines) if (!drivers.some((d) => d.id === id && d.route)) { l.remove(); lines.delete(id); }
+      if (onUpdate) onUpdate(drivers);
+    }
+    poll(tick, every);
+    return { get drivers() { return latest; }, points: () => [...markers.values()].map((m) => m.getLatLng()) };
+  }
+
+  // Google Maps directions through several stops (it takes up to 10 points from a phone).
+  function routeUrl(stops) {
+    const pts = stops.slice(0, 10).map((x) => `${x.lat},${x.lng}`);
+    const dest = pts.pop();
+    return `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${encodeURIComponent(dest)}${pts.length ? `&waypoints=${encodeURIComponent(pts.join('|'))}` : ''}`;
+  }
+
   // Runs fn now and every ms. Pauses while the page is hidden unless background is true.
   function poll(fn, ms, { background = false } = {}) {
     const run = () => Promise.resolve().then(fn).catch(() => { /* try again next time */ });
@@ -355,7 +420,7 @@ const App = (() => {
 
   return {
     esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
-    directionsUrl, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, typeChips, milesFromDealer, distanceNote,
+    directionsUrl, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
 })();

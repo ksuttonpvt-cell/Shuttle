@@ -15,6 +15,13 @@ A shuttle dispatch website for **Corwin Toyota of Boulder**. Service advisors bo
 ### “What needs to be picked up first”
 Every open ride gets a queue number. Ride in progress (on board or en route) come first, then overdue, then urgent, then soonest. When two rides are due about the same time, the one closer to the driver (or the dealership) goes first. Each ride shows why it is in that spot, for example “Late by 5 min · Urgent · 1.2 mi away”. You can change the logic in `src/priority.js`.
 
+### Live map and driver routes
+
+- **Live vans:** while a driver is on shift with location sharing on, their phone reports in every 5 seconds (sooner when moving). The advisor and admin maps move each van smoothly, with the driver's name and an arrow for the direction they're heading. A van turns grey if its phone hasn't reported in for 2 minutes. Customers' tracking pages update every 6 seconds.
+- **Route planner (driver page):** check off several rides and tap **Find the best route**. The app works out the quickest order from where the driver is, using real road driving times. Drop-off customers are collected at the dealership first, and the route ends back at the dealership. It shows the drive time and arrival time for each stop, draws the route on the map, and **Navigate whole route** opens it in Google Maps with every stop.
+- **Use this route** saves the route. Any unassigned rides on it become the driver's, advisors and admins see the route as a colored line on their maps, and customers see an estimated arrival time. Finished stops drop off automatically, and **Re-plan from here** reorders what's left.
+- Road times come from the free public OSRM routing server. If it can't be reached, the planner uses a straight-line estimate instead (shown as a dashed line). Set `ROUTING=off` in `.env` to always use the estimate.
+
 ### Logins
 Each person has their **own email + password** (8+ characters). Passwords are hashed with scrypt, and sign-in is rate-limited. Admins create accounts and reset passwords, and anyone can change their own password from the top bar.
 

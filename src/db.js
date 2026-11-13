@@ -95,6 +95,9 @@ function openDb(file) {
   addColumn('rides', 'return_of', 'INTEGER');  // a drop off booked from this pick up ("Customer ready")
   addColumn('rides', 'no_return', 'INTEGER NOT NULL DEFAULT 0'); // pick up whose customer doesn't need a ride back
   addColumn('rides', 'cleared_at', 'TEXT');    // when the customer's details were wiped overnight
+  addColumn('users', 'last_heading', 'REAL');  // direction of travel, degrees (from the phone's GPS)
+  addColumn('users', 'last_speed', 'REAL');    // metres per second
+  addColumn('users', 'route_json', 'TEXT');    // the driver's planned route (stops in order + path)
   addColumn('users', 'reset_requested_at', 'TEXT'); // set when someone taps "Forgot password?"
   db.exec(`
     CREATE TABLE IF NOT EXISTS password_resets (

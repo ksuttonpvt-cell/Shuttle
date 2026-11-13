@@ -25,7 +25,7 @@
   <section data-pane="dash" class="grid">
     <div class="stats" id="stats"></div>
     <div class="grid cols-even">
-      <div class="card"><div class="card-head"><h2>Live map</h2><span class="small muted">🚐 drivers · numbered = queue order</span></div><div id="map" class="map map-tall"></div></div>
+      <div class="card"><div class="card-head"><h2>Live map</h2><span class="small muted">🚐 drivers (live) · colored lines = planned routes · numbered = queue order</span></div><div id="map" class="map map-tall"></div></div>
       <div class="card"><div class="card-head"><h2>Open rides — in pickup order</h2></div><div id="dashChips"></div><div id="openRides" style="max-height:560px;overflow:auto"></div></div>
     </div>
     <div class="card"><div class="card-head"><h2>Drivers</h2></div><div id="driverTable"></div></div>
@@ -218,6 +218,7 @@
   const map = App.makeMap($('#map'), { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng) });
   App.dealerMarker(map, App.settings);
   const draw = App.ridesLayer(map);
+  App.liveDrivers(map); // vans move every few seconds, with each driver's planned route
   let openRides = []; let drivers = [];
   async function loadDash() {
     const [r, d, today] = await Promise.all([api('/api/rides?scope=open'), api('/api/drivers'), api('/api/rides?scope=today')]);
@@ -240,7 +241,7 @@
       ${drivers.map((x) => `<tr><td>${esc(x.name)}</td><td>${x.on_duty ? '<span class="badge s-completed">On duty</span>' : '<span class="badge s-requested">Off</span>'}</td>
         <td>${esc(x.vehicle_name || '—')}</td><td>${x.open_rides}</td><td class="small">${x.last_loc_at ? fmtTime(x.last_loc_at) : '—'}</td></tr>`).join('')}
       </table></div>` : '<div class="empty">No drivers yet — add them under “Staff &amp; logins”.</div>';
-    draw(shownOpen, drivers);
+    draw(shownOpen, []); // drivers are drawn live below
   }
   const dashChips = App.typeChips($('#dashChips'), 'shuttle.adminType', () => loadDash());
   loaders.dash = () => { setTimeout(() => map.invalidateSize(), 50); return loadDash(); };
