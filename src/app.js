@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS = {
   timezone: 'America/Denver',
   service_radius_mi: '15.5',
   auto_end_shift: '20:00', // every driver is taken off shift at this local time each day ('' = off)
+  auto_sign_out: '00:00',  // everyone is signed out at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
   sms_booked: '1',
   sms_en_route: '1',
@@ -594,9 +595,9 @@ function createApp(db, opts = {}) {
       if ((k === 'dealer_lat' || k === 'dealer_lng') && Number.isNaN(Number(v))) return bad(res, 'Latitude/longitude must be numbers.');
       if (YES_NO_SETTINGS.includes(k)) v = req.body[k] && req.body[k] !== '0' ? '1' : '0';
       if (k === 'timezone') { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); } catch { return bad(res, 'Unknown time zone.'); } }
-      if (k === 'auto_end_shift') {
+      if (k === 'auto_end_shift' || k === 'auto_sign_out') {
         v = v.trim();
-        if (v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) return bad(res, 'Pick a time for ending shifts, like 8:00 PM, or leave it empty to turn it off.');
+        if (v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) return bad(res, 'Pick a time, like 8:00 PM, or leave it empty to turn it off.');
       }
       if (k === 'service_radius_mi') {
         const n = Number(v);
@@ -649,7 +650,34 @@ function createApp(db, opts = {}) {
     return drivers.length;
   }
   app.locals.autoEndShifts = autoEndShifts;
-  if (!opts.noTimers) setInterval(() => { try { autoEndShifts(); } catch (e) { console.error('Auto end of shift failed:', e.message); } }, 60000).unref();
+
+  // ---------- automatic sign-out ----------
+  // Once a day at the set time (default midnight, dealership time zone) everyone is signed
+  // out on every device, and any driver still on shift is taken off. The first time the
+  // server sees the setting after its time has already passed today, it waits for the next
+  // day, so installing this never signs everyone out on the spot.
+  function autoSignOut(at = new Date()) {
+    const s = getSettings();
+    const cutoff = (s.auto_sign_out || '').trim();
+    if (!/^\d{2}:\d{2}$/.test(cutoff)) return 0;
+    const nowHM = new Intl.DateTimeFormat('en-GB', { timeZone: tz(), hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at);
+    const today = localDate(at.toISOString());
+    const setLast = () => q("INSERT INTO settings (key, value) VALUES ('auto_signout_last', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(today);
+    if (!s.auto_signout_last) { if (nowHM >= cutoff) setLast(); return 0; }
+    if (nowHM < cutoff || s.auto_signout_last === today) return 0;
+    setLast();
+    const signedOut = q('DELETE FROM sessions').run().changes;
+    q("UPDATE users SET on_duty = 0, vehicle_id = NULL WHERE role = 'driver' AND on_duty = 1").run();
+    console.log(new Date().toLocaleString(), `[sign-out] Signed everyone out automatically (${signedOut} session(s)).`);
+    return signedOut;
+  }
+  app.locals.autoSignOut = autoSignOut;
+  if (!opts.noTimers) {
+    setInterval(() => {
+      try { autoEndShifts(); } catch (e) { console.error('Auto end of shift failed:', e.message); }
+      try { autoSignOut(); } catch (e) { console.error('Auto sign-out failed:', e.message); }
+    }, 60000).unref();
+  }
 
   // ---------- reports ----------
   app.get('/api/reports', requireRole('admin'), (req, res) => {

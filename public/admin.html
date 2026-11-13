@@ -152,6 +152,9 @@
       <label>End all driver shifts automatically at</label>
       <input name="auto_end_shift" type="time" style="max-width:200px">
       <p class="small muted" style="margin:.25rem 0 0">Every evening at this time, drivers still on duty are taken off shift (they stop getting new-ride alerts and their vehicle is freed). Rides they're finishing stay with them. Clear the time to turn this off.</p>
+      <label>Sign everyone out automatically at</label>
+      <input name="auto_sign_out" type="time" style="max-width:200px">
+      <p class="small muted" style="margin:.25rem 0 0">Every night at this time, all staff (admins, advisors and drivers) are signed out on every device and must sign in again. Clear the time to turn this off.</p>
       <label>Time zone (used in texts and reports)</label>
       <select name="timezone">
         <option value="America/Denver">Mountain (Denver)</option>
@@ -449,7 +452,7 @@
   const sf = $('#setForm'); let setMap = null; let setPin = null;
   async function loadSettings() {
     const { settings } = await api('/api/me');
-    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi', 'auto_end_shift']) sf.elements[k].value = settings[k] || '';
+    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi', 'auto_end_shift', 'auto_sign_out']) sf.elements[k].value = settings[k] || '';
     if (sf.elements.service_radius_mi.value === '') sf.elements.service_radius_mi.value = '0';
     if (!sf.elements.timezone.value) sf.elements.timezone.value = 'America/Denver';
     sf.elements.public_requests.checked = settings.public_requests === '1';
