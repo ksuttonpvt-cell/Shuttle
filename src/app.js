@@ -23,13 +23,14 @@ const DEFAULT_SETTINGS = {
   service_radius_mi: '15.5',
   auto_end_shift: '20:00', // every driver is taken off shift at this local time each day ('' = off)
   auto_sign_out: '00:00',  // everyone is signed out at this local time each day ('' = off)
+  ride_offers: '1',        // offer waiting rides to the closest free driver, who can accept or pass
   clear_customer_info: '00:00', // finished rides lose their customer details at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
   sms_booked: '1',
   sms_en_route: '1',
   sms_cancelled: '1',
 };
-const YES_NO_SETTINGS = ['public_requests', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
+const YES_NO_SETTINGS = ['public_requests', 'ride_offers', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
 
 function createApp(db, opts = {}) {
   const app = express();
@@ -97,7 +98,8 @@ function createApp(db, opts = {}) {
     SELECT r.*, a.name AS advisor_name, d.name AS driver_name, d.phone AS driver_phone,
            v.name AS vehicle_name, v.color AS vehicle_color, v.plate AS vehicle_plate, v.make_model AS vehicle_make_model,
            c.name AS cancelled_by_name,
-           (SELECT x.id FROM rides x WHERE x.return_of = r.id AND x.status <> 'cancelled' LIMIT 1) AS return_ride_id
+           (SELECT x.id FROM rides x WHERE x.return_of = r.id AND x.status <> 'cancelled' LIMIT 1) AS return_ride_id,
+           (SELECT ou.name FROM ride_offers o JOIN users ou ON ou.id = o.driver_id WHERE o.ride_id = r.id AND o.status = 'pending' LIMIT 1) AS offered_to
     FROM rides r
     LEFT JOIN users c ON c.id = r.cancelled_by
     LEFT JOIN users a ON a.id = r.advisor_id
@@ -126,6 +128,7 @@ function createApp(db, opts = {}) {
   function pushNewRide(rideId) {
     const r = q('SELECT * FROM rides WHERE id = ?').get(rideId);
     if (r) quietly(push.notifyOnDutyDrivers({ title: '🚐 New shuttle ride', body: rideLine(r), tag: `ride-${r.id}` }));
+    scheduleOfferSweep();
   }
   function smsMessage(event, ride, trackUrl) {
     const s = getSettings();
@@ -426,7 +429,11 @@ function createApp(db, opts = {}) {
       if (taken) return bad(res, `${taken.name} is already driving that vehicle.`);
     } else vehicleId = null;
     q('UPDATE users SET on_duty = ?, vehicle_id = ? WHERE id = ?').run(onDuty ? 1 : 0, vehicleId, req.user.id);
-    if (!onDuty) q('UPDATE users SET route_json = NULL WHERE id = ?').run(req.user.id);
+    if (!onDuty) {
+      q('UPDATE users SET route_json = NULL WHERE id = ?').run(req.user.id);
+      q("UPDATE ride_offers SET status = 'expired', responded_at = ? WHERE driver_id = ? AND status = 'pending'").run(now(), req.user.id);
+    }
+    scheduleOfferSweep();
     res.json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)) });
   });
 
@@ -436,6 +443,7 @@ function createApp(db, opts = {}) {
     const heading = num(req.body.heading); const speed = num(req.body.speed);
     q('UPDATE users SET last_lat = ?, last_lng = ?, last_loc_at = ?, last_heading = ?, last_speed = ? WHERE id = ?')
       .run(lat, lng, now(), heading != null && heading >= 0 && heading <= 360 ? heading : null, speed != null && speed >= 0 && speed < 100 ? speed : null, req.user.id);
+    scheduleOfferSweep();
     res.json({ ok: true });
   });
 
@@ -467,6 +475,92 @@ function createApp(db, opts = {}) {
         heading: u.last_heading, speed: u.last_speed, route: liveRoute(u),
       })),
     });
+  });
+
+  // ---------- nearby ride offers ----------
+  // A ride waiting for a driver is offered to the closest free driver (no rides, or just
+  // finishing one) with a ding and a phone notification. They accept or pass; if they
+  // pass or don't answer in time, it goes to the next closest driver.
+  const OFFER_SECONDS = 90;
+  let sweepTimer = null;
+  function scheduleOfferSweep() {
+    if (opts.noTimers || sweepTimer) return; // tests run app.locals.offerSweep themselves
+    sweepTimer = setTimeout(() => {
+      sweepTimer = null;
+      try { offerSweep(); } catch (e) { console.error('Ride offers failed:', e.message); }
+    }, 1000);
+    if (sweepTimer.unref) sweepTimer.unref();
+  }
+  function offerSweep(at = new Date()) {
+    const nowIso = at.toISOString();
+    // Close offers that ran out of time, or whose ride was taken or cancelled.
+    q(`UPDATE ride_offers SET status = 'expired', responded_at = ? WHERE status = 'pending'
+       AND (expires_at <= ? OR ride_id NOT IN (SELECT id FROM rides WHERE status = 'requested' AND driver_id IS NULL))`).run(nowIso, nowIso);
+    if (getSettings().ride_offers !== '1') return [];
+    const soon = new Date(at.getTime() + 90 * 60000).toISOString(); // rides due in the next 90 minutes (or late)
+    const rides = q(`SELECT * FROM rides WHERE status = 'requested' AND driver_id IS NULL AND scheduled_at <= ?
+                     AND id NOT IN (SELECT ride_id FROM ride_offers WHERE status = 'pending')
+                     ORDER BY priority = 'urgent' DESC, scheduled_at`).all(soon);
+    if (!rides.length) return [];
+    let drivers = q(`SELECT u.*, (SELECT COUNT(*) FROM rides r WHERE r.driver_id = u.id AND r.status IN ('assigned','en_route','onboard')) AS load
+                     FROM users u WHERE u.role = 'driver' AND u.active = 1 AND u.on_duty = 1 AND u.last_lat IS NOT NULL AND u.last_loc_at >= ?
+                     AND u.id NOT IN (SELECT driver_id FROM ride_offers WHERE status = 'pending')`)
+      .all(new Date(at.getTime() - 10 * 60000).toISOString())
+      .filter((d) => d.load <= 1); // free, or only finishing one ride
+    const dealer = dealerOrigin();
+    const recent = new Date(at.getTime() - 30 * 60000).toISOString();
+    const made = [];
+    for (const r of rides) {
+      if (!drivers.length) break;
+      const passed = new Set(q(`SELECT driver_id FROM ride_offers WHERE ride_id = ? AND status IN ('declined','expired') AND created_at >= ?`)
+        .all(r.id, recent).map((x) => x.driver_id));
+      // Pick ups: go to the customer. Drop offs: the customer is at the dealership.
+      const target = r.type === 'pickup' && r.lat != null ? { lat: r.lat, lng: r.lng } : dealer;
+      const best = drivers.filter((d) => !passed.has(d.id))
+        .map((d) => ({ d, km: distanceKm({ lat: d.last_lat, lng: d.last_lng }, target) + d.load * 2.5 })) // busy drivers count as a bit further away
+        .sort((a, b) => a.km - b.km)[0];
+      if (!best) continue;
+      const miles = Math.round(distanceKm({ lat: best.d.last_lat, lng: best.d.last_lng }, target) * KM_TO_MI * 1.35 * 10) / 10;
+      const minutes = Math.max(1, Math.round((miles / 28) * 60));
+      const id = Number(q('INSERT INTO ride_offers (ride_id, driver_id, miles, minutes, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(r.id, best.d.id, miles, minutes, nowIso, new Date(at.getTime() + OFFER_SECONDS * 1000).toISOString()).lastInsertRowid);
+      drivers = drivers.filter((d) => d.id !== best.d.id);
+      const where = r.type === 'pickup' ? `${miles} mi away (about ${minutes} min)` : `customer is at the dealership, ${miles} mi from you`;
+      quietly(push.notifyUsers([best.d.id], {
+        title: best.d.load ? '🚐 Ride near you when you finish' : "🚐 You're free: ride near you",
+        body: `${r.type === 'pickup' ? 'Pick up' : 'Drop off'} ${r.customer_name} · ${where}. Want it?`,
+        tag: `offer-${id}`, url: '/driver', offer_id: id,
+      }));
+      made.push({ id, ride_id: r.id, driver_id: best.d.id, miles, minutes });
+    }
+    return made;
+  }
+  app.locals.offerSweep = offerSweep;
+  if (!opts.noTimers) setInterval(() => { try { offerSweep(); } catch (e) { console.error('Ride offers failed:', e.message); } }, 15000).unref();
+
+  app.get('/api/offers/mine', requireRole('driver'), (req, res) => {
+    const o = q(`SELECT o.*, r.customer_name, r.type, r.address, r.lat, r.lng, r.scheduled_at, r.passengers, r.priority, r.notes
+                 FROM ride_offers o JOIN rides r ON r.id = o.ride_id
+                 WHERE o.driver_id = ? AND o.status = 'pending' AND o.expires_at > ? ORDER BY o.id DESC LIMIT 1`).get(req.user.id, now());
+    res.json({ offer: o ? { ...o, seconds_left: Math.max(0, Math.round((new Date(o.expires_at) - Date.now()) / 1000)) } : null });
+  });
+  app.post('/api/offers/:id/:answer', requireRole('driver'), (req, res) => {
+    const answer = req.params.answer;
+    if (!['accept', 'decline'].includes(answer)) return bad(res, 'Not found.', 404);
+    const o = q('SELECT * FROM ride_offers WHERE id = ? AND driver_id = ?').get(Number(req.params.id), req.user.id);
+    if (!o) return bad(res, 'Offer not found.', 404);
+    if (o.status !== 'pending' || o.expires_at <= now()) return bad(res, o.status === 'accepted' ? 'You already took this ride.' : 'This offer has ended.', 409);
+    if (answer === 'decline') {
+      q("UPDATE ride_offers SET status = 'declined', responded_at = ? WHERE id = ?").run(now(), o.id);
+      scheduleOfferSweep(); // offer it to the next closest driver
+      return res.json({ ok: true });
+    }
+    const took = q("UPDATE rides SET driver_id = ?, vehicle_id = ?, status = 'assigned', updated_at = ? WHERE id = ? AND driver_id IS NULL AND status = 'requested'")
+      .run(req.user.id, req.user.vehicle_id, now(), o.ride_id).changes;
+    q('UPDATE ride_offers SET status = ?, responded_at = ? WHERE id = ?').run(took ? 'accepted' : 'expired', now(), o.id);
+    if (!took) return bad(res, 'Someone else just took this ride.', 409);
+    scheduleOfferSweep();
+    res.json({ ok: true, ride: withLinks(req, q(`${RIDE_SELECT} WHERE r.id = ?`).get(o.ride_id)) });
   });
 
   const MAX_ROUTE_RIDES = 12;
@@ -733,6 +827,7 @@ function createApp(db, opts = {}) {
     if (updates.status === 'cancelled' && ride.status !== 'cancelled' && ride.driver_id && ride.driver_id !== req.user.id) {
       quietly(push.notifyUsers([ride.driver_id], { title: '❌ Ride cancelled', body: `${rideLine(after)}${after.cancel_reason ? ` — ${after.cancel_reason}` : ''}`, tag: `ride-${after.id}` }));
     }
+    scheduleOfferSweep(); // a driver may be free now, or a ride may need someone again
     res.json({ ride: withLinks(req, q(`${RIDE_SELECT} WHERE r.id = ?`).get(ride.id)) });
   });
 

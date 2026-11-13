@@ -100,6 +100,18 @@ function openDb(file) {
   addColumn('users', 'route_json', 'TEXT');    // the driver's planned route (stops in order + path)
   addColumn('users', 'reset_requested_at', 'TEXT'); // set when someone taps "Forgot password?"
   db.exec(`
+    CREATE TABLE IF NOT EXISTS ride_offers (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      ride_id      INTEGER NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
+      driver_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status       TEXT NOT NULL DEFAULT 'pending', -- pending, accepted, declined, expired
+      miles        REAL,
+      minutes      INTEGER,
+      created_at   TEXT NOT NULL,
+      expires_at   TEXT NOT NULL,
+      responded_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS ride_offers_pending ON ride_offers(status, ride_id);
     CREATE TABLE IF NOT EXISTS password_resets (
       token_hash TEXT PRIMARY KEY,
       user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

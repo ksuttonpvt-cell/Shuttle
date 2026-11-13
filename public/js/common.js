@@ -137,10 +137,21 @@ const App = (() => {
     const p = (n) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
   }
-  function directionsUrl(ride) {
-    const dest = ride.lat != null ? `${ride.lat},${ride.lng}` : ride.address;
-    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`;
+  // Directions app each driver prefers (remembered on their phone).
+  const NAV_APPS = { google: 'Google Maps', apple: 'Apple Maps', waze: 'Waze' };
+  function navApp() {
+    try { const v = localStorage.getItem('shuttle.navApp'); if (NAV_APPS[v]) return v; } catch { /* storage blocked */ }
+    return 'google';
   }
+  function setNavApp(v) { try { localStorage.setItem('shuttle.navApp', v); } catch { /* storage blocked */ } }
+  // Turn-by-turn directions to one place, in the chosen app.
+  function navUrl(p, app = navApp()) {
+    const ll = p.lat != null ? `${p.lat},${p.lng}` : null;
+    if (app === 'apple') return `https://maps.apple.com/?daddr=${encodeURIComponent(ll || p.address)}&dirflg=d`;
+    if (app === 'waze') return ll ? `https://waze.com/ul?ll=${encodeURIComponent(ll)}&navigate=yes` : `https://waze.com/ul?q=${encodeURIComponent(p.address)}&navigate=yes`;
+    return `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${encodeURIComponent(ll || p.address)}`;
+  }
+  const directionsUrl = (ride) => navUrl(ride);
   function telLink(phone) { return phone ? `tel:${phone.replace(/[^\d+]/g, '')}` : null; }
 
   // ---------- maps (Leaflet + OpenStreetMap) ----------
@@ -420,7 +431,7 @@ const App = (() => {
 
   return {
     esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
-    directionsUrl, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
+    directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
 })();

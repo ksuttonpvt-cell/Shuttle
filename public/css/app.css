@@ -103,7 +103,7 @@ button:disabled { opacity: .55; cursor: default; }
 .alert { padding: .6rem .8rem; border-radius: 8px; margin: .6rem 0; font-size: .9rem; }
 .alert-err { background: var(--red-bg); color: var(--red-fg); }
 .alert-ok { background: var(--green-bg); color: var(--green-fg); }
-.alert-warn { background: var(--amber-bg); color: var(--text); border-left: 4px solid var(--amber); }
+.alert-warn { background: var(--amber-bg); color: var(--ink); border-left: 4px solid var(--amber); }
 .reset-alert { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; }
 .reset-who { display: inline-flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
 .linklike { background: none; border: 0; padding: 0; color: var(--blue); font: inherit; text-decoration: underline; cursor: pointer; min-height: 0; }
@@ -159,11 +159,16 @@ button:disabled { opacity: .55; cursor: default; }
 .route-pick input { width: 22px; height: 22px; min-height: 0; margin-top: .1rem; flex: none; }
 .route-total { font-weight: 800; font-size: 1.05rem; }
 .timeline { margin-top: .6rem; }
+.offer-sheet { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); width: min(560px, calc(100% - 24px)); z-index: 3000;
+  background: var(--card); color: var(--ink); border: 3px solid var(--btn-green); border-radius: 14px; padding: .9rem 1rem; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+.offer-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; font-size: 1.1rem; margin-bottom: .35rem; }
+.offer-timer { font-weight: 800; color: var(--btn-green); font-variant-numeric: tabular-nums; }
+.offer-actions { display: grid; grid-template-columns: 2fr 1fr; gap: .5rem; margin-top: .7rem; }
 .tl-row { display: grid; grid-template-columns: 26px 1fr auto; gap: .6rem; align-items: center; font-size: 1.02rem; }
 .tl-leg { margin: .15rem 0 .15rem 12px; padding: .3rem 0 .3rem 1.25rem; border-left: 3px dotted #1a73e8; }
 .tl-dot { width: 24px; height: 24px; border-radius: 50%; background: #1a73e8; color: #fff; display: grid; place-items: center; font-size: 11px; font-weight: 800; }
 .tl-dot.tl-start { background: var(--btn-green); }
-.tl-dot.tl-dealer { background: var(--text); color: var(--card); }
+.tl-dot.tl-dealer { background: var(--ink); color: var(--card); }
 details summary { cursor: pointer; color: var(--blue); }
 
 /* ---------- tables ---------- */
