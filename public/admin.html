@@ -25,7 +25,7 @@
   <section data-pane="dash" class="grid">
     <div class="stats" id="stats"></div>
     <div class="grid cols-even">
-      <div class="card"><div class="card-head"><h2>Live map</h2><span class="small muted">🚐 drivers · numbered = queue order</span></div><div id="map" class="map map-tall"></div></div>
+      <div class="card"><div class="card-head"><h2>Live map</h2><span class="small muted">🚐 drivers (live) · colored lines = planned routes · numbered = queue order</span></div><div id="map" class="map map-tall"></div></div>
       <div class="card"><div class="card-head"><h2>Open rides — in pickup order</h2></div><div id="dashChips"></div><div id="openRides" style="max-height:560px;overflow:auto"></div></div>
     </div>
     <div class="card"><div class="card-head"><h2>Drivers</h2></div><div id="driverTable"></div></div>
@@ -169,6 +169,7 @@
         <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
       </select>
       <label class="check" style="margin-top:1rem"><input type="checkbox" name="public_requests"> Let customers request rides online (the /request page)</label>
+      <label class="check" style="margin-top:.6rem"><input type="checkbox" name="ride_offers"> Offer waiting rides to the closest free driver (they get a ding and can take it or pass; if they pass, it goes to the next closest)</label>
       <div id="setMsg"></div>
       <button style="margin-top:1rem">Save settings</button>
     </form>
@@ -218,6 +219,7 @@
   const map = App.makeMap($('#map'), { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng) });
   App.dealerMarker(map, App.settings);
   const draw = App.ridesLayer(map);
+  App.liveDrivers(map); // vans move every few seconds, with each driver's planned route
   let openRides = []; let drivers = [];
   async function loadDash() {
     const [r, d, today] = await Promise.all([api('/api/rides?scope=open'), api('/api/drivers'), api('/api/rides?scope=today')]);
@@ -240,7 +242,7 @@
       ${drivers.map((x) => `<tr><td>${esc(x.name)}</td><td>${x.on_duty ? '<span class="badge s-completed">On duty</span>' : '<span class="badge s-requested">Off</span>'}</td>
         <td>${esc(x.vehicle_name || '—')}</td><td>${x.open_rides}</td><td class="small">${x.last_loc_at ? fmtTime(x.last_loc_at) : '—'}</td></tr>`).join('')}
       </table></div>` : '<div class="empty">No drivers yet — add them under “Staff &amp; logins”.</div>';
-    draw(shownOpen, drivers);
+    draw(shownOpen, []); // drivers are drawn live below
   }
   const dashChips = App.typeChips($('#dashChips'), 'shuttle.adminType', () => loadDash());
   loaders.dash = () => { setTimeout(() => map.invalidateSize(), 50); return loadDash(); };
@@ -511,6 +513,7 @@
     if (sf.elements.service_radius_mi.value === '') sf.elements.service_radius_mi.value = '0';
     if (!sf.elements.timezone.value) sf.elements.timezone.value = 'America/Denver';
     sf.elements.public_requests.checked = settings.public_requests === '1';
+    sf.elements.ride_offers.checked = settings.ride_offers !== '0';
     const at = [Number(settings.dealer_lat), Number(settings.dealer_lng)];
     if (!setMap) {
       setMap = App.makeMap($('#setMap'), { lat: at[0], lng: at[1] }, 15);
@@ -544,6 +547,7 @@
     e.preventDefault();
     const body = Object.fromEntries(new FormData(sf));
     body.public_requests = sf.elements.public_requests.checked ? '1' : '0';
+    body.ride_offers = sf.elements.ride_offers.checked ? '1' : '0';
     try { const { settings } = await api('/api/settings', { method: 'PATCH', body }); App.settings = settings; App.flash($('#setMsg'), 'Saved.', true); }
     catch (err) { App.flash($('#setMsg'), err.message); }
   };

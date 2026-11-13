@@ -5,6 +5,7 @@ process.on('uncaughtException', (e) => console.error(new Date().toLocaleString()
 const path = require('node:path');
 const { openDb } = require('./db');
 const { createApp, ensureAdmin } = require('./app');
+const { createOsrmRouter } = require('./routing');
 const { createUpdater, RESTART_CODE } = require('./updater');
 
 const port = Number(process.env.PORT) || 3000;
@@ -31,7 +32,9 @@ const updater = createUpdater({
     setTimeout(() => process.exit(RESTART_CODE), 3000).unref();
   },
 });
-server = createApp(db, { updater }).listen(port, () => {
+// Road routing for the driver route planner (ROUTING=off turns it off; ROUTING_URL picks another OSRM server).
+const router = process.env.ROUTING === 'off' ? null : createOsrmRouter({ baseUrl: process.env.ROUTING_URL || undefined });
+server = createApp(db, { updater, router }).listen(port, () => {
   console.log(`Shuttle app running at http://localhost:${port}`);
   updater.start();
 });

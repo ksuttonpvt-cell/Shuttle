@@ -31,6 +31,8 @@
 
   <section class="card next hidden" id="nextCard"></section>
 
+  <section class="card hidden" id="routeCard"></section>
+
   <section class="card">
     <div class="tabs" style="margin-bottom:.6rem">
       <button class="active" data-tab="mine">My rides <span id="mineCount"></span></button>
@@ -93,7 +95,7 @@
       <div id="shiftMsg"></div>
       ${!usable.length ? '<p class="small muted">No vehicles are set up yet — ask an admin to add one.</p>' : ''}`;
     if (me.on_duty) {
-      $('#endShift').onclick = async () => { ({ user: me } = await api('/api/driver/shift', { body: { on_duty: false } })); stopGps(); drawShift(); };
+      $('#endShift').onclick = async () => { ({ user: me } = await api('/api/driver/shift', { body: { on_duty: false } })); stopGps(); drawShift(); route.clearLocal(); refresh(); };
       $('#gpsBtn').onclick = () => { watchId != null ? stopGps() : startGps(); drawShift(); };
       $('#alertBtn').onclick = () => { alerts.set(!alerts.on); drawShift(); };
     } else {
@@ -107,16 +109,23 @@
     }
   }
 
-  let lastSent = 0; let myMarker = null;
+  let lastSent = 0; let lastSentAt = null; let myMarker = null;
   function startGps() {
     if (!navigator.geolocation) return alert('This device cannot share location.');
     watchId = navigator.geolocation.watchPosition((pos) => {
       const { latitude: lat, longitude: lng } = pos.coords;
       me.last_lat = lat; me.last_lng = lng;
       if (myMarker) myMarker.setLatLng([lat, lng]); else myMarker = L.marker([lat, lng], { icon: App.carIcon(), zIndexOffset: 900 }).bindPopup('You').addTo(map);
-      if (Date.now() - lastSent > 15000) { lastSent = Date.now(); api('/api/driver/location', { body: { lat, lng } }).catch(() => {}); }
+      // Send every 5 seconds, or sooner (2 s) after moving more than about 40 m.
+      const moved = lastSentAt ? App.milesFromDealer(lat, lng, { dealer_lat: lastSentAt[0], dealer_lng: lastSentAt[1] }) * 1609 : Infinity;
+      const since = Date.now() - lastSent;
+      if (since > 5000 || (moved > 40 && since > 2000)) {
+        lastSent = Date.now(); lastSentAt = [lat, lng];
+        const { heading, speed } = pos.coords;
+        api('/api/driver/location', { body: { lat, lng, heading: Number.isFinite(heading) ? heading : null, speed: Number.isFinite(speed) ? speed : null } }).catch(() => {});
+      }
     }, (err) => { const g = $('#gps'); if (g) g.textContent = '📡 Location blocked: ' + err.message; watchId = null; },
-    { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 });
+    { enableHighAccuracy: true, maximumAge: 3000, timeout: 30000 });
   }
   function stopGps() { if (watchId != null) navigator.geolocation.clearWatch(watchId); watchId = null; }
 
@@ -167,7 +176,7 @@
   // Beep + vibrate + banner when a new ride comes in or one is assigned to you.
   // When the app is in the background, a phone notification is shown instead (if allowed).
   const alerts = (() => {
-    let on = true; let audio = null; let seen = null;
+    let on = true; let audio = null; let seen = null; const self = new Set(); // rides this driver took themselves
     try { on = localStorage.getItem('shuttle.alerts') !== 'off'; } catch { /* storage blocked */ }
     function unlock() {
       try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch { /* no audio */ }
@@ -193,13 +202,15 @@
       get on() { return on; },
       set(v) { on = v; if (on) unlock(); try { localStorage.setItem('shuttle.alerts', on ? 'on' : 'off'); } catch { /* storage blocked */ } },
       unlock,
+      tookMyself(ids) { ids.forEach((id) => self.add(id)); },
+      ding() { if (!on) return; beep(); if (navigator.vibrate) navigator.vibrate([300, 150, 300, 150, 300]); },
       // Compare this refresh's rides with the last one and alert on anything new for this driver.
       check(list) {
         const mineOrOpen = list.filter((r) => !r.driver_id || r.driver_id === me.id);
         const key = (r) => `${r.id}:${r.driver_id === me.id ? 'me' : 'open'}`;
         const now = new Set(mineOrOpen.map(key));
         if (seen && on && me.on_duty) {
-          const fresh = mineOrOpen.filter((r) => !seen.has(key(r)));
+          const fresh = mineOrOpen.filter((r) => !seen.has(key(r)) && !(r.driver_id === me.id && self.has(r.id)));
           if (fresh.length) {
             const r = fresh[0];
             const text = `${r.driver_id === me.id ? 'Ride assigned to you' : 'New ride'}: ${r.customer_name} — ${App.TYPE_LABEL[r.type]} ${fmtTime(r.scheduled_at)}${fresh.length > 1 ? ` (+${fresh.length - 1} more)` : ''}`;
@@ -288,6 +299,206 @@
     })();
   })();
 
+  // ---------- route planner ----------
+  // Check off several rides and get the quickest order (real road times when available),
+  // drawn on the map with arrival times, plus one tap to open it all in Google Maps.
+  const route = (() => {
+    const card = $('#routeCard');
+    let saved = null; let preview = null; let skipped = []; let picking = null; let msg = '';
+    const pathLayer = L.layerGroup().addTo(map);
+    const here = () => (me.last_lat != null ? { lat: me.last_lat, lng: me.last_lng } : null);
+    const candidates = () => rides.filter((r) => r.lat != null && (r.driver_id === me.id || (!r.driver_id && me.on_duty)));
+    function drawPath(rt) {
+      pathLayer.clearLayers();
+      if (!rt) return;
+      L.polyline(rt.path, { color: '#1a73e8', weight: 6, opacity: 0.75, dashArray: rt.source === 'roads' ? null : '8 10' }).addTo(pathLayer);
+      rt.stops.forEach((x, i) => {
+        L.marker([x.lat, x.lng], { icon: L.divIcon({ className: '', html: `<div class="stop-num ${x.kind === 'dealer' ? 'done' : ''}">${i + 1}</div>`, iconSize: [22, 22], iconAnchor: [11, 30] }), zIndexOffset: 800 })
+          .bindPopup(`<b>${i + 1}. ${esc(x.label)}</b><br>${esc(x.address || '')}<br>about ${fmtTime(x.eta)}`).addTo(pathLayer);
+      });
+    }
+    // "Leave now → Pat 8:38 → Kim 8:50 → Back at dealership 9:28"
+    const shortName = (x) => (x.kind === 'dealer' ? (x.label.startsWith('Back') ? 'Back at dealership' : 'Dealership') : x.label);
+    const timeline = (rt) => `<div class="timeline">
+        <div class="tl-row"><span class="tl-dot tl-start"></span><b>Leave now</b><span class="muted small">${fmtTime(rt.planned_at)}</span></div>
+        ${rt.stops.map((x, i) => `<div class="tl-leg small muted">🚐 ${x.leg_min} min · ${x.leg_mi} mi</div>
+          <div class="tl-row"><span class="tl-dot ${x.kind === 'dealer' ? 'tl-dealer' : ''}">${i + 1}</span><b>${esc(shortName(x))}</b><span><b>${fmtTime(x.eta)}</b></span></div>`).join('')}
+        <div class="route-total" style="margin-top:.5rem">Back at the dealership about ${fmtTime(rt.finish_at)} · ${rt.total_mi} mi total</div>
+        <div class="small muted">${rt.source === 'roads' ? 'Real road driving times' : 'Estimated times (road info unavailable)'}, plus 3 min at each stop.</div></div>`;
+    // Pick Google Maps, Apple Maps or Waze. Only Google Maps takes every stop at once;
+    // the others go one stop at a time.
+    const appPicker = () => `<div class="chips" role="group" aria-label="Directions app" style="margin-top:.7rem">
+        <span class="small muted">Directions with:</span>
+        ${Object.entries(App.NAV_APPS).map(([k, v]) => `<button data-nav="${k}" class="${App.navApp() === k ? 'active' : ''}">${v}</button>`).join('')}</div>`;
+    function goButton(rt, starting) {
+      const app = App.navApp(); const name = App.NAV_APPS[app];
+      const attrs = `target="_blank" rel="noopener" style="margin-top:.6rem"${starting ? ' data-r="go"' : ''}`;
+      const cls = starting ? 'btn btn-green btn-lg btn-block' : 'btn btn-blue btn-lg btn-block';
+      if (app === 'google') {
+        return `<a class="${cls}" ${attrs} href="${App.routeUrl(rt.stops)}">🧭 ${starting ? 'Start route' : 'Open route'} in Google Maps</a>
+          <p class="small muted" style="margin:.4rem 0 0">Every stop opens in this order, for turn-by-turn directions to each customer and back to the dealership.${starting ? ' This also saves the route here.' : ''}</p>`;
+      }
+      const first = rt.stops[0];
+      return `<a class="${cls}" ${attrs} href="${App.navUrl(first)}">🧭 ${starting ? 'Start' : 'Next stop'}: ${esc(shortName(first))} in ${name}</a>
+        <p class="small muted" style="margin:.4rem 0 0">${name} takes one stop at a time. After each stop, come back here and tap the next one (or the 🧭 next to it below).${starting ? ' This also saves the route here.' : ''}</p>`;
+    }
+    const stopList = (rt, live) => `<ol class="route-list">${rt.stops.map((x, i) => `
+      <li class="${live && i === 0 ? 'is-next' : ''}"><span class="stop-num ${x.kind === 'dealer' ? 'done' : ''}">${i + 1}</span>
+        <div class="grow"><b>${esc(x.label)}</b><div class="small muted">${esc(x.address || '')}</div>
+          <div class="small">${x.leg_mi} mi · ${x.leg_min} min drive · arrive about <b>${fmtTime(x.eta)}</b></div></div>
+        ${live ? `<a class="btn btn-ghost btn-sm" target="_blank" rel="noopener" href="${App.navUrl(x)}" title="Directions in ${App.NAV_APPS[App.navApp()]}">🧭</a>` : ''}</li>`).join('')}</ol>
+      <div class="route-total">${rt.total_mi} mi · about ${rt.total_min} min · back by ${fmtTime(rt.finish_at)}</div>
+      <div class="small muted">${rt.source === 'roads' ? 'Based on real roads and typical driving times.' : 'Estimated from straight-line distance (road info was unavailable). Order is still a good guess.'} Includes ${3} min at each stop.${rt.stops.length > 10 ? ' Google Maps opens the first 10 stops.' : ''}</div>
+      ${skipped.length ? `<div class="alert alert-warn small">Left out (no map spot): ${esc(skipped.join(', '))}</div>` : ''}`;
+    function paint() {
+      const list = candidates();
+      if (saved) {
+        card.innerHTML = `<div class="card-head" style="margin:0"><h2 style="margin:0">🗺 Your route</h2><span class="small muted">planned ${fmtTime(saved.planned_at)}</span></div>
+          ${timeline(saved)}${appPicker()}${goButton(saved, false)}
+          <details style="margin-top:.6rem" ${App.navApp() === 'google' ? '' : 'open'}><summary class="small">Stops with directions one at a time</summary>${stopList(saved, true)}</details>
+          <div class="actions">
+            <button class="btn-ghost" data-r="replan">🔄 Re-plan from here</button><button class="btn-ghost" data-r="edit">Change stops</button><button class="btn-ghost" data-r="clear">Clear route</button></div>${msg}`;
+      } else if (preview) {
+        card.innerHTML = `<h2 style="margin:0">🗺 Your trip</h2>${timeline(preview)}${appPicker()}${goButton(preview, true)}
+          <details style="margin-top:.6rem"><summary class="small">See each stop</summary>${stopList(preview, false)}</details>
+          <div class="actions"><button class="btn-ghost" data-r="save">Save without opening maps</button><button class="btn-ghost" data-r="back">Back</button></div>${msg}`;
+      } else {
+        if (list.length < 1) { card.classList.add('hidden'); return; }
+        if (!picking) picking = new Set(list.filter((r) => r.driver_id === me.id).map((r) => r.id));
+        for (const id of [...picking]) if (!list.some((r) => r.id === id)) picking.delete(id);
+        card.innerHTML = `<h2 style="margin:0">🗺 Plan a route</h2>
+          <p class="small muted" style="margin:.3rem 0">Check the rides you want to do in one trip. You'll get the quickest order and arrival times. Unassigned rides you check become yours when you use the route.</p>
+          ${list.map((r) => `<label class="route-pick"><input type="checkbox" data-pick="${r.id}" ${picking.has(r.id) ? 'checked' : ''}>
+            <span>${typeBadge(r.type)} <b>${esc(r.customer_name)}</b>${r.driver_id ? '' : ' <span class="badge s-requested">Unassigned</span>'}${r.status === 'onboard' ? ' <span class="small muted">(on board)</span>' : ''}
+            <br><span class="small muted">${esc(r.address)} · ${fmtTime(r.scheduled_at)}</span></span></label>`).join('')}
+          <div class="actions"><button class="btn-blue" data-r="plan" ${picking.size ? '' : 'disabled'}>Find the best route (${picking.size})</button></div>${msg}`;
+      }
+      card.classList.remove('hidden');
+    }
+    async function plan(ids, save, keepOrder = false) {
+      msg = '<div class="small muted" style="margin-top:.5rem">Working out the quickest order…</div>'; paint();
+      try {
+        const r = await api('/api/route', { body: { ride_ids: ids, from: keepOrder && preview ? preview.start : here(), save, keep_order: keepOrder } });
+        skipped = r.skipped || []; msg = '';
+        if (save) { saved = r.route; preview = null; picking = null; } else preview = r.route;
+        drawPath(saved || preview);
+        if (save) refresh();
+      } catch (err) { msg = `<div class="alert alert-err">${esc(err.message)}</div>`; }
+      paint();
+    }
+    card.addEventListener('change', (e) => {
+      const id = Number(e.target.dataset.pick); if (!id) return;
+      e.target.checked ? picking.add(id) : picking.delete(id); paint();
+    });
+    card.addEventListener('click', async (e) => {
+      const nav = e.target.closest('[data-nav]');
+      if (nav) { App.setNavApp(nav.dataset.nav); paint(); refresh(); return; }
+      const b = e.target.closest('[data-r]'); if (!b) return;
+      msg = '';
+      const act = b.dataset.r;
+      if (act === 'go') {
+        // The link opens Google Maps; save the same order here in the background.
+        const ids = preview.stops.filter((x) => x.ride_id).map((x) => x.ride_id);
+        alerts.tookMyself(ids);
+        fetch('/api/route', { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ride_ids: ids, from: preview.start, save: true, keep_order: true }) })
+          .then((r) => r.json()).then((d) => {
+            if (d.route) { saved = d.route; preview = null; picking = null; drawPath(saved); refresh(); }
+            else { msg = `<div class="alert alert-err">${esc(d.error || 'Could not save the route.')}</div>`; paint(); }
+          }).catch(() => {});
+        return; // don't redraw now, so the link can open
+      }
+      if (act === 'plan') return plan([...picking], false);
+      if (act === 'save') alerts.tookMyself(preview.stops.filter((x) => x.ride_id).map((x) => x.ride_id));
+      if (act === 'save') return plan(preview.stops.filter((x) => x.ride_id).map((x) => x.ride_id), true, true);
+      if (act === 'replan') return plan(saved.stops.filter((x) => x.ride_id).map((x) => x.ride_id), true);
+      if (act === 'back') { preview = null; drawPath(null); }
+      if (act === 'edit') { picking = new Set(saved.stops.filter((x) => x.ride_id).map((x) => x.ride_id)); saved = null; await api('/api/route', { method: 'DELETE' }).catch(() => {}); drawPath(null); }
+      if (act === 'clear') { saved = null; picking = null; await api('/api/route', { method: 'DELETE' }).catch(() => {}); drawPath(null); }
+      paint();
+    });
+    return {
+      async render() {
+        if (!preview) {
+          const was = saved && JSON.stringify(saved.stops.map((x) => x.ride_id));
+          saved = (await api('/api/route')).route;
+          if (!saved || was !== JSON.stringify(saved.stops.map((x) => x.ride_id))) drawPath(saved);
+        }
+        paint();
+      },
+      // A ride just accepted from an offer joins the saved route (re-planned for the best order).
+      async addRide(id) {
+        if (!saved) return;
+        const ids = saved.stops.filter((x) => x.ride_id).map((x) => x.ride_id);
+        if (!ids.includes(id)) await plan([...ids, id], true);
+      },
+      nextRideId: () => (saved ? (saved.stops.find((x) => x.ride_id) || {}).ride_id : null),
+      clearLocal() { saved = null; preview = null; picking = null; drawPath(null); },
+    };
+  })();
+  // ---------- ride offers ----------
+  // When a ride is waiting and this driver is the closest free one, the server offers it:
+  // a ding, a phone notification, and this pop-up with Take it / No thanks.
+  const offers = (() => {
+    let current = null; let busy = false;
+    const sheet = document.createElement('div');
+    sheet.className = 'offer-sheet hidden'; sheet.setAttribute('role', 'alertdialog'); sheet.setAttribute('aria-live', 'assertive');
+    document.body.appendChild(sheet);
+    const secondsLeft = (o) => Math.max(0, Math.round((new Date(o.expires_at) - Date.now()) / 1000));
+    function paint() {
+      if (!current || !secondsLeft(current)) { current = null; sheet.classList.add('hidden'); return; }
+      const o = current;
+      const where = o.type === 'pickup'
+        ? `📍 ${esc(o.address)}<br><b>${o.miles} mi from you</b> (about ${o.minutes} min)`
+        : `Customer is waiting at the dealership (<b>${o.miles} mi from you</b>, about ${o.minutes} min) → drop off at ${esc(o.address)}`;
+      sheet.innerHTML = `<div class="offer-head"><b>${o.type === 'pickup' ? '🚐 Ride near you. Want it?' : '🚐 Drop off waiting. Want it?'}</b><span class="offer-timer">${secondsLeft(o)}s</span></div>
+        <div class="offer-who">${typeBadge(o.type)} ${o.priority === 'urgent' ? '<span class="badge b-urgent">Urgent</span>' : ''} <b>${esc(o.customer_name)}</b></div>
+        <div class="small" style="margin:.3rem 0">${where}</div>
+        <div class="small">🕒 ${fmtTime(o.scheduled_at)} · ${relTime(o.scheduled_at)} · ${o.passengers} passenger${o.passengers > 1 ? 's' : ''}</div>
+        ${o.notes ? `<div class="small">📝 ${esc(o.notes)}</div>` : ''}
+        <div class="offer-actions"><button class="btn-green btn-lg" data-offer="accept">✅ Take it</button><button class="btn-ghost btn-lg" data-offer="decline">No thanks</button></div>
+        <div class="offer-msg"></div>`;
+      sheet.classList.remove('hidden');
+    }
+    async function check() {
+      if (!me.on_duty || busy) return;
+      const { offer } = await api('/api/offers/mine');
+      if (!offer) { if (current) { current = null; paint(); } return; }
+      if (!current || current.id !== offer.id) { current = offer; paint(); alerts.ding(); }
+    }
+    sheet.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-offer]'); if (!b || !current || busy) return;
+      busy = true; const o = current;
+      $$('[data-offer]', sheet).forEach((x) => { x.disabled = true; });
+      try {
+        if (b.dataset.offer === 'accept') {
+          alerts.tookMyself([o.ride_id]);
+          await api(`/api/offers/${o.id}/accept`, { body: {} });
+          current = null; paint();
+          await route.addRide(o.ride_id);
+          refresh();
+        } else {
+          await api(`/api/offers/${o.id}/decline`, { body: {} });
+          current = null; paint();
+        }
+      } catch (err) {
+        $('.offer-msg', sheet).innerHTML = `<div class="alert alert-err">${esc(err.message)}</div>`;
+        setTimeout(() => { current = null; paint(); refresh(); }, 2500);
+      }
+      busy = false;
+    });
+    // Count down; the offer goes to the next driver when time runs out.
+    setInterval(() => {
+      if (!current) return;
+      const left = secondsLeft(current); const t = $('.offer-timer', sheet);
+      if (!left) { current = null; paint(); } else if (t) t.textContent = `${left}s`;
+    }, 1000);
+    return { check };
+  })();
+  App.poll(offers.check, 4000, { background: true });
+
+  App.liveDrivers(map, { exclude: me.id, routes: false });
+
   async function refresh() {
     // Notice if the shift was ended elsewhere (e.g. the automatic end of shift at night).
     const fresh = (await api('/api/me')).user;
@@ -314,12 +525,13 @@
     $('#list').innerHTML = list.length ? list.map((x) => rideHtml(x)).join('')
       : `<div class="empty">${tab === 'mine' ? `No${what || 'thing'} assigned to you. Check “Unassigned” to take a ride.` : `No${what || 'thing'} here right now.`}</div>`;
 
-    const next = mine[0] || open[0];
+    await route.render();
+    const routeNext = route.nextRideId() && rides.find((x) => x.id === route.nextRideId());
+    const next = routeNext || mine[0] || open[0];
     $('#nextCard').classList.toggle('hidden', !next);
-    if (next) $('#nextCard').innerHTML = `<h2>👉 Do this next${what ? ` <span class="small muted">(${what.trim()} only)</span>` : ''}</h2>${rideHtml(next, true)}`;
+    if (next) $('#nextCard').innerHTML = `<h2>👉 Do this next${routeNext ? ' <span class="small muted">(next stop on your route)</span>' : what ? ` <span class="small muted">(${what.trim()} only)</span>` : ''}</h2>${rideHtml(next, true)}`;
 
-    const { drivers } = await api('/api/drivers');
-    draw(shown, drivers.filter((d) => d.id !== me.id));
+    draw(shown, []); // other drivers are drawn live by App.liveDrivers
   }
 
   document.body.addEventListener('click', async (e) => {
@@ -327,6 +539,7 @@
     const host = btn.closest('[data-id]'); if (!host) return;
     const id = Number(host.dataset.id);
     try {
+      if (btn.hasAttribute('data-claim')) alerts.tookMyself([id]);
       if (btn.hasAttribute('data-claim')) await api(`/api/rides/${id}`, { method: 'PATCH', body: { driver_id: me.id } });
       else if (btn.hasAttribute('data-release')) await api(`/api/rides/${id}`, { method: 'PATCH', body: { driver_id: null } });
       else if (btn.dataset.status) await api(`/api/rides/${id}`, { method: 'PATCH', body: { status: btn.dataset.status } });

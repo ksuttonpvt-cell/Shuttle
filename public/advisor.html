@@ -39,7 +39,7 @@
         <div id="cancelled"></div>
       </div>
       <div class="card">
-        <div class="card-head"><h2>Map</h2><span class="small muted">🚐 drivers on duty · numbered pins = queue order</span></div>
+        <div class="card-head"><h2>Map</h2><span class="small muted">🚐 drivers (live) · colored lines = planned routes · numbered pins = queue order</span></div>
         <div id="map" class="map"></div>
       </div>
       <div class="card">
@@ -108,6 +108,7 @@
   const map = App.makeMap($('#map'), { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng) });
   App.dealerMarker(map, App.settings);
   const draw = App.ridesLayer(map);
+  App.liveDrivers(map); // vans move every few seconds, with each driver's planned route
   let rides = []; let drivers = []; let cancelledRides = []; let readyRides = [];
   const chips = App.typeChips($('#typeChips'), 'shuttle.advisorType', () => refresh());
   async function refresh() {
@@ -122,7 +123,7 @@
       ${drivers.map((x) => `<tr><td>${esc(x.name)}${x.phone ? `<br><a class="small" href="${App.telLink(x.phone)}">${esc(x.phone)}</a>` : ''}</td>
       <td>${x.on_duty ? '<span class="badge s-completed">On duty</span>' : '<span class="badge s-requested">Off</span>'}</td>
       <td>${esc(x.vehicle_name || '—')}</td><td>${x.open_rides}</td></tr>`).join('')}</table></div>` : '<div class="empty">No drivers yet. An admin can add them.</div>';
-    draw(shown, drivers);
+    draw(shown, []); // drivers are drawn live below
     const today = await api('/api/rides?scope=today' + mine);
     const start = new Date(); start.setHours(0, 0, 0, 0);
     // Pick ups finished today whose customer may need a ride back.

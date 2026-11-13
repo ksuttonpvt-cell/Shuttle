@@ -79,7 +79,7 @@ const Rides = (() => {
           ${r.customer_phone ? `<div>📞 <a href="${App.telLink(r.customer_phone)}">${esc(r.customer_phone)}</a></div>` : ''}
           ${r.notes ? `<div>📝 ${esc(r.notes)}</div>` : ''}
           <div>👤 Advisor: ${esc(r.advisor_name || (r.source === 'customer' ? 'Customer request' : '—'))}
-            ${r.driver_name ? ` · 🚐 ${esc(r.driver_name)}${r.vehicle_name ? ' in ' + esc(r.vehicle_name) : ''}` : ''}</div>
+            ${r.driver_name ? ` · 🚐 ${esc(r.driver_name)}${r.vehicle_name ? ' in ' + esc(r.vehicle_name) : ''}` : ''}${!r.driver_id && r.offered_to ? ` · ⏳ Offered to ${esc(r.offered_to)}, waiting for an answer` : ''}</div>
         </div>
         ${App.cancelNote(r)}
         ${open && mode === 'staff' ? `

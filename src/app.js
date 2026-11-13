@@ -6,6 +6,7 @@ const { hashPassword, hashPasswordAsync, verifyPasswordAsync, validatePassword, 
 const { rankRides, distanceKm } = require('./priority');
 const { toE164, createTwilioSender } = require('./sms');
 const { createPush } = require('./push');
+const { planRoute, KM_TO_MI, STOP_MINUTES } = require('./routing');
 
 const SESSION_DAYS = 14;
 const RIDE_STATUSES = ['requested', 'assigned', 'en_route', 'onboard', 'completed', 'cancelled'];
@@ -22,13 +23,14 @@ const DEFAULT_SETTINGS = {
   service_radius_mi: '15.5',
   auto_end_shift: '20:00', // every driver is taken off shift at this local time each day ('' = off)
   auto_sign_out: '00:00',  // everyone is signed out at this local time each day ('' = off)
+  ride_offers: '1',        // offer waiting rides to the closest free driver, who can accept or pass
   clear_customer_info: '00:00', // finished rides lose their customer details at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
   sms_booked: '1',
   sms_en_route: '1',
   sms_cancelled: '1',
 };
-const YES_NO_SETTINGS = ['public_requests', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
+const YES_NO_SETTINGS = ['public_requests', 'ride_offers', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
 
 function createApp(db, opts = {}) {
   const app = express();
@@ -96,7 +98,8 @@ function createApp(db, opts = {}) {
     SELECT r.*, a.name AS advisor_name, d.name AS driver_name, d.phone AS driver_phone,
            v.name AS vehicle_name, v.color AS vehicle_color, v.plate AS vehicle_plate, v.make_model AS vehicle_make_model,
            c.name AS cancelled_by_name,
-           (SELECT x.id FROM rides x WHERE x.return_of = r.id AND x.status <> 'cancelled' LIMIT 1) AS return_ride_id
+           (SELECT x.id FROM rides x WHERE x.return_of = r.id AND x.status <> 'cancelled' LIMIT 1) AS return_ride_id,
+           (SELECT ou.name FROM ride_offers o JOIN users ou ON ou.id = o.driver_id WHERE o.ride_id = r.id AND o.status = 'pending' LIMIT 1) AS offered_to
     FROM rides r
     LEFT JOIN users c ON c.id = r.cancelled_by
     LEFT JOIN users a ON a.id = r.advisor_id
@@ -125,6 +128,7 @@ function createApp(db, opts = {}) {
   function pushNewRide(rideId) {
     const r = q('SELECT * FROM rides WHERE id = ?').get(rideId);
     if (r) quietly(push.notifyOnDutyDrivers({ title: '🚐 New shuttle ride', body: rideLine(r), tag: `ride-${r.id}` }));
+    scheduleOfferSweep();
   }
   function smsMessage(event, ride, trackUrl) {
     const s = getSettings();
@@ -425,13 +429,214 @@ function createApp(db, opts = {}) {
       if (taken) return bad(res, `${taken.name} is already driving that vehicle.`);
     } else vehicleId = null;
     q('UPDATE users SET on_duty = ?, vehicle_id = ? WHERE id = ?').run(onDuty ? 1 : 0, vehicleId, req.user.id);
+    if (!onDuty) {
+      q('UPDATE users SET route_json = NULL WHERE id = ?').run(req.user.id);
+      q("UPDATE ride_offers SET status = 'expired', responded_at = ? WHERE driver_id = ? AND status = 'pending'").run(now(), req.user.id);
+    }
+    scheduleOfferSweep();
     res.json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)) });
   });
 
   app.post('/api/driver/location', requireRole('driver'), (req, res) => {
     const lat = num(req.body.lat); const lng = num(req.body.lng);
     if (lat == null || lng == null || Math.abs(lat) > 90 || Math.abs(lng) > 180) return bad(res, 'Bad location.');
-    q('UPDATE users SET last_lat = ?, last_lng = ?, last_loc_at = ? WHERE id = ?').run(lat, lng, now(), req.user.id);
+    const heading = num(req.body.heading); const speed = num(req.body.speed);
+    q('UPDATE users SET last_lat = ?, last_lng = ?, last_loc_at = ?, last_heading = ?, last_speed = ? WHERE id = ?')
+      .run(lat, lng, now(), heading != null && heading >= 0 && heading <= 360 ? heading : null, speed != null && speed >= 0 && speed < 100 ? speed : null, req.user.id);
+    scheduleOfferSweep();
+    res.json({ ok: true });
+  });
+
+  // ---------- live map + planned routes ----------
+  // A saved route, minus stops whose ride is finished, cancelled or handed to someone else.
+  function liveRoute(user) {
+    if (!user.route_json) return null;
+    let route; try { route = JSON.parse(user.route_json); } catch { return null; }
+    const ids = route.stops.filter((x) => x.ride_id).map((x) => x.ride_id);
+    if (!ids.length) return route;
+    const rows = q(`SELECT id, type, status FROM rides WHERE id IN (${ids.map(() => '?').join(',')})
+                    AND status IN ('requested','assigned','en_route','onboard') AND (driver_id = ? OR driver_id IS NULL)`).all(...ids, user.id);
+    const open = new Map(rows.map((r) => [r.id, r]));
+    route.stops = route.stops.filter((x) => !x.ride_id || open.has(x.ride_id));
+    if (!route.stops.some((x) => x.ride_id)) return null; // every ride on it is done
+    // The "collect drop-off customers at the dealership" stop is done once they're all on board.
+    const waiting = rows.some((r) => r.type === 'dropoff' && r.status !== 'onboard');
+    if (!waiting && route.stops.length > 1 && route.stops[0].kind === 'dealer') route.stops.shift();
+    return route;
+  }
+  // Small and fast, so maps can ask every few seconds.
+  app.get('/api/drivers/live', requireRole(), (req, res) => {
+    const rows = q(`SELECT u.*, v.name AS vehicle_name FROM users u LEFT JOIN vehicles v ON v.id = u.vehicle_id
+                    WHERE u.role = 'driver' AND u.active = 1 AND u.on_duty = 1`).all();
+    res.json({
+      at: now(),
+      drivers: rows.map((u) => ({
+        id: u.id, name: u.name, vehicle_name: u.vehicle_name, lat: u.last_lat, lng: u.last_lng, at: u.last_loc_at,
+        heading: u.last_heading, speed: u.last_speed, route: liveRoute(u),
+      })),
+    });
+  });
+
+  // ---------- nearby ride offers ----------
+  // A ride waiting for a driver is offered to the closest free driver (no rides, or just
+  // finishing one) with a ding and a phone notification. They accept or pass; if they
+  // pass or don't answer in time, it goes to the next closest driver.
+  const OFFER_SECONDS = 90;
+  let sweepTimer = null;
+  function scheduleOfferSweep() {
+    if (opts.noTimers || sweepTimer) return; // tests run app.locals.offerSweep themselves
+    sweepTimer = setTimeout(() => {
+      sweepTimer = null;
+      try { offerSweep(); } catch (e) { console.error('Ride offers failed:', e.message); }
+    }, 1000);
+    if (sweepTimer.unref) sweepTimer.unref();
+  }
+  function offerSweep(at = new Date()) {
+    const nowIso = at.toISOString();
+    // Close offers that ran out of time, or whose ride was taken or cancelled.
+    q(`UPDATE ride_offers SET status = 'expired', responded_at = ? WHERE status = 'pending'
+       AND (expires_at <= ? OR ride_id NOT IN (SELECT id FROM rides WHERE status = 'requested' AND driver_id IS NULL))`).run(nowIso, nowIso);
+    if (getSettings().ride_offers !== '1') return [];
+    const soon = new Date(at.getTime() + 90 * 60000).toISOString(); // rides due in the next 90 minutes (or late)
+    const rides = q(`SELECT * FROM rides WHERE status = 'requested' AND driver_id IS NULL AND scheduled_at <= ?
+                     AND id NOT IN (SELECT ride_id FROM ride_offers WHERE status = 'pending')
+                     ORDER BY priority = 'urgent' DESC, scheduled_at`).all(soon);
+    if (!rides.length) return [];
+    let drivers = q(`SELECT u.*, (SELECT COUNT(*) FROM rides r WHERE r.driver_id = u.id AND r.status IN ('assigned','en_route','onboard')) AS load
+                     FROM users u WHERE u.role = 'driver' AND u.active = 1 AND u.on_duty = 1 AND u.last_lat IS NOT NULL AND u.last_loc_at >= ?
+                     AND u.id NOT IN (SELECT driver_id FROM ride_offers WHERE status = 'pending')`)
+      .all(new Date(at.getTime() - 10 * 60000).toISOString())
+      .filter((d) => d.load <= 1); // free, or only finishing one ride
+    const dealer = dealerOrigin();
+    const recent = new Date(at.getTime() - 30 * 60000).toISOString();
+    const made = [];
+    for (const r of rides) {
+      if (!drivers.length) break;
+      const passed = new Set(q(`SELECT driver_id FROM ride_offers WHERE ride_id = ? AND status IN ('declined','expired') AND created_at >= ?`)
+        .all(r.id, recent).map((x) => x.driver_id));
+      // Pick ups: go to the customer. Drop offs: the customer is at the dealership.
+      const target = r.type === 'pickup' && r.lat != null ? { lat: r.lat, lng: r.lng } : dealer;
+      const best = drivers.filter((d) => !passed.has(d.id))
+        .map((d) => ({ d, km: distanceKm({ lat: d.last_lat, lng: d.last_lng }, target) + d.load * 2.5 })) // busy drivers count as a bit further away
+        .sort((a, b) => a.km - b.km)[0];
+      if (!best) continue;
+      const miles = Math.round(distanceKm({ lat: best.d.last_lat, lng: best.d.last_lng }, target) * KM_TO_MI * 1.35 * 10) / 10;
+      const minutes = Math.max(1, Math.round((miles / 28) * 60));
+      const id = Number(q('INSERT INTO ride_offers (ride_id, driver_id, miles, minutes, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(r.id, best.d.id, miles, minutes, nowIso, new Date(at.getTime() + OFFER_SECONDS * 1000).toISOString()).lastInsertRowid);
+      drivers = drivers.filter((d) => d.id !== best.d.id);
+      const where = r.type === 'pickup' ? `${miles} mi away (about ${minutes} min)` : `customer is at the dealership, ${miles} mi from you`;
+      quietly(push.notifyUsers([best.d.id], {
+        title: best.d.load ? '🚐 Ride near you when you finish' : "🚐 You're free: ride near you",
+        body: `${r.type === 'pickup' ? 'Pick up' : 'Drop off'} ${r.customer_name} · ${where}. Want it?`,
+        tag: `offer-${id}`, url: '/driver', offer_id: id,
+      }));
+      made.push({ id, ride_id: r.id, driver_id: best.d.id, miles, minutes });
+    }
+    return made;
+  }
+  app.locals.offerSweep = offerSweep;
+  if (!opts.noTimers) setInterval(() => { try { offerSweep(); } catch (e) { console.error('Ride offers failed:', e.message); } }, 15000).unref();
+
+  app.get('/api/offers/mine', requireRole('driver'), (req, res) => {
+    const o = q(`SELECT o.*, r.customer_name, r.type, r.address, r.lat, r.lng, r.scheduled_at, r.passengers, r.priority, r.notes
+                 FROM ride_offers o JOIN rides r ON r.id = o.ride_id
+                 WHERE o.driver_id = ? AND o.status = 'pending' AND o.expires_at > ? ORDER BY o.id DESC LIMIT 1`).get(req.user.id, now());
+    res.json({ offer: o ? { ...o, seconds_left: Math.max(0, Math.round((new Date(o.expires_at) - Date.now()) / 1000)) } : null });
+  });
+  app.post('/api/offers/:id/:answer', requireRole('driver'), (req, res) => {
+    const answer = req.params.answer;
+    if (!['accept', 'decline'].includes(answer)) return bad(res, 'Not found.', 404);
+    const o = q('SELECT * FROM ride_offers WHERE id = ? AND driver_id = ?').get(Number(req.params.id), req.user.id);
+    if (!o) return bad(res, 'Offer not found.', 404);
+    if (o.status !== 'pending' || o.expires_at <= now()) return bad(res, o.status === 'accepted' ? 'You already took this ride.' : 'This offer has ended.', 409);
+    if (answer === 'decline') {
+      q("UPDATE ride_offers SET status = 'declined', responded_at = ? WHERE id = ?").run(now(), o.id);
+      scheduleOfferSweep(); // offer it to the next closest driver
+      return res.json({ ok: true });
+    }
+    const took = q("UPDATE rides SET driver_id = ?, vehicle_id = ?, status = 'assigned', updated_at = ? WHERE id = ? AND driver_id IS NULL AND status = 'requested'")
+      .run(req.user.id, req.user.vehicle_id, now(), o.ride_id).changes;
+    q('UPDATE ride_offers SET status = ?, responded_at = ? WHERE id = ?').run(took ? 'accepted' : 'expired', now(), o.id);
+    if (!took) return bad(res, 'Someone else just took this ride.', 409);
+    scheduleOfferSweep();
+    res.json({ ok: true, ride: withLinks(req, q(`${RIDE_SELECT} WHERE r.id = ?`).get(o.ride_id)) });
+  });
+
+  const MAX_ROUTE_RIDES = 12;
+  async function buildRoute(req) {
+    const ids = [...new Set((Array.isArray(req.body.ride_ids) ? req.body.ride_ids : []).map(Number).filter(Boolean))];
+    if (!ids.length) throw new Error('Pick at least one ride for the route.');
+    if (ids.length > MAX_ROUTE_RIDES) throw new Error(`A route can have up to ${MAX_ROUTE_RIDES} rides.`);
+    const rides = q(`${RIDE_SELECT} WHERE r.id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+    for (const r of rides) {
+      if (!OPEN_STATUSES.includes(r.status)) throw new Error(`${r.customer_name}'s ride is already ${r.status}.`);
+      if (r.driver_id && r.driver_id !== req.user.id) throw new Error(`${r.customer_name}'s ride belongs to ${r.driver_name || 'another driver'}.`);
+    }
+    if (rides.length !== ids.length) throw new Error('One of those rides no longer exists. Refresh and try again.');
+    const dealer = { ...dealerOrigin(), label: 'Dealership', kind: 'dealer' };
+    const f = req.body.from || {};
+    const fromLat = num(f.lat); const fromLng = num(f.lng);
+    let start;
+    if (fromLat != null && fromLng != null && Math.abs(fromLat) <= 90 && Math.abs(fromLng) <= 180) start = { lat: fromLat, lng: fromLng, label: 'You' };
+    else if (req.user.last_lat != null) start = { lat: req.user.last_lat, lng: req.user.last_lng, label: 'You' };
+    else start = { ...dealer, label: 'Dealership' };
+
+    const skipped = rides.filter((r) => r.lat == null).map((r) => r.customer_name);
+    // keep_order: save the exact order the driver just previewed (and sent to Google Maps).
+    const keepOrder = !!req.body.keep_order;
+    if (keepOrder) rides.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+    const stops = rides.filter((r) => r.lat != null && !(r.type === 'pickup' && r.status === 'onboard')).map((r) => ({
+      lat: r.lat, lng: r.lng, kind: r.type, ride_id: r.id, label: `${r.type === 'pickup' ? 'Pick up' : 'Drop off'} ${r.customer_name}`, address: r.address,
+    }));
+    // Drop-off customers have to be collected at the dealership before anything else.
+    const atDealer = distanceKm(start, dealer) < 0.25;
+    const needDealer = rides.some((r) => r.type === 'dropoff' && r.status !== 'onboard') && !atDealer;
+    const via = needDealer ? { ...dealer, label: 'Dealership: pick up drop-off customers' } : null;
+    const plan = await planRoute({ start, via, stops, end: { ...dealer, label: 'Back to the dealership' }, router: opts.router, keepOrder, log: (m) => console.log(new Date().toLocaleString(), '[routes]', m) });
+
+    let t = Date.now(); let miles = 0; let mins = 0;
+    const out = plan.legs.map((leg, i) => {
+      if (i > 0) t += STOP_MINUTES * 60000;
+      t += leg.seconds * 1000; miles += leg.meters / 1000 * KM_TO_MI; mins += leg.seconds / 60;
+      const p = leg.point;
+      return {
+        kind: p.kind || 'dealer', ride_id: p.ride_id || null, label: p.label, address: p.address || getSettings().dealer_address,
+        lat: p.lat, lng: p.lng, leg_mi: Math.round(leg.meters / 1000 * KM_TO_MI * 10) / 10, leg_min: Math.max(1, Math.round(leg.seconds / 60)),
+        eta: new Date(t).toISOString(),
+      };
+    });
+    // Keep the saved path small: round and thin it out.
+    let path = plan.path.map(([a, b]) => [Math.round(a * 1e5) / 1e5, Math.round(b * 1e5) / 1e5]);
+    if (path.length > 1500) { const step = Math.ceil(path.length / 1500); path = path.filter((_, i) => i % step === 0 || i === path.length - 1); }
+    return {
+      route: { planned_at: now(), source: plan.source, start: { lat: start.lat, lng: start.lng }, total_mi: Math.round(miles * 10) / 10,
+        total_min: Math.round(mins + STOP_MINUTES * Math.max(0, out.length - 1)), finish_at: out.length ? out[out.length - 1].eta : now(), stops: out, path },
+      skipped, rides,
+    };
+  }
+
+  app.get('/api/route', requireRole('driver'), (req, res) => {
+    res.json({ route: liveRoute(req.user) });
+  });
+  // Plan (preview) a route; with save: true it becomes the driver's route and any
+  // unassigned rides on it are taken by this driver.
+  app.post('/api/route', requireRole('driver'), async (req, res) => {
+    let built;
+    try { built = await buildRoute(req); } catch (e) { return bad(res, e.message); }
+    if (req.body.save) {
+      for (const r of built.rides) {
+        if (r.driver_id) continue;
+        const ok = q("UPDATE rides SET driver_id = ?, vehicle_id = ?, status = CASE WHEN status = 'requested' THEN 'assigned' ELSE status END, updated_at = ? WHERE id = ? AND driver_id IS NULL")
+          .run(req.user.id, req.user.vehicle_id, now(), r.id).changes;
+        if (!ok) return bad(res, `${r.customer_name}'s ride was just taken by someone else. Plan again.`);
+      }
+      q('UPDATE users SET route_json = ? WHERE id = ?').run(JSON.stringify(built.route), req.user.id);
+    }
+    res.json({ route: built.route, skipped: built.skipped, saved: !!req.body.save });
+  });
+  app.delete('/api/route', requireRole('driver'), (req, res) => {
+    q('UPDATE users SET route_json = NULL WHERE id = ?').run(req.user.id);
     res.json({ ok: true });
   });
 
@@ -622,6 +827,7 @@ function createApp(db, opts = {}) {
     if (updates.status === 'cancelled' && ride.status !== 'cancelled' && ride.driver_id && ride.driver_id !== req.user.id) {
       quietly(push.notifyUsers([ride.driver_id], { title: '❌ Ride cancelled', body: `${rideLine(after)}${after.cancel_reason ? ` — ${after.cancel_reason}` : ''}`, tag: `ride-${after.id}` }));
     }
+    scheduleOfferSweep(); // a driver may be free now, or a ride may need someone again
     res.json({ ride: withLinks(req, q(`${RIDE_SELECT} WHERE r.id = ?`).get(ride.id)) });
   });
 
@@ -668,6 +874,13 @@ function createApp(db, opts = {}) {
       const d = q('SELECT last_lat, last_lng, last_loc_at FROM users WHERE id = ?').get(ride.driver_id);
       if (d && d.last_lat != null) driverLoc = { lat: d.last_lat, lng: d.last_lng, at: d.last_loc_at };
     }
+    // Planned arrival from the driver's route (only while the driver is on the way).
+    let eta = null;
+    if (ride.driver_id && ['assigned', 'en_route'].includes(ride.status)) {
+      const d = q('SELECT * FROM users WHERE id = ?').get(ride.driver_id);
+      const stop = d && liveRoute(d)?.stops.find((x) => x.ride_id === ride.id);
+      if (stop && new Date(stop.eta) > Date.now() - 15 * 60000) eta = stop.eta;
+    }
     let position = null;
     if (ride.status === 'requested' || ride.status === 'assigned') {
       const rk = rankRides(q(`${RIDE_SELECT} WHERE r.status IN ('requested','assigned','en_route','onboard')`).all(), dealerOrigin());
@@ -684,6 +897,7 @@ function createApp(db, opts = {}) {
         updated_at: ride.updated_at,
       },
       driver_location: driverLoc,
+      eta,
       queue_position: position,
       dealer: { name: s.dealer_name, address: s.dealer_address, phone: s.dealer_phone, lat: Number(s.dealer_lat), lng: Number(s.dealer_lng) },
     });
@@ -747,7 +961,7 @@ function createApp(db, opts = {}) {
     q("INSERT INTO settings (key, value) VALUES ('auto_end_last', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(today);
     const drivers = q("SELECT id FROM users WHERE role = 'driver' AND on_duty = 1").all().map((u) => u.id);
     if (!drivers.length) return 0;
-    q("UPDATE users SET on_duty = 0, vehicle_id = NULL WHERE role = 'driver' AND on_duty = 1").run();
+    q("UPDATE users SET on_duty = 0, vehicle_id = NULL, route_json = NULL WHERE role = 'driver' AND on_duty = 1").run();
     const [h, m] = cutoff.split(':').map(Number);
     const label = new Date(2000, 0, 1, h, m).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     quietly(push.notifyUsers(drivers, { title: '🌙 Shift ended', body: `Your shift was ended automatically at ${label}. Start a new shift in the app if you're still driving.`, tag: 'shift-ended' }));
@@ -781,7 +995,7 @@ function createApp(db, opts = {}) {
     if (nowHM < cutoff || s.auto_signout_last === today) return 0;
     setLast();
     const signedOut = q('DELETE FROM sessions').run().changes;
-    q("UPDATE users SET on_duty = 0, vehicle_id = NULL WHERE role = 'driver' AND on_duty = 1").run();
+    q("UPDATE users SET on_duty = 0, vehicle_id = NULL, route_json = NULL WHERE role = 'driver' AND on_duty = 1").run();
     console.log(new Date().toLocaleString(), `[sign-out] Signed everyone out automatically (${signedOut} session(s)).`);
     return signedOut;
   }

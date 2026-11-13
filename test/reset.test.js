@@ -9,7 +9,7 @@ let server; let base;
 before(async () => {
   const db = openDb(':memory:');
   ensureAdmin(db, { email: 'admin@test.local', password: 'adminpass1', name: 'Admin' });
-  const pushSender = { async sendNotification(sub, payload) { pushes.push(JSON.parse(payload)); } };
+  const pushSender = async (sub, payload) => { pushes.push(JSON.parse(payload)); };
   const app = createApp(db, { publicUrl: 'https://shuttle.test', pushSender });
   await new Promise((r) => { server = app.listen(0, r); });
   base = `http://127.0.0.1:${server.address().port}`;

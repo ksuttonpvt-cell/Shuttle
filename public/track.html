@@ -27,7 +27,7 @@
     let data;
     try { data = await api(`/api/public/track/${encodeURIComponent(token)}`); }
     catch (err) { $('#status').innerHTML = `<h2>Ride not found</h2><p>${esc(err.message)}</p>`; return; }
-    const { ride, dealer, driver_location: loc, queue_position: pos } = data;
+    const { ride, dealer, driver_location: loc, queue_position: pos, eta } = data;
     $('#dealer').textContent = dealer.name;
     $('#title').textContent = ride.type === 'pickup' ? `Hi ${ride.customer_first_name}, we're coming to get you` : `Hi ${ride.customer_first_name}, your ride home`;
 
@@ -50,6 +50,7 @@
           <div>🕒 Scheduled ${fmtTime(ride.scheduled_at)}</div>
           <div>📍 ${ride.type === 'pickup' ? 'Pick up at' : 'Drop off at'} ${esc(ride.address)}</div>
           ${veh ? `<div>🚐 Look for: <b>${esc([veh.color, veh.make_model].filter(Boolean).join(' ') || veh.name)}</b>${veh.plate ? ` · plate ${esc(veh.plate)}` : ''}</div>` : ''}
+          ${eta ? `<div>⏱ ${ride.type === 'pickup' ? 'Driver expected around' : 'Estimated arrival around'} <b>${fmtTime(eta)}</b></div>` : ''}
           ${pos ? `<div>📋 You're #${pos} in the shuttle line</div>` : ''}
         </div>
         ${dealer.phone ? `<div class="actions"><a class="btn btn-ghost" href="${App.telLink(dealer.phone)}">📞 Call the dealership</a></div>` : ''}`;
@@ -64,7 +65,7 @@
       if (ride.lat != null) L.marker([ride.lat, ride.lng], { icon: App.pinIcon(ride.type, '★') }).bindPopup('You').addTo(map);
     }
     if (loc) {
-      if (car) car.setLatLng([loc.lat, loc.lng]);
+      if (car) App.glide(car, [loc.lat, loc.lng]);
       else car = L.marker([loc.lat, loc.lng], { icon: App.carIcon() }).bindPopup('Your shuttle').addTo(map);
     } else if (car) { car.remove(); car = null; }
     if (!fitted) {
@@ -75,7 +76,7 @@
       fitted = true;
     }
   }
-  App.poll(load, 15000);
+  App.poll(load, 6000); // fast enough to watch the shuttle move
 })();
 </script>
 </body>
