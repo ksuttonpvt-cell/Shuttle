@@ -20,11 +20,12 @@ async function fakeSender(sub, payload) {
   delivered.push({ endpoint: sub.endpoint, ...JSON.parse(payload) });
 }
 
-let server; let base;
+let server; let base; let theApp;
 before(async () => {
   const db = openDb(':memory:');
   ensureAdmin(db, { email: 'admin@test.local', password: 'adminpass1', name: 'Admin' });
   const app = createApp(db, { pushSender: fakeSender, sms: { configured: false } });
+  theApp = app;
   await new Promise((r) => { server = app.listen(0, r); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -125,4 +126,45 @@ test('drivers get lock-screen notifications for new, assigned and cancelled ride
   }
   assert.equal((await fetch(base + '/icons/icon-192.png')).status, 200);
   assert.equal((await admin('/api/push')).status, 200, 'admins can use the driver page too');
+});
+
+test('all driver shifts end automatically at 8 PM (dealership time)', async () => {
+  const admin = client();
+  await admin('/api/login', { body: { email: 'admin@test.local', password: 'adminpass1' } });
+  await admin('/api/users', { body: { name: 'Night Owl', email: 'owl@test.local', role: 'driver', password: 'driverpw1' } });
+  const v = (await admin('/api/vehicles', { body: { name: 'Shuttle 9' } })).data.vehicle;
+  const owl = client();
+  await owl('/api/login', { body: { email: 'owl@test.local', password: 'driverpw1' } });
+  await owl('/api/push/subscribe', { body: { subscription: fakeSubscription(9) } });
+  await owl('/api/driver/shift', { body: { on_duty: true, vehicle_id: v.id } });
+  const onDuty = async () => (await owl('/api/me')).data.user.on_duty;
+
+  // Denver is UTC-7 in November: 7:59 PM there is 02:59 UTC the next day.
+  const end = theApp.locals.autoEndShifts;
+  assert.equal(end(new Date('2026-11-14T02:59:00Z')), 0, 'not yet 8 PM');
+  assert.equal(await onDuty(), true);
+  delivered.length = 0;
+  assert.ok(end(new Date('2026-11-14T03:01:00Z')) >= 1, '8:01 PM ends every shift still on (other tests leave drivers on too)');
+  await settle();
+  assert.equal(await onDuty(), false);
+  assert.equal((await owl('/api/me')).data.user.vehicle_id, null, 'vehicle freed');
+  assert.equal(delivered.at(-1).title, '🌙 Shift ended');
+  assert.match(delivered.at(-1).body, /ended automatically at 8:00 PM/);
+
+  // Starting again later that night isn't undone until the next evening.
+  await owl('/api/driver/shift', { body: { on_duty: true, vehicle_id: v.id } });
+  assert.equal(end(new Date('2026-11-14T05:00:00Z')), 0, 'only once per day');
+  assert.equal(await onDuty(), true);
+  assert.equal(end(new Date('2026-11-15T03:05:00Z')), 1, 'next evening');
+  assert.equal(await onDuty(), false);
+
+  // Admin can change or turn it off, and bad times are refused.
+  assert.equal((await admin('/api/settings', { method: 'PATCH', body: { auto_end_shift: '8pm' } })).status, 400);
+  await admin('/api/settings', { method: 'PATCH', body: { auto_end_shift: '' } });
+  await owl('/api/driver/shift', { body: { on_duty: true, vehicle_id: v.id } });
+  assert.equal(end(new Date('2026-11-16T03:05:00Z')), 0, 'turned off');
+  assert.equal(await onDuty(), true);
+  const s = (await admin('/api/settings', { method: 'PATCH', body: { auto_end_shift: '20:00' } })).data.settings;
+  assert.equal(s.auto_end_shift, '20:00');
+  assert.equal(s.auto_end_last, undefined, 'internal bookkeeping is not sent to browsers');
 });

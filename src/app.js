@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS = {
   public_requests: '1',
   timezone: 'America/Denver',
   service_radius_mi: '15.5',
+  auto_end_shift: '20:00', // every driver is taken off shift at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
   sms_booked: '1',
   sms_en_route: '1',
@@ -593,6 +594,10 @@ function createApp(db, opts = {}) {
       if ((k === 'dealer_lat' || k === 'dealer_lng') && Number.isNaN(Number(v))) return bad(res, 'Latitude/longitude must be numbers.');
       if (YES_NO_SETTINGS.includes(k)) v = req.body[k] && req.body[k] !== '0' ? '1' : '0';
       if (k === 'timezone') { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); } catch { return bad(res, 'Unknown time zone.'); } }
+      if (k === 'auto_end_shift') {
+        v = v.trim();
+        if (v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) return bad(res, 'Pick a time for ending shifts, like 8:00 PM, or leave it empty to turn it off.');
+      }
       if (k === 'service_radius_mi') {
         const n = Number(v);
         if (v === '' || Number.isNaN(n) || n < 0 || n > 500) return bad(res, 'The service distance must be a number of miles (0 means no limit).');
@@ -621,6 +626,30 @@ function createApp(db, opts = {}) {
     if (!r.sent) return bad(res, r.failed ? 'The phone\'s notification service refused it. Try turning notifications off and on again.' : 'Notifications aren\'t turned on for any of your phones yet.');
     res.json({ ok: true, sent: r.sent });
   });
+
+  // ---------- automatic end of shift ----------
+  // Once a day at the set time (dealership time zone), every driver still on duty is
+  // taken off shift: no more new-ride notifications, and their vehicle is freed.
+  // Rides they're in the middle of stay assigned so they can still finish them.
+  function autoEndShifts(at = new Date()) {
+    const s = getSettings();
+    const cutoff = (s.auto_end_shift || '').trim();
+    if (!/^\d{2}:\d{2}$/.test(cutoff)) return 0;
+    const nowHM = new Intl.DateTimeFormat('en-GB', { timeZone: tz(), hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at);
+    const today = localDate(at.toISOString());
+    if (nowHM < cutoff || s.auto_end_last === today) return 0;
+    q("INSERT INTO settings (key, value) VALUES ('auto_end_last', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(today);
+    const drivers = q("SELECT id FROM users WHERE role = 'driver' AND on_duty = 1").all().map((u) => u.id);
+    if (!drivers.length) return 0;
+    q("UPDATE users SET on_duty = 0, vehicle_id = NULL WHERE role = 'driver' AND on_duty = 1").run();
+    const [h, m] = cutoff.split(':').map(Number);
+    const label = new Date(2000, 0, 1, h, m).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    quietly(push.notifyUsers(drivers, { title: '🌙 Shift ended', body: `Your shift was ended automatically at ${label}. Start a new shift in the app if you're still driving.`, tag: 'shift-ended' }));
+    console.log(new Date().toLocaleString(), `[shifts] Ended ${drivers.length} driver shift(s) automatically at ${label}.`);
+    return drivers.length;
+  }
+  app.locals.autoEndShifts = autoEndShifts;
+  if (!opts.noTimers) setInterval(() => { try { autoEndShifts(); } catch (e) { console.error('Auto end of shift failed:', e.message); } }, 60000).unref();
 
   // ---------- reports ----------
   app.get('/api/reports', requireRole('admin'), (req, res) => {

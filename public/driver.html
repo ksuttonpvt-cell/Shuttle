@@ -289,6 +289,13 @@
   })();
 
   async function refresh() {
+    // Notice if the shift was ended elsewhere (e.g. the automatic end of shift at night).
+    const fresh = (await api('/api/me')).user;
+    if (fresh && fresh.on_duty !== me.on_duty) {
+      me = fresh;
+      if (!me.on_duty) stopGps();
+      drawShift();
+    }
     const r = await api('/api/rides?scope=open');
     rides = r.queue.map((id) => r.rides.find((x) => x.id === id));
     alerts.check(rides);
