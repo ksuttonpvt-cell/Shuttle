@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS = {
   service_radius_mi: '15.5',
   auto_end_shift: '20:00', // every driver is taken off shift at this local time each day ('' = off)
   auto_sign_out: '00:00',  // everyone is signed out at this local time each day ('' = off)
+  clear_customer_info: '00:00', // finished rides lose their customer details at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
   sms_booked: '1',
   sms_en_route: '1',
@@ -696,7 +697,7 @@ function createApp(db, opts = {}) {
       if ((k === 'dealer_lat' || k === 'dealer_lng') && Number.isNaN(Number(v))) return bad(res, 'Latitude/longitude must be numbers.');
       if (YES_NO_SETTINGS.includes(k)) v = req.body[k] && req.body[k] !== '0' ? '1' : '0';
       if (k === 'timezone') { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); } catch { return bad(res, 'Unknown time zone.'); } }
-      if (k === 'auto_end_shift' || k === 'auto_sign_out') {
+      if (k === 'auto_end_shift' || k === 'auto_sign_out' || k === 'clear_customer_info') {
         v = v.trim();
         if (v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) return bad(res, 'Pick a time, like 8:00 PM, or leave it empty to turn it off.');
       }
@@ -708,6 +709,7 @@ function createApp(db, opts = {}) {
       const changed = getSettings()[k] !== v;
       q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
       if (k === 'auto_sign_out' && changed) resetSignOutSchedule(v);
+      if (k === 'clear_customer_info' && changed) customerWipe.reset(v);
     }
     res.json({ settings: shareableSettings() });
   });
@@ -784,10 +786,54 @@ function createApp(db, opts = {}) {
     return signedOut;
   }
   app.locals.autoSignOut = autoSignOut;
+
+  // ---------- nightly customer-info wipe ----------
+  // Once a day at the set time (default midnight, dealership time zone), every finished
+  // ride (completed or cancelled) loses the customer's name, phone, email, address, map
+  // spot and notes, its tracking link stops working, and the text-message log is emptied.
+  // Ride counts, times, drivers, vehicles and cancel reasons stay, so reports still work.
+  // Rides that are still open keep their details until they're done.
+  const CLEARED_NAME = 'Customer (info cleared)';
+  function clearCustomerInfo() {
+    const ids = q(`SELECT id FROM rides WHERE status IN ('completed','cancelled') AND cleared_at IS NULL`).all().map((r) => r.id);
+    const wipe = q(`UPDATE rides SET customer_name = ?, customer_phone = NULL, customer_email = NULL,
+                      address = '(cleared)', lat = NULL, lng = NULL, notes = NULL, ro_number = NULL,
+                      customer_vehicle = NULL, track_token = ?, cleared_at = ? WHERE id = ?`);
+    const at = now();
+    for (const id of ids) wipe.run(CLEARED_NAME, randomToken(18), at, id);
+    const texts = q('DELETE FROM sms_log').run().changes;
+    geoCache.clear(); // searched addresses
+    if (ids.length || texts) console.log(new Date().toLocaleString(), `[privacy] Cleared customer info from ${ids.length} finished ride(s) and ${texts} text log entr${texts === 1 ? 'y' : 'ies'}.`);
+    return ids.length;
+  }
+  // Same daily timing rules as the sign-out above.
+  const customerWipe = (() => {
+    const LAST = 'clear_customer_last';
+    const setLast = (v) => q("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(LAST, v);
+    function tick(at = new Date()) {
+      const s = getSettings();
+      const cutoff = (s.clear_customer_info || '').trim();
+      if (!/^\d{2}:\d{2}$/.test(cutoff)) return 0;
+      const nowHM = new Intl.DateTimeFormat('en-GB', { timeZone: tz(), hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at);
+      const today = localDate(at.toISOString());
+      if (!s[LAST]) { setLast(nowHM >= cutoff ? today : 'pending'); return 0; }
+      if (nowHM < cutoff || s[LAST] === today) return 0;
+      setLast(today);
+      return clearCustomerInfo();
+    }
+    function reset(cutoff, at = new Date()) {
+      q('DELETE FROM settings WHERE key = ?').run(LAST);
+      if (cutoff) tick(at);
+    }
+    return { tick, reset };
+  })();
+  app.locals.clearCustomerInfo = customerWipe.tick;
+  app.locals.resetClearSchedule = customerWipe.reset;
   if (!opts.noTimers) {
     setInterval(() => {
       try { autoEndShifts(); } catch (e) { console.error('Auto end of shift failed:', e.message); }
       try { autoSignOut(); } catch (e) { console.error('Auto sign-out failed:', e.message); }
+      try { customerWipe.tick(); } catch (e) { console.error('Clearing customer info failed:', e.message); }
     }, 60000).unref();
   }
 

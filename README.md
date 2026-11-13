@@ -18,6 +18,8 @@ Every open ride gets a queue number. Ride in progress (on board or en route) com
 ### Logins
 Each person has their **own email + password** (8+ characters). Passwords are hashed with scrypt, and sign-in is rate-limited. Admins create accounts and reset passwords, and anyone can change their own password from the top bar.
 
+**Customer privacy:** every night at midnight (Admin → Settings, *Delete customer info automatically at*), finished rides lose the customer's name, phone, email, address and notes, their tracking links stop working, and the text-message log is emptied. Ride counts, times, drivers and cancel reasons stay for reports. Rides that aren't finished keep their details until they are.
+
 **Forgot password?** On the sign-in screen, tap *Forgot your password?* and enter your email. Every admin sees a 🔑 banner in the admin page (and gets a phone notification if they turned notifications on). The admin taps **Send reset link**, then texts, emails, or shows the QR code to the person. The link works once, expires in 24 hours, and signs that person out of every old device. Admins can also make a link anytime from *Staff & logins → Send reset link*.
 
 ### Driver lock-screen notifications
