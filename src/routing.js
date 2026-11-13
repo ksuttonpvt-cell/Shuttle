@@ -51,11 +51,12 @@ function createOsrmRouter({ baseUrl = 'https://router.project-osrm.org', timeout
 
 // Best order of the free points between the fixed start points and the end point.
 // Small sets are solved exactly; bigger ones use nearest-neighbour + 2-opt.
-function bestOrder(cost, fixed, free, end) {
+// extra(seq) adds a cost for a whole sequence (used for the seat limit).
+function bestOrder(cost, fixed, free, end, extra = null) {
   const total = (order) => {
     const seq = [...fixed, ...order, ...(end == null ? [] : [end])];
     let t = 0; for (let i = 1; i < seq.length; i++) t += cost[seq[i - 1]][seq[i]];
-    return t;
+    return extra ? t + extra(seq) : t;
   };
   if (free.length <= 8) {
     let best = null; let bestT = Infinity;
@@ -87,7 +88,16 @@ function bestOrder(cost, fixed, free, end) {
 // start: {lat,lng,label}; via: optional fixed stop right after start (e.g. the dealership);
 // stops: [{lat,lng,...}] in any order (or in driving order with keepOrder); end: {lat,lng,label} or null.
 // Returns { legs: [{ point, meters, seconds }], path, source }.
-async function planRoute({ start, via = null, stops, end = null, router = null, keepOrder = false, log = () => {} }) {
+// Seat limit: each point may have `people` (+ get in, - get out); startLoad is who's
+// already in the van; capacity is the van's seats. Orders that overfill the van are
+// avoided, and `peak` says the most people in the van at once on the chosen order.
+function peakLoad(seq, points, startLoad) {
+  let load = startLoad; let peak = startLoad;
+  for (const i of seq) { load += points[i].people || 0; peak = Math.max(peak, load); }
+  return peak;
+}
+
+async function planRoute({ start, via = null, stops, end = null, router = null, keepOrder = false, capacity = null, startLoad = 0, log = () => {} }) {
   const points = [start, ...(via ? [via] : []), ...stops, ...(end ? [end] : [])];
   const fixed = via ? [0, 1] : [0];
   const first = fixed.length;
@@ -102,14 +112,19 @@ async function planRoute({ start, via = null, stops, end = null, router = null, 
     } catch (e) { log(`Road routing unavailable, using an estimate: ${e.message}`); m = null; }
   }
   if (!m) m = estimateMatrix(points);
-  const order = keepOrder ? free : bestOrder(m.seconds, fixed, free, endIdx); // keepOrder: stops are already in the order to drive
+  // Overfilling the van costs far more than any detour, so the planner drops people off
+  // before picking more up when it has to.
+  const seatPenalty = capacity ? (seq) => Math.max(0, peakLoad(seq, points, startLoad) - capacity) * 1e7 : null;
+  const order = keepOrder ? free : bestOrder(m.seconds, fixed, free, endIdx, seatPenalty); // keepOrder: stops are already in the order to drive
   const seq = [...fixed, ...order, ...(endIdx == null ? [] : [endIdx])];
   const legs = seq.slice(1).map((idx, i) => ({ point: points[idx], meters: m.meters[seq[i]][idx], seconds: m.seconds[seq[i]][idx] }));
   let path = seq.map((i) => [points[i].lat, points[i].lng]);
   if (source === 'roads') {
     try { path = await router.path(seq.map((i) => points[i])); } catch (e) { log(`Road path unavailable: ${e.message}`); }
   }
-  return { legs, path, source };
+  let load = startLoad;
+  const loads = seq.slice(1).map((i) => { load += points[i].people || 0; return Math.max(0, load); });
+  return { legs, path, source, loads, peak: Math.max(startLoad, ...loads) };
 }
 
-module.exports = { planRoute, createOsrmRouter, estimateMatrix, bestOrder, KM_TO_MI, STOP_MINUTES };
+module.exports = { planRoute, peakLoad, createOsrmRouter, estimateMatrix, bestOrder, KM_TO_MI, STOP_MINUTES };

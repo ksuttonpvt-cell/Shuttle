@@ -159,6 +159,7 @@ button:disabled { opacity: .55; cursor: default; }
 .route-pick input { width: 22px; height: 22px; min-height: 0; margin-top: .1rem; flex: none; }
 .route-total { font-weight: 800; font-size: 1.05rem; }
 .timeline { margin-top: .6rem; }
+.seat-pill { display: inline-block; font-size: .75rem; font-weight: 700; padding: 0 .4rem; border-radius: 99px; background: var(--gray-bg); color: var(--gray-fg); vertical-align: middle; }
 .offer-sheet { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); width: min(560px, calc(100% - 24px)); z-index: 3000;
   background: var(--card); color: var(--ink); border: 3px solid var(--btn-green); border-radius: 14px; padding: .9rem 1rem; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
 .offer-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; font-size: 1.1rem; margin-bottom: .35rem; }
