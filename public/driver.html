@@ -322,9 +322,24 @@
     const timeline = (rt) => `<div class="timeline">
         <div class="tl-row"><span class="tl-dot tl-start"></span><b>Leave now</b><span class="muted small">${fmtTime(rt.planned_at)}</span></div>
         ${rt.stops.map((x, i) => `<div class="tl-leg small muted">🚐 ${x.leg_min} min · ${x.leg_mi} mi</div>
-          <div class="tl-row"><span class="tl-dot ${x.kind === 'dealer' ? 'tl-dealer' : ''}">${i + 1}</span><b>${esc(shortName(x))}</b><span><b>${fmtTime(x.eta)}</b></span></div>`).join('')}
+          <div class="tl-row"><span class="tl-dot ${x.kind === 'dealer' ? 'tl-dealer' : ''}">${i + 1}</span><b>${esc(shortName(x))}${rt.seats && x.on_board != null && i < rt.stops.length - 1 ? ` <span class="seat-pill">👥 ${x.on_board}/${rt.seats}</span>` : ''}</b><span><b>${fmtTime(x.eta)}</b></span></div>`).join('')}
         <div class="route-total" style="margin-top:.5rem">Back at the dealership about ${fmtTime(rt.finish_at)} · ${rt.total_mi} mi total</div>
         <div class="small muted">${rt.source === 'roads' ? 'Real road driving times' : 'Estimated times (road info unavailable)'}, plus 3 min at each stop.</div></div>`;
+    // How many people are checked, against the van's seats.
+    function seatNote(list) {
+      const veh = vehicles.find((v) => v.id === me.vehicle_id);
+      if (!veh || !veh.seats) return '';
+      const chosen = list.filter((r) => picking.has(r.id));
+      const ups = chosen.filter((r) => r.type === 'pickup').reduce((n, r) => n + r.passengers, 0);
+      const downs = chosen.filter((r) => r.type === 'dropoff').reduce((n, r) => n + r.passengers, 0);
+      const most = Math.max(ups, downs);
+      const all = ups + downs;
+      const tone = most > veh.seats ? 'alert-err' : all > veh.seats ? 'alert-warn' : 'alert-ok';
+      const say = most > veh.seats ? `Too many: ${most} ${ups >= downs ? 'pick-up' : 'drop-off'} passengers won't fit in ${veh.seats} seats. Uncheck some rides.`
+        : all > veh.seats ? `${all} passengers in all, more than ${veh.seats} seats, so the route will drop people off before picking others up.`
+        : `${all} passenger${all === 1 ? '' : 's'} · ${esc(veh.name)} has ${veh.seats} seats`;
+      return `<div class="alert ${tone} small">👥 ${say}</div>`;
+    }
     // Pick Google Maps, Apple Maps or Waze. Only Google Maps takes every stop at once;
     // the others go one stop at a time.
     const appPicker = () => `<div class="chips" role="group" aria-label="Directions app" style="margin-top:.7rem">
@@ -371,6 +386,7 @@
           ${list.map((r) => `<label class="route-pick"><input type="checkbox" data-pick="${r.id}" ${picking.has(r.id) ? 'checked' : ''}>
             <span>${typeBadge(r.type)} <b>${esc(r.customer_name)}</b>${r.driver_id ? '' : ' <span class="badge s-requested">Unassigned</span>'}${r.status === 'onboard' ? ' <span class="small muted">(on board)</span>' : ''}
             <br><span class="small muted">${esc(r.address)} · ${fmtTime(r.scheduled_at)}</span></span></label>`).join('')}
+          ${seatNote(list)}
           <div class="actions"><button class="btn-blue" data-r="plan" ${picking.size ? '' : 'disabled'}>Find the best route (${picking.size})</button></div>${msg}`;
       }
       card.classList.remove('hidden');

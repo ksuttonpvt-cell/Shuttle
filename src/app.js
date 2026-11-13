@@ -502,7 +502,9 @@ function createApp(db, opts = {}) {
                      AND id NOT IN (SELECT ride_id FROM ride_offers WHERE status = 'pending')
                      ORDER BY priority = 'urgent' DESC, scheduled_at`).all(soon);
     if (!rides.length) return [];
-    let drivers = q(`SELECT u.*, (SELECT COUNT(*) FROM rides r WHERE r.driver_id = u.id AND r.status IN ('assigned','en_route','onboard')) AS load
+    let drivers = q(`SELECT u.*, (SELECT COUNT(*) FROM rides r WHERE r.driver_id = u.id AND r.status IN ('assigned','en_route','onboard')) AS load,
+                       (SELECT COALESCE(SUM(r.passengers), 0) FROM rides r WHERE r.driver_id = u.id AND r.status = 'onboard') AS riding,
+                       (SELECT v.seats FROM vehicles v WHERE v.id = u.vehicle_id) AS seats
                      FROM users u WHERE u.role = 'driver' AND u.active = 1 AND u.on_duty = 1 AND u.last_lat IS NOT NULL AND u.last_loc_at >= ?
                      AND u.id NOT IN (SELECT driver_id FROM ride_offers WHERE status = 'pending')`)
       .all(new Date(at.getTime() - 10 * 60000).toISOString())
@@ -516,7 +518,7 @@ function createApp(db, opts = {}) {
         .all(r.id, recent).map((x) => x.driver_id));
       // Pick ups: go to the customer. Drop offs: the customer is at the dealership.
       const target = r.type === 'pickup' && r.lat != null ? { lat: r.lat, lng: r.lng } : dealer;
-      const best = drivers.filter((d) => !passed.has(d.id))
+      const best = drivers.filter((d) => !passed.has(d.id) && (!d.seats || d.riding + r.passengers <= d.seats)) // room in the van
         .map((d) => ({ d, km: distanceKm({ lat: d.last_lat, lng: d.last_lng }, target) + d.load * 2.5 })) // busy drivers count as a bit further away
         .sort((a, b) => a.km - b.km)[0];
       if (!best) continue;
@@ -588,12 +590,25 @@ function createApp(db, opts = {}) {
     if (keepOrder) rides.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
     const stops = rides.filter((r) => r.lat != null && !(r.type === 'pickup' && r.status === 'onboard')).map((r) => ({
       lat: r.lat, lng: r.lng, kind: r.type, ride_id: r.id, label: `${r.type === 'pickup' ? 'Pick up' : 'Drop off'} ${r.customer_name}`, address: r.address,
+      people: r.type === 'pickup' ? r.passengers : -r.passengers, // getting in / getting out
     }));
     // Drop-off customers have to be collected at the dealership before anything else.
     const atDealer = distanceKm(start, dealer) < 0.25;
     const needDealer = rides.some((r) => r.type === 'dropoff' && r.status !== 'onboard') && !atDealer;
-    const via = needDealer ? { ...dealer, label: 'Dealership: pick up drop-off customers' } : null;
-    const plan = await planRoute({ start, via, stops, end: { ...dealer, label: 'Back to the dealership' }, router: opts.router, keepOrder, log: (m) => console.log(new Date().toLocaleString(), '[routes]', m) });
+    // Seats: who's in the van now, who gets in at the dealership, and the van's seat count.
+    const waiting = rides.filter((r) => r.type === 'dropoff' && r.status !== 'onboard').reduce((n, r) => n + r.passengers, 0);
+    const startLoad = rides.filter((r) => r.status === 'onboard').reduce((n, r) => n + r.passengers, 0) + (needDealer ? 0 : waiting);
+    const van = req.user.vehicle_id ? q('SELECT name, seats FROM vehicles WHERE id = ?').get(req.user.vehicle_id) : null;
+    const capacity = van && van.seats > 0 ? van.seats : null;
+    const via = needDealer ? { ...dealer, label: 'Dealership: pick up drop-off customers', people: waiting } : null;
+    const plan = await planRoute({ start, via, stops, end: { ...dealer, label: 'Back to the dealership', people: 0 }, router: opts.router, keepOrder, capacity, startLoad,
+      log: (m) => console.log(new Date().toLocaleString(), '[routes]', m) });
+    if (capacity && plan.peak > capacity) {
+      const e = new Error(keepOrder
+        ? `In this order, ${plan.peak} people would be in ${van.name} at once, but it has ${capacity} seats. Plan the route again.`
+        : `Too many people for ${van.name}: it has ${capacity} seats, but this trip needs room for ${plan.peak} at once in any order. Uncheck a ride or two and plan again.`);
+      e.status = 400; throw e;
+    }
 
     let t = Date.now(); let miles = 0; let mins = 0;
     const out = plan.legs.map((leg, i) => {
@@ -603,6 +618,7 @@ function createApp(db, opts = {}) {
       return {
         kind: p.kind || 'dealer', ride_id: p.ride_id || null, label: p.label, address: p.address || getSettings().dealer_address,
         lat: p.lat, lng: p.lng, leg_mi: Math.round(leg.meters / 1000 * KM_TO_MI * 10) / 10, leg_min: Math.max(1, Math.round(leg.seconds / 60)),
+        on_board: plan.loads[i], // people in the van after this stop
         eta: new Date(t).toISOString(),
       };
     });
@@ -610,7 +626,7 @@ function createApp(db, opts = {}) {
     let path = plan.path.map(([a, b]) => [Math.round(a * 1e5) / 1e5, Math.round(b * 1e5) / 1e5]);
     if (path.length > 1500) { const step = Math.ceil(path.length / 1500); path = path.filter((_, i) => i % step === 0 || i === path.length - 1); }
     return {
-      route: { planned_at: now(), source: plan.source, start: { lat: start.lat, lng: start.lng }, total_mi: Math.round(miles * 10) / 10,
+      route: { planned_at: now(), source: plan.source, start: { lat: start.lat, lng: start.lng }, seats: capacity, start_load: startLoad, peak: plan.peak, total_mi: Math.round(miles * 10) / 10,
         total_min: Math.round(mins + STOP_MINUTES * Math.max(0, out.length - 1)), finish_at: out.length ? out[out.length - 1].eta : now(), stops: out, path },
       skipped, rides,
     };
