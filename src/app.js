@@ -700,9 +700,13 @@ function createApp(db, opts = {}) {
     // Look a day either side in UTC, then keep rides whose local date is in range.
     const lo = new Date(new Date(from + 'T00:00:00Z').getTime() - 86400000).toISOString();
     const hi = new Date(new Date(to + 'T00:00:00Z').getTime() + 2 * 86400000).toISOString();
-    const rides = q(`${RIDE_SELECT} WHERE r.scheduled_at >= ? AND r.scheduled_at < ?`).all(lo, hi)
+    const inRange = q(`${RIDE_SELECT} WHERE r.scheduled_at >= ? AND r.scheduled_at < ?`).all(lo, hi)
       .map((r) => ({ ...r, day: localDate(r.scheduled_at) }))
       .filter((r) => r.day >= from && r.day <= to);
+    // Optional pick up / drop off filter; the counts for each are sent for the filter buttons.
+    const type = ['pickup', 'dropoff'].includes(req.query.type) ? req.query.type : 'all';
+    const typeCounts = { all: inRange.length, pickup: inRange.filter((r) => r.type === 'pickup').length, dropoff: inRange.filter((r) => r.type === 'dropoff').length };
+    const rides = type === 'all' ? inRange : inRange.filter((r) => r.type === type);
 
     const mins = (a, b) => (new Date(b) - new Date(a)) / 60000;
     const isNoShow = (r) => r.status === 'cancelled' && /^customer no-show/i.test(r.cancel_reason || '');
@@ -740,7 +744,7 @@ function createApp(db, opts = {}) {
       reasons.set(k, (reasons.get(k) || 0) + 1);
     }
     res.json({
-      from, to, timezone: tz(),
+      from, to, timezone: tz(), type, type_counts: typeCounts,
       totals: summarize(rides),
       days,
       drivers: group((r) => r.driver_name),

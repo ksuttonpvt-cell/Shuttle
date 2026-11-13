@@ -118,6 +118,22 @@ test('texts, customer-ready drop offs, and reports', async () => {
   assert.equal(r.data.days.length, 7);
   assert.deepEqual(r.data.cancel_reasons, [{ reason: 'Customer no-show', count: 1 }]);
   assert.equal(r.data.drivers[0].name, 'Dana Driver');
+  assert.deepEqual(r.data.type_counts, { all: 4, pickup: 2, dropoff: 2 });
+  assert.equal(r.data.type, 'all');
+  // Pick up / drop off filter
+  let f = (await admin('/api/reports?type=pickup')).data;
+  assert.equal(f.type, 'pickup');
+  assert.equal(f.totals.rides, 2);
+  assert.equal(f.totals.dropoffs, 0);
+  assert.equal(f.totals.completed, 1, 'the completed ride was a pick up');
+  assert.deepEqual(f.type_counts, { all: 4, pickup: 2, dropoff: 2 }, 'button counts stay the same');
+  assert.equal(f.days.reduce((n, d) => n + d.rides, 0), 2);
+  f = (await admin('/api/reports?type=dropoff')).data;
+  assert.equal(f.totals.rides, 2);
+  assert.equal(f.totals.pickups, 0);
+  assert.deepEqual(f.cancel_reasons, [{ reason: 'Customer no-show', count: 1 }], 'the no-show was a drop off');
+  assert.equal(f.drivers.length, 0, 'the driver only did a pick up');
+  assert.equal((await admin('/api/reports?type=nonsense')).data.type, 'all');
   assert.equal((await driver('/api/reports')).status, 403, 'reports are admin only');
   assert.equal((await admin('/api/reports?from=2026-05-02&to=2026-05-01')).status, 400);
 });
