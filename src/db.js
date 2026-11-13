@@ -9,6 +9,7 @@ function openDb(file) {
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
+    PRAGMA secure_delete = ON; -- wiped customer info is overwritten on disk, not just marked free
 
     CREATE TABLE IF NOT EXISTS users (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,7 +94,16 @@ function openDb(file) {
   addColumn('rides', 'onboard_at', 'TEXT');    // when the customer got in
   addColumn('rides', 'return_of', 'INTEGER');  // a drop off booked from this pick up ("Customer ready")
   addColumn('rides', 'no_return', 'INTEGER NOT NULL DEFAULT 0'); // pick up whose customer doesn't need a ride back
+  addColumn('rides', 'cleared_at', 'TEXT');    // when the customer's details were wiped overnight
+  addColumn('users', 'reset_requested_at', 'TEXT'); // set when someone taps "Forgot password?"
   db.exec(`
+    CREATE TABLE IF NOT EXISTS password_resets (
+      token_hash TEXT PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at TEXT NOT NULL,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
     CREATE TABLE IF NOT EXISTS sms_log (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       ride_id    INTEGER,

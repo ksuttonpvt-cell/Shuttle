@@ -103,6 +103,10 @@ button:disabled { opacity: .55; cursor: default; }
 .alert { padding: .6rem .8rem; border-radius: 8px; margin: .6rem 0; font-size: .9rem; }
 .alert-err { background: var(--red-bg); color: var(--red-fg); }
 .alert-ok { background: var(--green-bg); color: var(--green-fg); }
+.alert-warn { background: var(--amber-bg); color: var(--text); border-left: 4px solid var(--amber); }
+.reset-alert { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; }
+.reset-who { display: inline-flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+.linklike { background: none; border: 0; padding: 0; color: var(--blue); font: inherit; text-decoration: underline; cursor: pointer; min-height: 0; }
 
 /* ---------- rides ---------- */
 .ride { border: 1px solid var(--line); border-radius: 10px; padding: .75rem; margin-bottom: .6rem; background: var(--card); }

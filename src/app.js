@@ -1,4 +1,5 @@
 const path = require('node:path');
+const crypto = require('node:crypto');
 const express = require('express');
 const QRCode = require('qrcode');
 const { hashPassword, hashPasswordAsync, verifyPasswordAsync, validatePassword, randomToken, parseCookies } = require('./auth');
@@ -21,6 +22,7 @@ const DEFAULT_SETTINGS = {
   service_radius_mi: '15.5',
   auto_end_shift: '20:00', // every driver is taken off shift at this local time each day ('' = off)
   auto_sign_out: '00:00',  // everyone is signed out at this local time each day ('' = off)
+  clear_customer_info: '00:00', // finished rides lose their customer details at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
   sms_booked: '1',
   sms_en_route: '1',
@@ -84,7 +86,7 @@ function createApp(db, opts = {}) {
   const publicUser = (u) => u && ({
     id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, active: !!u.active,
     on_duty: !!u.on_duty, vehicle_id: u.vehicle_id, last_lat: u.last_lat, last_lng: u.last_lng,
-    last_loc_at: u.last_loc_at, created_at: u.created_at,
+    last_loc_at: u.last_loc_at, created_at: u.created_at, reset_requested_at: u.reset_requested_at || null,
   });
   const str = (v, max = 500) => (v == null ? null : String(v).trim().slice(0, max) || null);
   const num = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Number(v));
@@ -235,9 +237,80 @@ function createApp(db, opts = {}) {
     }
     const err = validatePassword(nextPw);
     if (err) return bad(res, err);
-    q('UPDATE users SET password_hash = ? WHERE id = ?').run(await hashPasswordAsync(nextPw), req.user.id);
+    q('UPDATE users SET password_hash = ?, reset_requested_at = NULL WHERE id = ?').run(await hashPasswordAsync(nextPw), req.user.id);
+    q('DELETE FROM password_resets WHERE user_id = ?').run(req.user.id);
     q('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(req.user.id, req.sessionToken);
     res.json({ ok: true });
+  });
+
+  // ---------- forgot password ----------
+  // There's no email server, so "Forgot password?" alerts the admins, and an admin sends the
+  // person a one-time reset link (valid 24 hours) by text, QR code or however they like.
+  const RESET_HOURS = 24;
+  const hashToken = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+  function validReset(token) {
+    if (!token || String(token).length > 100) return null;
+    return q(`SELECT u.*, r.token_hash FROM password_resets r JOIN users u ON u.id = r.user_id
+              WHERE r.token_hash = ? AND r.expires_at > ? AND u.active = 1`).get(hashToken(token), now()) || null;
+  }
+
+  app.post('/api/password-reset/request', (req, res) => {
+    const email = str(req.body.email, 200);
+    if (!email) return bad(res, 'Enter your email.');
+    const ipKey = `reset|${clientIp(req)}`;
+    if (throttled(ipKey, 5)) return bad(res, 'Too many requests. Try again in 15 minutes.', 429);
+    recordFailure(ipKey);
+    const user = q('SELECT * FROM users WHERE email = ? AND active = 1').get(email);
+    // Only alert admins once an hour per person, so the button can't be used to spam them.
+    if (user && !(user.reset_requested_at && Date.now() - new Date(user.reset_requested_at) < 3600000)) {
+      q('UPDATE users SET reset_requested_at = ? WHERE id = ?').run(now(), user.id);
+      const admins = q("SELECT id FROM users WHERE role = 'admin' AND active = 1").all().map((a) => a.id);
+      quietly(push.notifyUsers(admins, { title: '🔑 Password reset requested', body: `${user.name} (${user.email}) forgot their password. Open Admin → Staff & logins to send a reset link.`, tag: `reset-${user.id}`, url: '/admin#users' }));
+    }
+    // Same answer whether or not the email has an account.
+    res.json({ ok: true });
+  });
+
+  app.post('/api/users/:id/reset-link', requireRole('admin'), (req, res) => {
+    const user = q('SELECT * FROM users WHERE id = ?').get(Number(req.params.id));
+    if (!user) return bad(res, 'User not found.', 404);
+    if (!user.active) return bad(res, 'Enable this account first.');
+    const token = randomToken(24);
+    const expires = new Date(Date.now() + RESET_HOURS * 3600000).toISOString();
+    q('DELETE FROM password_resets WHERE user_id = ? OR expires_at < ?').run(user.id, now()); // only the newest link works
+    q('INSERT INTO password_resets (token_hash, user_id, expires_at, created_by) VALUES (?, ?, ?, ?)').run(hashToken(token), user.id, expires, req.user.id);
+    q('UPDATE users SET reset_requested_at = NULL WHERE id = ?').run(user.id);
+    res.json({ url: `${baseUrl(req)}/reset/${token}`, expires_at: expires, user: publicUser(q('SELECT * FROM users WHERE id = ?').get(user.id)) });
+  });
+
+  app.post('/api/users/:id/dismiss-reset', requireRole('admin'), (req, res) => {
+    q('UPDATE users SET reset_requested_at = NULL WHERE id = ?').run(Number(req.params.id));
+    res.json({ ok: true });
+  });
+
+  app.get('/api/password-reset/:token', (req, res) => {
+    const user = validReset(req.params.token);
+    if (!user) return bad(res, 'This reset link has expired or was already used. Ask a shuttle admin for a new one.', 404);
+    res.json({ name: user.name, email: user.email });
+  });
+
+  app.post('/api/password-reset/:token', async (req, res) => {
+    const ipKey = `resetuse|${clientIp(req)}`;
+    if (throttled(ipKey, 20)) return bad(res, 'Too many attempts. Try again in 15 minutes.', 429);
+    const user = validReset(req.params.token);
+    if (!user) { recordFailure(ipKey); return bad(res, 'This reset link has expired or was already used. Ask a shuttle admin for a new one.', 404); }
+    const err = validatePassword(req.body.password);
+    if (err) return bad(res, err);
+    const hash = await hashPasswordAsync(String(req.body.password));
+    // Check again after the slow hash so two taps can't both use the link.
+    if (!q('SELECT 1 FROM password_resets WHERE token_hash = ?').get(user.token_hash)) return bad(res, 'This reset link was already used.', 404);
+    q('DELETE FROM password_resets WHERE user_id = ?').run(user.id);
+    q('UPDATE users SET password_hash = ?, reset_requested_at = NULL WHERE id = ?').run(hash, user.id);
+    q('DELETE FROM sessions WHERE user_id = ?').run(user.id); // sign out every old device
+    const token = randomToken(32);
+    q('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, user.id, new Date(Date.now() + SESSION_DAYS * 86400000).toISOString());
+    setSessionCookie(req, res, token, SESSION_DAYS * 86400);
+    res.json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(user.id)) });
   });
 
   // ---------- users (admin) ----------
@@ -287,8 +360,9 @@ function createApp(db, opts = {}) {
     if (b.password) {
       const err = validatePassword(b.password);
       if (err) return bad(res, err);
-      q('UPDATE users SET password_hash = ? WHERE id = ?').run(await hashPasswordAsync(b.password), user.id);
+      q('UPDATE users SET password_hash = ?, reset_requested_at = NULL WHERE id = ?').run(await hashPasswordAsync(b.password), user.id);
       q('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+      q('DELETE FROM password_resets WHERE user_id = ?').run(user.id);
     }
     if (!user.active) q('DELETE FROM sessions WHERE user_id = ?').run(user.id);
     res.json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(user.id)) });
@@ -623,7 +697,7 @@ function createApp(db, opts = {}) {
       if ((k === 'dealer_lat' || k === 'dealer_lng') && Number.isNaN(Number(v))) return bad(res, 'Latitude/longitude must be numbers.');
       if (YES_NO_SETTINGS.includes(k)) v = req.body[k] && req.body[k] !== '0' ? '1' : '0';
       if (k === 'timezone') { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); } catch { return bad(res, 'Unknown time zone.'); } }
-      if (k === 'auto_end_shift' || k === 'auto_sign_out') {
+      if (k === 'auto_end_shift' || k === 'auto_sign_out' || k === 'clear_customer_info') {
         v = v.trim();
         if (v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) return bad(res, 'Pick a time, like 8:00 PM, or leave it empty to turn it off.');
       }
@@ -635,6 +709,7 @@ function createApp(db, opts = {}) {
       const changed = getSettings()[k] !== v;
       q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
       if (k === 'auto_sign_out' && changed) resetSignOutSchedule(v);
+      if (k === 'clear_customer_info' && changed) customerWipe.reset(v);
     }
     res.json({ settings: shareableSettings() });
   });
@@ -711,10 +786,54 @@ function createApp(db, opts = {}) {
     return signedOut;
   }
   app.locals.autoSignOut = autoSignOut;
+
+  // ---------- nightly customer-info wipe ----------
+  // Once a day at the set time (default midnight, dealership time zone), every finished
+  // ride (completed or cancelled) loses the customer's name, phone, email, address, map
+  // spot and notes, its tracking link stops working, and the text-message log is emptied.
+  // Ride counts, times, drivers, vehicles and cancel reasons stay, so reports still work.
+  // Rides that are still open keep their details until they're done.
+  const CLEARED_NAME = 'Customer (info cleared)';
+  function clearCustomerInfo() {
+    const ids = q(`SELECT id FROM rides WHERE status IN ('completed','cancelled') AND cleared_at IS NULL`).all().map((r) => r.id);
+    const wipe = q(`UPDATE rides SET customer_name = ?, customer_phone = NULL, customer_email = NULL,
+                      address = '(cleared)', lat = NULL, lng = NULL, notes = NULL, ro_number = NULL,
+                      customer_vehicle = NULL, track_token = ?, cleared_at = ? WHERE id = ?`);
+    const at = now();
+    for (const id of ids) wipe.run(CLEARED_NAME, randomToken(18), at, id);
+    const texts = q('DELETE FROM sms_log').run().changes;
+    geoCache.clear(); // searched addresses
+    if (ids.length || texts) console.log(new Date().toLocaleString(), `[privacy] Cleared customer info from ${ids.length} finished ride(s) and ${texts} text log entr${texts === 1 ? 'y' : 'ies'}.`);
+    return ids.length;
+  }
+  // Same daily timing rules as the sign-out above.
+  const customerWipe = (() => {
+    const LAST = 'clear_customer_last';
+    const setLast = (v) => q("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(LAST, v);
+    function tick(at = new Date()) {
+      const s = getSettings();
+      const cutoff = (s.clear_customer_info || '').trim();
+      if (!/^\d{2}:\d{2}$/.test(cutoff)) return 0;
+      const nowHM = new Intl.DateTimeFormat('en-GB', { timeZone: tz(), hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at);
+      const today = localDate(at.toISOString());
+      if (!s[LAST]) { setLast(nowHM >= cutoff ? today : 'pending'); return 0; }
+      if (nowHM < cutoff || s[LAST] === today) return 0;
+      setLast(today);
+      return clearCustomerInfo();
+    }
+    function reset(cutoff, at = new Date()) {
+      q('DELETE FROM settings WHERE key = ?').run(LAST);
+      if (cutoff) tick(at);
+    }
+    return { tick, reset };
+  })();
+  app.locals.clearCustomerInfo = customerWipe.tick;
+  app.locals.resetClearSchedule = customerWipe.reset;
   if (!opts.noTimers) {
     setInterval(() => {
       try { autoEndShifts(); } catch (e) { console.error('Auto end of shift failed:', e.message); }
       try { autoSignOut(); } catch (e) { console.error('Auto sign-out failed:', e.message); }
+      try { customerWipe.tick(); } catch (e) { console.error('Clearing customer info failed:', e.message); }
     }, 60000).unref();
   }
 
@@ -924,6 +1043,7 @@ function createApp(db, opts = {}) {
   app.get('/admin', page('admin.html'));
   app.get('/request', page('request.html'));
   app.get('/t/:token', page('track.html'));
+  app.get('/reset/:token', (req, res, next) => { res.set('Referrer-Policy', 'no-referrer'); next(); }, page('reset.html'));
   // The notification worker and app manifest must always be fresh, so they're never cached.
   for (const [route, file, type] of [['/sw.js', 'sw.js', 'application/javascript'], ['/manifest.webmanifest', 'manifest.webmanifest', 'application/manifest+json']]) {
     app.get(route, (req, res) => res.set('Cache-Control', 'no-cache').type(type).sendFile(path.join(pub, file)));

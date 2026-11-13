@@ -19,6 +19,7 @@
     <button data-tab="links">QR codes &amp; links</button>
     <button data-tab="settings">Settings</button>
   </div>
+  <div id="resetAlert" class="hidden"></div>
 
   <!-- Dashboard -->
   <section data-pane="dash" class="grid">
@@ -156,6 +157,9 @@
       <label>Sign everyone out automatically at</label>
       <input name="auto_sign_out" type="time" style="max-width:200px">
       <p class="small muted" style="margin:.25rem 0 0">Every night at this time, all staff (admins, advisors and drivers) are signed out on every device and must sign in again. Clear the time to turn this off.</p>
+      <label>Delete customer info automatically at</label>
+      <input name="clear_customer_info" type="time" style="max-width:200px">
+      <p class="small muted" style="margin:.25rem 0 0">Every night at this time, finished rides (completed or cancelled) lose the customer's name, phone, email, address and notes, and their tracking links stop working. The text-message log is emptied too. Ride counts, times, drivers and cancel reasons are kept for reports. Rides that aren't finished yet keep their details. Clear the time to turn this off.</p>
       <label>Time zone (used in texts and reports)</label>
       <select name="timezone">
         <option value="America/Denver">Mountain (Denver)</option>
@@ -286,10 +290,56 @@
     ({ users } = await api('/api/users'));
     $('#users').innerHTML = `<table><tr><th>Name</th><th>Email (sign-in)</th><th>Role</th><th>Status</th><th></th></tr>
       ${users.map((u) => `<tr data-id="${u.id}"><td>${esc(u.name)}<br><span class="small muted">${esc(u.phone || '')}</span></td><td>${esc(u.email)}</td>
-        <td>${ROLE[u.role]}</td><td>${u.active ? '<span class="badge s-completed">Active</span>' : '<span class="badge s-cancelled">Disabled</span>'}</td>
-        <td style="white-space:nowrap"><button class="btn-ghost btn-sm" data-edit>Edit</button> <button class="btn-ghost btn-sm" data-reset>Reset password</button>
+        <td>${ROLE[u.role]}</td><td>${u.active ? '<span class="badge s-completed">Active</span>' : '<span class="badge s-cancelled">Disabled</span>'}${u.reset_requested_at ? '<br><span class="badge s-en_route">🔑 Forgot password</span>' : ''}</td>
+        <td style="white-space:nowrap"><button class="btn-ghost btn-sm" data-edit>Edit</button> ${u.active ? `<button class="${u.reset_requested_at ? '' : 'btn-ghost '}btn-sm" data-link>Send reset link</button>` : ''} <button class="btn-ghost btn-sm" data-reset>Set password</button>
         ${u.id !== me.id ? `<button class="btn-ghost btn-sm" data-toggle>${u.active ? 'Disable' : 'Enable'}</button>` : ''}</td></tr>`).join('')}</table>`;
+    showResetAlert();
   }
+
+  // ---------- forgot-password requests ----------
+  // Shown on every tab, so an admin sees it right away.
+  function showResetAlert() {
+    const asked = users.filter((u) => u.reset_requested_at && u.active);
+    const box = $('#resetAlert');
+    box.classList.toggle('hidden', !asked.length);
+    box.innerHTML = asked.length ? `<div class="alert alert-warn reset-alert"><b>🔑 Forgot password:</b>
+      ${asked.map((u) => `<span class="reset-who" data-id="${u.id}">${esc(u.name)} <span class="small">(${esc(u.email)}, ${fmtTime(u.reset_requested_at)})</span>
+        <button class="btn-sm" data-link>Send reset link</button> <button class="btn-ghost btn-sm" data-dismiss>Dismiss</button></span>`).join('')}</div>` : '';
+  }
+  async function checkResets() {
+    try { ({ users } = await api('/api/users')); showResetAlert(); } catch { /* try again next time */ }
+  }
+  setInterval(() => { if (!document.hidden) checkResets(); }, 30000);
+
+  async function sendResetLink(u) {
+    const r = await api(`/api/users/${u.id}/reset-link`, { method: 'POST', body: {} });
+    const text = `Hi ${u.name.split(' ')[0]}, here's your link to set a new shuttle password (works once, for 24 hours): ${r.url}`;
+    const phone = (u.phone || '').replace(/[^\d+]/g, '');
+    const m = App.modal(`<h2>Reset link for ${esc(u.name)}</h2>
+      <p class="small muted">Send this to ${esc(u.name)} only. It works <b>once</b> and expires ${fmtTime(r.expires_at)}. Making a new link cancels this one.</p>
+      <div class="linkbox"><input readonly value="${esc(r.url)}"><button type="button" class="btn-sm" data-copy>Copy</button></div>
+      <div class="actions" style="margin:.8rem 0">
+        <a class="btn btn-sm" href="sms:${phone}?&body=${encodeURIComponent(text)}">💬 Text it${phone ? ` to ${esc(u.phone)}` : ''}</a>
+        <a class="btn btn-ghost btn-sm" href="mailto:${encodeURIComponent(u.email)}?subject=${encodeURIComponent('Shuttle password reset')}&body=${encodeURIComponent(text)}">✉ Email it</a>
+      </div>
+      <p class="small muted">Or have them scan this with their phone camera:</p>
+      <div style="text-align:center"><img src="/api/qr?size=360&text=${encodeURIComponent(r.url)}" alt="QR code for the reset link" style="width:220px;height:220px;background:#fff;border-radius:8px"></div>
+      <div class="actions"><button type="button" class="btn-ghost" data-close>Done</button></div>`);
+    $('[data-copy]', m).onclick = async (ev) => {
+      const inp = $('input', m); inp.select();
+      try { await navigator.clipboard.writeText(inp.value); } catch { document.execCommand('copy'); }
+      ev.target.textContent = 'Copied ✓';
+    };
+    loadUsers();
+  }
+  $('#resetAlert').addEventListener('click', async (e) => {
+    const who = e.target.closest('[data-id]'); if (!who) return;
+    const u = users.find((x) => x.id === Number(who.dataset.id));
+    try {
+      if (e.target.closest('[data-link]')) await sendResetLink(u);
+      if (e.target.closest('[data-dismiss]')) { await api(`/api/users/${u.id}/dismiss-reset`, { method: 'POST', body: {} }); checkResets(); if (!$('[data-pane="users"]').classList.contains('hidden')) loadUsers(); }
+    } catch (err) { alert(err.message); }
+  });
   loaders.users = loadUsers;
   $('#userForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -305,6 +355,7 @@
     const u = users.find((x) => x.id === Number(tr.dataset.id));
     try {
       if (e.target.closest('[data-toggle]')) { await api(`/api/users/${u.id}`, { method: 'PATCH', body: { active: !u.active } }); loadUsers(); }
+      if (e.target.closest('[data-link]')) await sendResetLink(u);
       if (e.target.closest('[data-reset]')) {
         const pw = prompt(`New password for ${u.name} (8+ characters):`, genPw());
         if (pw) { await api(`/api/users/${u.id}`, { method: 'PATCH', body: { password: pw } }); alert(`Password updated. ${u.name} signs in with ${u.email} / ${pw}`); }
@@ -456,7 +507,7 @@
   const sf = $('#setForm'); let setMap = null; let setPin = null;
   async function loadSettings() {
     const { settings } = await api('/api/me');
-    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi', 'auto_end_shift', 'auto_sign_out']) sf.elements[k].value = settings[k] || '';
+    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi', 'auto_end_shift', 'auto_sign_out', 'clear_customer_info']) sf.elements[k].value = settings[k] || '';
     if (sf.elements.service_radius_mi.value === '') sf.elements.service_radius_mi.value = '0';
     if (!sf.elements.timezone.value) sf.elements.timezone.value = 'America/Denver';
     sf.elements.public_requests.checked = settings.public_requests === '1';
@@ -498,6 +549,7 @@
   };
 
   show(location.hash.slice(1) in loaders ? location.hash.slice(1) : 'dash');
+  checkResets();
   setInterval(() => { if (!$('[data-pane="dash"]').classList.contains('hidden') && !document.hidden) loadDash().catch(() => {}); }, 15000);
 })();
 </script>
