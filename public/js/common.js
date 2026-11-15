@@ -82,10 +82,11 @@ const App = (() => {
   // "CORWIN" big, "TOYOTA OF BOULDER · SHUTTLE" small.
   function brandMark(dealerName, extra = '') {
     const logo = document.documentElement.dataset.logo;
-    const words = String(dealerName || '').trim().split(/\s+/);
+    const name = document.documentElement.dataset.brandName || dealerName;
+    const words = String(name || '').trim().split(/\s+/);
     const first = words.shift() || 'Shuttle';
     const rest = [words.join(' '), extra].filter(Boolean).join(' · ');
-    if (logo) return `<img class="brand-logo" src="/brand/logo?v=${encodeURIComponent(logo)}" alt="${esc(dealerName)}"><span class="brand-sub">${esc(extra)}</span>`;
+    if (logo) return `<img class="brand-logo" src="/brand/logo?v=${encodeURIComponent(logo)}" alt="${esc(name)}"><span class="brand-sub">${esc(extra)}</span>`;
     return `<span class="wordmark">${esc(first)}</span><span class="brand-sub">${esc(rest)}</span>`;
   }
   // Fills [data-brand] spots and shows a note while previewing a look on this device.
@@ -445,6 +446,55 @@ const App = (() => {
     return `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${encodeURIComponent(dest)}${pts.length ? `&waypoints=${encodeURIComponent(pts.join('|'))}` : ''}`;
   }
 
+  // ---------- step-by-step forms ----------
+  // A form split into <section data-step="name" data-title="Title"> parts, shown one at a time
+  // with a progress bar and Back / Next. Required fields are checked before moving on;
+  // opts.check[name]() can return a message to stop on that step. The last step shows the
+  // submit button. Buttons with data-next (e.g. a big choice) move on by themselves.
+  function stepper(form, opts = {}) {
+    const steps = $$('[data-step]', form);
+    const bar = $('[data-progress]', form);
+    const back = $('[data-back]', form); const next = $('[data-next]', form); const submit = $('[data-submit]', form);
+    let at = 0; let reached = 0;
+    function paint() {
+      steps.forEach((s, i) => { s.hidden = i !== at; });
+      if (bar) {
+        bar.innerHTML = steps.map((s, i) => `<button type="button" class="pstep ${i === at ? 'now' : i < at ? 'done' : ''}" data-goto="${i}" ${i > reached ? 'disabled' : ''}
+          aria-current="${i === at ? 'step' : 'false'}"><i>${i < at ? '✓' : i + 1}</i><span>${esc(s.dataset.title || '')}</span></button>`).join('');
+      }
+      if (back) back.hidden = at === 0;
+      if (next) next.hidden = at === steps.length - 1 || steps[at].hasAttribute('data-auto');
+      if (submit) submit.hidden = at !== steps.length - 1;
+      if (opts.onShow) opts.onShow(steps[at].dataset.step, at);
+      const first = steps[at].querySelector('input:not([type=hidden]):not([type=radio]):not([type=checkbox]), textarea, select');
+      if (first && !opts.noFocus) setTimeout(() => first.focus({ preventScroll: true }), 30);
+      (opts.scrollTo || form).scrollIntoView?.({ block: 'nearest' });
+    }
+    function valid() {
+      for (const el of steps[at].querySelectorAll('input, textarea, select')) {
+        if (el.willValidate && !el.checkValidity()) { el.reportValidity(); return false; }
+      }
+      const msg = opts.check?.[steps[at].dataset.step]?.();
+      if (msg) { flash(opts.msg || null, msg); return false; }
+      if (opts.msg) flash(opts.msg, '');
+      return true;
+    }
+    function go(i) { at = Math.max(0, Math.min(steps.length - 1, i)); reached = Math.max(reached, at); paint(); }
+    const forward = () => { if (valid()) go(at + 1); };
+    if (next) next.onclick = forward;
+    if (back) back.onclick = () => go(at - 1);
+    if (bar) bar.addEventListener('click', (e) => { const b = e.target.closest('[data-goto]'); if (b && !b.disabled) go(Number(b.dataset.goto)); });
+    form.addEventListener('click', (e) => { if (e.target.closest('[data-next-on-click]')) setTimeout(forward, 0); });
+    // Enter moves to the next step instead of sending the form early.
+    form.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON' || at === steps.length - 1) return;
+      if (e.target.closest('[data-results]')) return;
+      e.preventDefault(); forward();
+    });
+    paint();
+    return { go, next: forward, reset() { reached = 0; go(0); }, get step() { return steps[at].dataset.step; }, valid };
+  }
+
   // Runs fn now and every ms. Pauses while the page is hidden unless background is true.
   function poll(fn, ms, { background = false } = {}) {
     const run = () => Promise.resolve().then(fn).catch(() => { /* try again next time */ });
@@ -459,7 +509,7 @@ const App = (() => {
 
   return {
     esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
-    brandMark, applyBrand, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
+    brandMark, applyBrand, stepper, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
 })();

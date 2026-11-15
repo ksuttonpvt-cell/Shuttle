@@ -247,6 +247,25 @@ th { font-size: .78rem; text-transform: uppercase; color: var(--muted); letter-s
 .choice-icon { grid-row: 1 / 3; font-size: 1.8rem; width: 3rem; height: 3rem; display: grid; place-items: center; border-radius: 50%; background: var(--red); color: #fff; }
 .choice b { font-size: 1.25rem; }
 .choice span:last-child { color: var(--muted); font-size: .95rem; }
+/* step-by-step forms */
+.progress { display: flex; gap: .25rem; margin: 0 0 .9rem; }
+.pstep { flex: 1; display: flex; flex-direction: column; align-items: center; gap: .2rem; background: none; border: 0; padding: 0; color: var(--muted); font-size: .72rem; font-weight: 600; min-width: 0; cursor: pointer; }
+.pstep:hover { background: none; }
+.pstep:disabled { cursor: default; opacity: 1; }
+.pstep i { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-style: normal; border: 2px solid var(--line); background: var(--card); color: var(--muted); }
+.pstep span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.pstep.now { color: var(--ink); } .pstep.now i { border-color: var(--red); background: var(--red); color: #fff; }
+.pstep.done i { border-color: var(--btn-green); background: var(--btn-green); color: #fff; }
+.step-q { font-size: 1.15rem; margin: 0 0 .6rem; }
+.step-nav { display: flex; gap: .5rem; margin-top: 1rem; }
+.step-nav [data-next], .step-nav [data-submit] { flex: 1; }
+.step-nav [data-back] { flex: none; }
+.choice.picked { border-color: var(--red); background: var(--card); }
+.choice-radio { position: relative; cursor: pointer; }
+.choice-radio input { position: absolute; opacity: 0; pointer-events: none; }
+.choice-radio:has(input:checked) { border-color: var(--red); background: var(--card); box-shadow: 0 0 0 2px var(--red) inset; }
+.choice-radio:has(input:focus-visible) { outline: 2px solid var(--blue); outline-offset: 2px; }
+.review { margin-top: .9rem; padding: .7rem .8rem; border-radius: 10px; background: var(--subtle); display: grid; gap: .2rem; font-size: .95rem; }
 .chosen { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding: .7rem .8rem; border-radius: 10px; background: var(--subtle); }
 .qr-grid {display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
 .qr-grid .card { text-align: center; }

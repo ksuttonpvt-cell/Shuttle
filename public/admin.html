@@ -206,6 +206,9 @@
         <input type="radio" name="look" value="classic" id="lookClassic"><label for="lookClassic">Classic</label>
         <input type="radio" name="look" value="corwin" id="lookCorwin"><label for="lookCorwin">Corwin</label>
       </div>
+      <label style="margin-top:.8rem">Name shown in the header</label>
+      <input name="brand_name" placeholder="Corwin Toyota of Boulder">
+      <p class="small muted" style="margin:.25rem 0 0">The first word is shown big (CORWIN) and the rest small (TOYOTA OF BOULDER). Leave blank to use the dealership name.</p>
       <div class="look-swatches" style="margin-top:.8rem">
         <div><label>Accent color</label><input type="color" name="brand_color"></div>
         <div><label>Header color</label><input type="color" name="brand_dark"></div>
@@ -808,9 +811,12 @@
     lf.elements.look.value = settings.look || 'classic';
     lf.elements.brand_color.value = settings.brand_color || '#eb0a1e';
     lf.elements.brand_dark.value = settings.brand_dark || '#0d0f12';
+    lf.elements.brand_name.value = settings.brand_name || '';
+    lf.elements.brand_name.placeholder = settings.dealer_name || '';
     paintLogo(settings);
   }
   // Show color changes right away on this page.
+  lf.elements.brand_name.oninput = (e) => { document.documentElement.dataset.brandName = e.target.value.trim(); paintLogo({ dealer_name: e.target.placeholder, logo_v: document.documentElement.dataset.logo }); App.applyBrand(e.target.placeholder); };
   for (const k of ['brand_color', 'brand_dark']) lf.elements[k].oninput = (e) => document.documentElement.style.setProperty(k === 'brand_color' ? '--brand' : '--brand-dark', e.target.value);
   $('#lookReset').onclick = () => {
     lf.elements.brand_color.value = '#eb0a1e'; lf.elements.brand_dark.value = '#0d0f12';
@@ -840,7 +846,7 @@
   lf.onsubmit = async (e) => {
     e.preventDefault();
     try {
-      await api('/api/settings', { method: 'PATCH', body: { look: lf.elements.look.value, brand_color: lf.elements.brand_color.value, brand_dark: lf.elements.brand_dark.value } });
+      await api('/api/settings', { method: 'PATCH', body: { look: lf.elements.look.value, brand_color: lf.elements.brand_color.value, brand_dark: lf.elements.brand_dark.value, brand_name: lf.elements.brand_name.value.trim().slice(0, 60) } });
       App.flash($('#lookMsg'), lf.elements.look.value === 'corwin' ? 'Saved. Everyone now gets the Corwin look.' : 'Saved. Everyone gets the Classic look.', true);
       try { localStorage.removeItem('shuttle.look'); } catch { /* ignore */ }
       setTimeout(() => location.reload(), 900);

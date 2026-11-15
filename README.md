@@ -25,10 +25,14 @@ Every open ride gets a queue number. Ride in progress (on board or en route) com
 - **Ride offers:** when a ride is waiting for a driver, the closest free on-duty driver (no rides, or just finishing one) gets a ding, a phone notification and a pop-up: *Ride near you. Want it?* with **Take it** or **No thanks**. If they pass or don't answer within 90 seconds, it goes to the next closest driver. Advisors see "Offered to …" on the ride. Admins can turn this off in Settings.
 - Road times come from the free public OSRM routing server. If it can't be reached, the planner uses a straight-line estimate instead (shown as a dashed line). Set `ROUTING=off` in `.env` to always use the estimate.
 
+### Booking a ride, one step at a time
+
+Advisors (and customers on the request page) book in five short steps with a progress bar, Back and Next: **pick up or drop off → customer name and phone → location → time and number of people → urgent or just needs a ride** (customers get notes and a review instead of "urgent"). Required answers are checked before moving on, Enter goes to the next step, and the last step shows a review before booking.
+
 ### Corwin look (dealership branding)
 
 - **Admin → Settings → Look:** try the **Corwin** look on one device first (*Preview Corwin look on this device*, or add `?look=corwin` to any page address; `?look=off` stops it). When it's right, choose **Corwin** and **Save look** to switch everyone: staff pages, sign-in, and the customer request and tracking pages.
-- It uses a dark header and banners with an accent stripe and a **CORWIN** wordmark made from the dealership name. The accent and header colors can be changed, and the official logo can be uploaded (PNG, JPG, WebP or SVG; a white logo on a transparent background looks best).
+- It uses a dark header and banners with an accent stripe and a **CORWIN / TOYOTA OF BOULDER** wordmark made from the dealership name (change the wording under *Name shown in the header*). The accent and header colors can be changed, and the official logo can be uploaded (PNG, JPG, WebP or SVG; a white logo on a transparent background looks best).
 
 ### Server tools
 

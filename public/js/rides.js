@@ -52,9 +52,63 @@ const Rides = (() => {
     return { map, reset() { picker.reset(); $('[data-pinmsg]', form).textContent = 'Tip: tap the map to drop an exact pin.'; } };
   }
 
+  // New-ride form for advisors, one question at a time:
+  // ride type -> customer -> location -> time & people -> urgent or regular (+ notes, review).
+  function stepFormHtml() {
+    const when = new Date(Date.now() + 30 * 60000);
+    return `
+      <div class="progress" data-progress></div>
+      <section data-step="type" data-title="Ride" data-auto>
+        <h3 class="step-q">Is this a pick up or a drop off?</h3>
+        <div class="seg" hidden>
+          <input type="radio" name="type" value="pickup" id="t-pu-n" checked><label for="t-pu-n">Pick up</label>
+          <input type="radio" name="type" value="dropoff" id="t-do-n"><label for="t-do-n">Drop off</label>
+        </div>
+        <div class="choice-grid">
+          <button type="button" class="choice" data-choose="pickup" data-next-on-click><span class="choice-icon">⬆</span><b>Pick up</b><span>Bring the customer to the dealership</span></button>
+          <button type="button" class="choice" data-choose="dropoff" data-next-on-click><span class="choice-icon">⬇</span><b>Drop off</b><span>Take the customer from the dealership</span></button>
+        </div>
+      </section>
+      <section data-step="customer" data-title="Customer" hidden>
+        <h3 class="step-q">Customer name and phone</h3>
+        <label>Customer name *</label><input name="customer_name" required autocomplete="off">
+        <label>Mobile phone</label><input name="customer_phone" type="tel" autocomplete="off" placeholder="For the tracking link and texts">
+        <label>Email</label><input name="customer_email" type="email" autocomplete="off">
+      </section>
+      <section data-step="where" data-title="Location" hidden>
+        <h3 class="step-q" data-addr-label>Where are we picking them up?</h3>
+        <input name="address" required autocomplete="off" placeholder="Start typing an address, or tap the map">
+        <div data-results></div>
+        <input type="hidden" name="lat"><input type="hidden" name="lng">
+        <div class="map map-sm" data-map style="margin-top:.5rem"></div>
+        <div class="small muted" data-pinmsg>Tip: tap the map to drop an exact pin.</div>
+      </section>
+      <section data-step="when" data-title="Time" hidden>
+        <h3 class="step-q" data-when-label>When, and how many people?</h3>
+        <div class="chips" style="margin:.2rem 0 .3rem">
+          <button type="button" data-in="0">Now</button><button type="button" data-in="15">In 15 min</button>
+          <button type="button" data-in="30">In 30 min</button><button type="button" data-in="60">In 1 hour</button>
+        </div>
+        <div class="row">
+          <div><label>Date &amp; time *</label><input name="scheduled_at" type="datetime-local" required value="${toLocalInput(when)}"></div>
+          <div><label>People riding</label><input name="passengers" type="number" min="1" max="15" value="1" inputmode="numeric"></div>
+        </div>
+      </section>
+      <section data-step="priority" data-title="Urgent?" hidden>
+        <h3 class="step-q">Is it urgent, or do they just need a ride?</h3>
+        <div class="choice-grid">
+          <label class="choice choice-radio"><input type="radio" name="priority" value="normal" checked><span class="choice-icon">🙂</span><b>Just needs a ride</b><span>Goes in line by time</span></label>
+          <label class="choice choice-radio"><input type="radio" name="priority" value="urgent"><span class="choice-icon">🚨</span><b>Urgent</b><span>Move to the front of the line</span></label>
+        </div>
+        <label>Notes for the driver</label><textarea name="notes" placeholder="Gate code, which door, wheelchair, car seat…"></textarea>
+        <div class="review" data-summary></div>
+      </section>`;
+  }
+
   function formData(form) {
     const f = Object.fromEntries(new FormData(form));
-    f.priority = form.elements.priority.checked ? 'urgent' : 'normal';
+    const pr = form.elements.priority;
+    f.priority = (pr instanceof RadioNodeList ? pr.value === 'urgent' : pr.checked) ? 'urgent' : 'normal';
     f.scheduled_at = new Date(f.scheduled_at).toISOString();
     if (!f.lat) { f.lat = null; f.lng = null; }
     return f;
@@ -128,5 +182,5 @@ const Rides = (() => {
     };
   }
 
-  return { formHtml, wireForm, formData, card, bind, edit };
+  return { formHtml, stepFormHtml, wireForm, formData, card, bind, edit };
 })();

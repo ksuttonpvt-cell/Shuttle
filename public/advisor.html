@@ -57,47 +57,54 @@
   const { $, api, esc } = App;
   await App.requireUser('advisor');
 
-  // New ride form
-  // Step 1 asks pick up or drop off; step 2 is the rest of the form.
+  // New ride form, one step at a time:
+  // pick up or drop off -> customer name & phone -> location -> time & people -> urgent or not.
   const form = $('#newRide');
-  form.innerHTML = `
-    <div data-ask>
-      <h3 class="ask-title" style="font-size:1.15rem;margin-top:0">Is this a pick up or a drop off?</h3>
-      <div class="choice-grid">
-        <button type="button" class="choice" data-choose="pickup"><span class="choice-icon">⬆</span><b>Pick up</b><span>Bring the customer to the dealership</span></button>
-        <button type="button" class="choice" data-choose="dropoff"><span class="choice-icon">⬇</span><b>Drop off</b><span>Take the customer from the dealership</span></button>
-      </div>
-    </div>
+  form.innerHTML = `${Rides.stepFormHtml()}
     <div id="formMsg"></div>
-    <div data-fields hidden>
-      <div class="chosen" style="margin-bottom:.4rem"><span data-chosen></span><button type="button" class="btn-ghost btn-sm" data-change>Change</button></div>
-      ${Rides.formHtml()}
-      <button class="btn-block btn-lg" style="margin-top:1rem">Add to shuttle queue</button>
+    <div class="step-nav">
+      <button type="button" class="btn-ghost" data-back>← Back</button>
+      <button type="button" class="btn-dark" data-next>Next →</button>
+      <button type="submit" class="btn-lg" data-submit>Add to shuttle queue</button>
     </div>`;
-  $('.seg', form).hidden = true; // the banner above shows the choice instead
   const wired = Rides.wireForm(form);
-  const CHOSEN = {
-    pickup: { banner: '⬆ <b>Pick up</b> — customer to the dealership', address: 'Where are we picking them up? *' },
-    dropoff: { banner: '⬇ <b>Drop off</b> — dealership to the customer', address: 'Where are we taking them? *' },
+  const WORDS = {
+    pickup: { where: 'Where are we picking them up?', when: 'When should we pick them up, and how many people?' },
+    dropoff: { where: 'Where are we taking them?', when: 'When do they leave the dealership, and how many people?' },
   };
-  function chooseType(type) {
-    form.querySelector(`[name=type][value=${type}]`).checked = true;
-    $('[data-chosen]', form).innerHTML = CHOSEN[type].banner;
-    $('[data-addr-label]', form).textContent = CHOSEN[type].address;
-    $('[data-ask]', form).hidden = true; $('[data-fields]', form).hidden = false;
-    wired.map.invalidateSize();
-    form.elements.customer_name.focus();
-  }
-  function askType() { $('[data-fields]', form).hidden = true; $('[data-ask]', form).hidden = false; }
-  form.querySelectorAll('[data-choose]').forEach((b) => b.onclick = () => { App.flash($('#formMsg'), ''); chooseType(b.dataset.choose); });
-  $('[data-change]', form).onclick = askType;
+  const typeOf = () => form.elements.type.value;
+  const steps = App.stepper(form, {
+    msg: $('#formMsg'),
+    check: {
+      where: () => (form.elements.lat.value ? null : (confirm('No map pin was set for this address. The driver will only see the typed address. Continue anyway?') ? null : 'Pick an address from the list, or tap the map to set the spot.')),
+    },
+    onShow: (step) => {
+      if (step === 'where') { $('[data-addr-label]', form).textContent = WORDS[typeOf()].where; setTimeout(() => wired.map.invalidateSize(), 50); }
+      if (step === 'when') $('[data-when-label]', form).textContent = WORDS[typeOf()].when;
+      if (step === 'priority') {
+        const f = Rides.formData(form);
+        $('[data-summary]', form).innerHTML = `<b>Review</b>
+          <div>${f.type === 'pickup' ? '⬆ Pick up' : '⬇ Drop off'} · <b>${esc(f.customer_name)}</b>${f.customer_phone ? ` · ${esc(f.customer_phone)}` : ''}</div>
+          <div>📍 ${esc(f.address)}${f.lat ? '' : ' <span class="late">(no map pin)</span>'}</div>
+          <div>🕒 ${App.fmtTime(f.scheduled_at)} · ${f.passengers || 1} ${Number(f.passengers) === 1 ? 'person' : 'people'}</div>`;
+      }
+    },
+  });
+  form.querySelectorAll('[data-choose]').forEach((b) => b.addEventListener('click', () => {
+    form.querySelector(`[name=type][value=${b.dataset.choose}]`).checked = true;
+    form.querySelectorAll('[data-choose]').forEach((x) => x.classList.toggle('picked', x === b));
+  }));
+  form.querySelectorAll('[data-in]').forEach((b) => b.onclick = () => {
+    form.elements.scheduled_at.value = App.toLocalInput(new Date(Date.now() + Number(b.dataset.in) * 60000));
+  });
   form.onsubmit = async (e) => {
     e.preventDefault();
     try {
       const { ride } = await api('/api/rides', { body: Rides.formData(form) });
       form.reset(); wired.reset();
       form.elements.scheduled_at.value = App.toLocalInput(new Date(Date.now() + 30 * 60000));
-      askType(); // ready for the next ride
+      form.querySelectorAll('[data-choose]').forEach((x) => x.classList.remove('picked'));
+      steps.reset(); // ready for the next ride
       App.flash($('#formMsg'), `Added ${ride.customer_name}.`, true);
       refresh();
       App.share({ title: `Shuttle tracking for ${ride.customer_name}`, url: ride.track_url, phone: ride.customer_phone, email: ride.customer_email, message: App.rideMessage(ride) });

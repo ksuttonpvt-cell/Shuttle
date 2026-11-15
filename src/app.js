@@ -30,7 +30,8 @@ const DEFAULT_SETTINGS = {
   ride_offers: '1',
   look: 'classic',          // 'classic' or 'corwin' (dealership branding) for everyone
   brand_color: '#eb0a1e',   // Corwin look: accent (buttons, stripes)
-  brand_dark: '#0d0f12',    // Corwin look: header and banner background        // offer waiting rides to the closest free driver, who can accept or pass
+  brand_dark: '#0d0f12',    // Corwin look: header and banner background
+  brand_name: '',           // Corwin look: name shown in the header (blank = dealership name); first word is big        // offer waiting rides to the closest free driver, who can accept or pass
   clear_customer_info: '00:00',
   backup_time: '00:30',    // nightly database backup, after customer info is cleared ('' = off) // finished rides lose their customer details at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
@@ -1513,8 +1514,9 @@ function createApp(db, opts = {}) {
     const dark = /^#[0-9a-f]{6}$/i.test(s.brand_dark || '') ? s.brand_dark : DEFAULT_SETTINGS.brand_dark;
     const look = s.look === 'corwin' ? 'corwin' : 'classic';
     const logo = s.brand_logo ? (s.brand_logo_v || '1') : '';
+    const name = String(s.brand_name || s.dealer_name || '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
     res.set('Cache-Control', 'no-store').type('html')
-      .send(html.replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" style="--brand:${color};--brand-dark:${dark}">`));
+      .send(html.replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-brand-name="${name}" style="--brand:${color};--brand-dark:${dark}">`));
   };
   app.get('/', (req, res) => {
     if (!req.user) return res.redirect('/login');
