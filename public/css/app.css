@@ -301,6 +301,7 @@ th { font-size: .78rem; text-transform: uppercase; color: var(--muted); letter-s
 .fb-item { border-bottom: 1px solid var(--line); padding: .55rem 0; }
 .fb-item:last-child { border-bottom: 0; }
 .fb-item p { margin: .2rem 0 0; white-space: pre-wrap; }
+.b-shuttle { background: var(--blue-bg); color: var(--blue); }
 .urgent-why { color: var(--red-fg); font-weight: 600; }
 .review { margin-top: .9rem; padding: .7rem .8rem; border-radius: 10px; background: var(--subtle); display: grid; gap: .2rem; font-size: .95rem; }
 .chosen { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding: .7rem .8rem; border-radius: 10px; background: var(--subtle); }

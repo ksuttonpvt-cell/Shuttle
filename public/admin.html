@@ -91,14 +91,27 @@
           <div><label>Passenger seats</label><input name="seats" type="number" min="1" max="20" value="7"></div>
           <div><label>Mileage</label><input name="mileage" type="number" min="0"></div>
         </div>
+        <div class="row">
+          <div><label>Fuel</label><select name="fuel"><option value="">Not set</option><option value="gas">⛽ Gas</option><option value="hybrid">🔋 Hybrid</option><option value="plugin">🔌 Plug-in hybrid</option><option value="electric">⚡ Electric</option></select></div>
+          <div><label>Use</label><select name="use"><option value="shuttle">🚐 Shuttle</option><option value="loaner">🔑 Loaner (not for the shuttle)</option></select></div>
+        </div>
         <label>Status</label>
         <select name="status"><option value="available">Available</option><option value="maintenance">In maintenance</option><option value="retired">Retired</option></select>
         <label>Notes</label><textarea name="notes" placeholder="Oil change due, tire pressure light…"></textarea>
         <div id="vehMsg"></div>
-        <div class="actions"><button>Save vehicle</button><button type="button" class="btn-ghost hidden" id="vehCancel">Cancel edit</button></div>
+        <div class="actions"><button>Save vehicle</button><button type="button" class="btn-ghost hidden" id="vehCancel">Cancel edit</button><button type="button" class="btn-ghost hidden" id="vehDelete">Delete vehicle</button></div>
       </form>
     </div>
-    <div class="card"><h2>Fleet</h2><div class="table-wrap" id="vehicles"></div></div>
+    <div class="card"><div class="card-head"><h2>Fleet</h2>
+        <label class="btn btn-blue btn-sm" style="cursor:pointer">⬆ Import vehicle list<input type="file" id="vehImport" accept=".xlsx,.csv" hidden></label></div>
+      <div class="chips" role="group" aria-label="Show vehicles" id="vehUse">
+        <button data-use="shuttle">🚐 Shuttles <span data-n="shuttle"></span></button>
+        <button data-use="loaner">🔑 Loaners <span data-n="loaner"></span></button>
+        <button data-use="all">All <span data-n="all"></span></button>
+      </div>
+      <input type="search" id="vehSearch" placeholder="Find by model, plate or VIN…" aria-label="Find a vehicle" style="margin-bottom:.6rem">
+      <div class="table-wrap" id="vehicles"></div>
+      <p class="small muted" style="margin-bottom:0">Only <b>Shuttle</b> vehicles can be picked by drivers when they start a shift. Tap <b>Make shuttle</b> on a loaner to add it.</p></div>
   </section>
 
   <!-- Links -->
@@ -532,17 +545,64 @@
   // ---------- vehicles ----------
   let vehicles = [];
   const vf = $('#vehForm');
-  function vehReset() { vf.reset(); vf.elements.id.value = ''; $('#vehTitle').textContent = 'Add a vehicle'; $('#vehCancel').classList.add('hidden'); }
+  function vehReset() { vf.reset(); vf.elements.id.value = ''; $('#vehTitle').textContent = 'Add a vehicle'; $('#vehCancel').classList.add('hidden'); $('#vehDelete').classList.add('hidden'); }
+  const FUEL = { gas: '⛽ Gas', hybrid: '🔋 Hybrid', plugin: '🔌 Plug-in', electric: '⚡ Electric' };
+  const VSTATUS = { available: '<span class="badge s-completed">Active</span>', maintenance: '<span class="badge s-en_route">In shop</span>', retired: '<span class="badge s-cancelled">Retired</span>' };
+  let vehUse = null;
+  function paintVehicles() {
+    const n = { shuttle: vehicles.filter((v) => v.use !== 'loaner').length, loaner: vehicles.filter((v) => v.use === 'loaner').length, all: vehicles.length };
+    if (!vehUse) vehUse = n.shuttle ? 'shuttle' : 'all';
+    $$('#vehUse [data-use]').forEach((b) => b.classList.toggle('active', b.dataset.use === vehUse));
+    for (const k of Object.keys(n)) $(`#vehUse [data-n="${k}"]`).textContent = `(${n[k]})`;
+    const qy = ($('#vehSearch').value || '').trim().toLowerCase();
+    const shown = vehicles.filter((v) => (vehUse === 'all' || (vehUse === 'loaner') === (v.use === 'loaner'))
+      && (!qy || [v.name, v.make_model, v.plate, v.vin, v.year, v.fleet_id].some((x) => String(x || '').toLowerCase().includes(qy))));
+    $('#vehicles').innerHTML = shown.length ? `<table><tr><th>Vehicle</th><th>Fuel</th><th>Seats</th><th>Miles</th><th>Status</th><th>Use</th><th></th></tr>
+      ${shown.map((v) => `<tr data-id="${v.id}"><td><b>${esc(v.name)}</b><div class="small muted">${esc([v.year, v.color, v.make_model].filter(Boolean).join(' '))}${v.plate ? ` · ${esc(v.plate)}` : ''}</div>
+          ${v.driver_name ? `<div class="small">🚐 ${esc(v.driver_name)} driving now</div>` : ''}${v.notes ? `<div class="small">📝 ${esc(v.notes)}</div>` : ''}</td>
+        <td class="small" style="white-space:nowrap">${v.fuel ? FUEL[v.fuel] : '<span class="muted">—</span>'}</td>
+        <td>${v.seats}</td><td>${v.mileage != null ? Number(v.mileage).toLocaleString() : '—'}</td>
+        <td>${VSTATUS[v.status]}${v.fleet_status ? `<div class="small muted">${esc(v.fleet_status)}</div>` : ''}</td>
+        <td>${v.use === 'loaner' ? '<button class="btn-ghost btn-sm" data-use-set="shuttle">Make shuttle</button>' : '<span class="badge b-shuttle">Shuttle</span>'}</td>
+        <td style="white-space:nowrap"><button class="btn-ghost btn-sm" data-edit>Edit</button>${v.use !== 'loaner' ? ' <button class="btn-ghost btn-sm" data-use-set="loaner" title="Stop using as a shuttle">Make loaner</button>' : ''}</td></tr>`).join('')}</table>`
+      : `<div class="empty">${vehicles.length ? 'No vehicles match.' : 'No vehicles yet. Add your first shuttle on the left, or import your vehicle list.'}</div>`;
+  }
   async function loadVehicles() {
     ({ vehicles } = await api('/api/vehicles'));
-    const label = { available: '<span class="badge s-completed">Available</span>', maintenance: '<span class="badge s-en_route">Maintenance</span>', retired: '<span class="badge s-cancelled">Retired</span>' };
-    $('#vehicles').innerHTML = vehicles.length ? `<table><tr><th>Vehicle</th><th>Details</th><th>Seats</th><th>Miles</th><th>Status</th><th>Driver now</th><th></th></tr>
-      ${vehicles.map((v) => `<tr data-id="${v.id}"><td><b>${esc(v.name)}</b></td>
-        <td class="small">${esc([v.year, v.color, v.make_model].filter(Boolean).join(' '))}<br>${v.plate ? 'Plate ' + esc(v.plate) : ''} ${v.vin ? '· VIN ' + esc(v.vin) : ''}${v.notes ? '<br>📝 ' + esc(v.notes) : ''}</td>
-        <td>${v.seats}</td><td>${v.mileage != null ? Number(v.mileage).toLocaleString() : '—'}</td><td>${label[v.status]}</td><td>${esc(v.driver_name || '—')}</td>
-        <td style="white-space:nowrap"><button class="btn-ghost btn-sm" data-edit>Edit</button> <button class="btn-ghost btn-sm" data-del>Delete</button></td></tr>`).join('')}</table>`
-      : '<div class="empty">No vehicles yet. Add your first shuttle on the left.</div>';
+    paintVehicles();
   }
+  $$('#vehUse [data-use]').forEach((b) => b.onclick = () => { vehUse = b.dataset.use; paintVehicles(); });
+  $('#vehSearch').oninput = paintVehicles;
+  // Import the dealership's vehicle list: preview first, then import.
+  $('#vehImport').onchange = (e) => {
+    const file = e.target.files[0]; e.target.value = '';
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) return alert('That file is too big (10 MB max).');
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const send = (preview) => fetch('/api/vehicles/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ data: reader.result, filename: file.name, preview }) }).then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error || 'Import failed.'); return d; });
+      let p;
+      try { p = await send(true); } catch (err) { return alert(err.message); }
+      const s = p.summary; const ACT = { add: '<span class="badge s-completed">New</span>', update: '<span class="badge s-assigned">Update</span>', same: '<span class="small muted">No change</span>' };
+      const m = App.modal(`<h2>Import vehicle list</h2>
+        <p><b>${s.found}</b> vehicles found in <b>${esc(file.name)}</b>: <b>${s.add}</b> new, <b>${s.update}</b> to update, ${s.same} unchanged${s.skipped ? `, ${s.skipped} rows without a VIN skipped` : ''}.</p>
+        <p class="small muted">New vehicles come in as <b>Loaners</b>, except service-department vehicles (status “Service”), which come in as <b>Shuttles</b>. You can switch any of them afterward. Active vehicles (loaned, available, on hold, service) stay active; body shop / out of service show as <b>In shop</b>; retired as <b>Retired</b>. Vehicles not on this list aren't changed.</p>
+        <div class="table-wrap" style="max-height:320px;overflow:auto"><table><tr><th></th><th>Vehicle</th><th>Use</th><th>Fuel</th><th>Status</th></tr>
+          ${p.rows.map((r) => `<tr><td>${ACT[r.action]}</td><td><b>${esc(r.name)}</b><div class="small muted">${esc([r.year, r.make_model].filter(Boolean).join(' '))}</div></td>
+            <td>${r.use === 'shuttle' ? '<span class="badge b-shuttle">Shuttle</span>' : '<span class="small muted">Loaner</span>'}</td>
+            <td class="small">${FUEL[r.fuel] || '—'}</td><td>${VSTATUS[r.status]}<div class="small muted">${esc(r.fleet_status || '')}</div></td></tr>`).join('')}</table></div>
+        <div class="msg"></div>
+        <div class="actions"><button data-go ${s.add + s.update ? '' : 'disabled'}>Import ${s.add + s.update} vehicle${s.add + s.update === 1 ? '' : 's'}</button><button type="button" class="btn-ghost" data-close>Cancel</button></div>`);
+      $('.modal', m).style.maxWidth = '640px';
+      $('[data-go]', m).onclick = async (ev) => {
+        ev.target.disabled = true;
+        try { const r = await send(false); m.remove(); vehUse = 'all'; await loadVehicles(); alert(`Imported: ${r.summary.add} added, ${r.summary.update} updated.`); }
+        catch (err) { App.flash($('.msg', m), err.message); ev.target.disabled = false; }
+      };
+    };
+    reader.readAsDataURL(file);
+  };
   loaders.vehicles = loadVehicles;
   vf.onsubmit = async (e) => {
     e.preventDefault();
@@ -554,12 +614,23 @@
     } catch (err) { App.flash($('#vehMsg'), err.message); }
   };
   $('#vehCancel').onclick = vehReset;
+  $('#vehDelete').onclick = async () => {
+    const v = vehicles.find((x) => String(x.id) === vf.elements.id.value); if (!v) return;
+    if (!confirm(`Delete ${v.name}? (Tip: set it to “Retired” instead to keep its history.)`)) return;
+    await api(`/api/vehicles/${v.id}`, { method: 'DELETE' }); vehReset(); loadVehicles();
+  };
   $('#vehicles').addEventListener('click', async (e) => {
     const tr = e.target.closest('[data-id]'); if (!tr) return;
     const v = vehicles.find((x) => x.id === Number(tr.dataset.id));
+    const useBtn = e.target.closest('[data-use-set]');
+    if (useBtn) {
+      try { await api(`/api/vehicles/${v.id}`, { method: 'PATCH', body: { use: useBtn.dataset.useSet } }); await loadVehicles(); }
+      catch (err) { alert(err.message); }
+      return;
+    }
     if (e.target.closest('[data-edit]')) {
       for (const el of vf.elements) if (el.name && v[el.name] !== undefined) el.value = v[el.name] ?? '';
-      $('#vehTitle').textContent = `Edit ${v.name}`; $('#vehCancel').classList.remove('hidden'); vf.scrollIntoView({ behavior: 'smooth' });
+      $('#vehTitle').textContent = `Edit ${v.name}`; $('#vehCancel').classList.remove('hidden'); $('#vehDelete').classList.remove('hidden'); vf.scrollIntoView({ behavior: 'smooth' });
     }
     if (e.target.closest('[data-del]') && confirm(`Delete ${v.name}? (Tip: set it to “Retired” instead to keep its history.)`)) {
       await api(`/api/vehicles/${v.id}`, { method: 'DELETE' }); loadVehicles();

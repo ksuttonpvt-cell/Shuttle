@@ -11,6 +11,8 @@ const fs = require('node:fs');
 const { createStats } = require('./serverstats');
 const { createLive } = require('./live');
 const tunnelKit = require('./tunnel');
+const { readSheet } = require('./sheets');
+const { parseFleet, FUELS } = require('./fleet');
 const { createLogbook } = require('./logbook');
 const { cityOf, estimatedRideMiles } = require('./places');
 
@@ -73,7 +75,7 @@ function createApp(db, opts = {}) {
     }
     next();
   });
-  app.use((req, res, next) => (req.path === '/api/brand/logo' ? next() : express.json({ limit: '100kb' })(req, res, next)));
+  app.use((req, res, next) => (req.path === '/api/brand/logo' || req.path === '/api/vehicles/import' ? next() : express.json({ limit: '100kb' })(req, res, next)));
   // Live numbers for Admin → Server.
   const stats = opts.stats || createStats({ timers: !opts.noTimers });
   const logbook = opts.logbook || createLogbook();
@@ -464,7 +466,7 @@ function createApp(db, opts = {}) {
   });
 
   // ---------- vehicles ----------
-  const VEHICLE_FIELDS = ['name', 'make_model', 'year', 'color', 'plate', 'vin', 'seats', 'mileage', 'status', 'notes'];
+  const VEHICLE_FIELDS = ['name', 'make_model', 'year', 'color', 'plate', 'vin', 'seats', 'mileage', 'status', 'notes', 'fuel', 'use'];
   function cleanVehicle(b, existing = {}) {
     const v = { ...existing };
     for (const f of VEHICLE_FIELDS) {
@@ -473,6 +475,9 @@ function createApp(db, opts = {}) {
     }
     if (!v.name) return { error: 'Vehicle name is required (e.g. "Shuttle 1").' };
     if (!['available', 'maintenance', 'retired'].includes(v.status || 'available')) return { error: 'Bad status.' };
+    if (v.fuel && !FUELS.includes(v.fuel)) return { error: 'Pick gas, hybrid, plug-in hybrid or electric.' };
+    if (!v.fuel) v.fuel = null;
+    v.use = v.use === 'loaner' ? 'loaner' : 'shuttle';
     v.status = v.status || 'available';
     v.seats = v.seats || 7;
     return { v };
@@ -503,6 +508,48 @@ function createApp(db, opts = {}) {
     res.json({ vehicle: q('SELECT * FROM vehicles WHERE id = ?').get(existing.id) });
   });
 
+  // Import the dealership's vehicle list (.xlsx or .csv). Matched by VIN: new vehicles are
+  // added as loaners, except service-department ones (status "Service"), which are added as
+  // shuttles; flip any of them with one tap. Existing ones get their plate,
+  // mileage and status updated. Fuel, seats and Shuttle/Loaner you've set are kept.
+  // Vehicles missing from the list are left as they are.
+  app.post('/api/vehicles/import', requireRole('admin'), express.json({ limit: '15mb' }), (req, res) => {
+    const m = /^data:[^;,]*(;base64)?,(.*)$/s.exec(String(req.body.data || ''));
+    if (!m) return bad(res, 'Choose the vehicle list file (.xlsx or .csv).');
+    let parsed;
+    try { parsed = parseFleet(readSheet(Buffer.from(m[2], m[1] ? 'base64' : 'utf8'), String(req.body.filename || ''))); }
+    catch (e) { return bad(res, e.message); }
+    if (!parsed.vehicles.length) return bad(res, 'No vehicles with a VIN were found in that file.');
+    const plan = parsed.vehicles.map((v) => {
+      const old = q('SELECT * FROM vehicles WHERE UPPER(vin) = ?').get(v.vin);
+      if (!old) return { action: 'add', v };
+      const changes = {};
+      for (const k of ['plate', 'year', 'make_model', 'mileage', 'status', 'fleet_id', 'fleet_status']) if (v[k] != null && v[k] !== old[k]) changes[k] = v[k];
+      if (!old.fuel && v.fuel) changes.fuel = v.fuel;
+      return { action: Object.keys(changes).length ? 'update' : 'same', v, old, changes };
+    });
+    const summary = { found: plan.length, add: plan.filter((p) => p.action === 'add').length, update: plan.filter((p) => p.action === 'update').length,
+      same: plan.filter((p) => p.action === 'same').length, skipped: parsed.skipped };
+    const rows = plan.map((p) => ({ action: p.action, name: p.old ? p.old.name : p.v.name, make_model: p.v.make_model, year: p.v.year, plate: p.v.plate,
+      fuel: p.old?.fuel || p.v.fuel, status: p.v.status, fleet_status: p.v.fleet_status, use: p.old ? p.old.use : p.v.use, changes: Object.keys(p.changes || {}) }));
+    if (req.body.preview) return res.json({ summary, rows });
+    const add = q(`INSERT INTO vehicles (name, make_model, year, plate, vin, seats, mileage, status, fuel, use, fleet_id, fleet_status, color)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    db.exec('BEGIN');
+    try {
+      for (const p of plan) {
+        if (p.action === 'add') add.run(p.v.name, p.v.make_model, p.v.year, p.v.plate, p.v.vin, p.v.seats, p.v.mileage, p.v.status, p.v.fuel, p.v.use, p.v.fleet_id, p.v.fleet_status, p.v.color);
+        else if (p.action === 'update') {
+          const keys = Object.keys(p.changes);
+          q(`UPDATE vehicles SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map((k) => p.changes[k]), p.old.id);
+        }
+      }
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); return bad(res, `Import failed, nothing was changed: ${e.message}`, 500); }
+    console.log(new Date().toLocaleString(), `[vehicles] ${req.user.name} imported the vehicle list: ${summary.add} added, ${summary.update} updated.`);
+    res.json({ summary, rows });
+  });
+
   app.delete('/api/vehicles/:id', requireRole('admin'), (req, res) => {
     q('DELETE FROM vehicles WHERE id = ?').run(Number(req.params.id));
     res.json({ ok: true });
@@ -516,6 +563,7 @@ function createApp(db, opts = {}) {
       if (!vehicleId) return bad(res, 'Pick the vehicle you are driving.');
       const v = q('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
       if (!v || v.status !== 'available') return bad(res, 'That vehicle is not available.');
+      if (v.use === 'loaner') return bad(res, "That's a loaner, not a shuttle. An admin can mark it as a shuttle under Vehicles.");
       const taken = q('SELECT name FROM users WHERE vehicle_id = ? AND on_duty = 1 AND id <> ?').get(vehicleId, req.user.id);
       if (taken) return bad(res, `${taken.name} is already driving that vehicle.`);
     } else vehicleId = null;
