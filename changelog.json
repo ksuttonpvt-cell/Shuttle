@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.5.3",
+    "date": "2026-11-15",
+    "title": "No more double wins",
+    "changes": [
+      "If two drivers tap the same ride at the same moment, only one gets it. The other is told it's taken. (With the site on several cores, both could be told they had it.)",
+      "Two drivers can't start a shift in the same van at the same moment, and the ride back is booked only once even if two people tap \"Customer ready\" together.",
+      "Adding two staff with the same email at once gives a clear message.",
+      "Odd or broken requests get a clear answer instead of \"Something went wrong\"."
+    ]
+  },
+  {
     "version": "2.5.2",
     "date": "2026-11-15",
     "title": "Bug fixes from a full sweep",
