@@ -36,7 +36,7 @@ function client() {
       const data = await res.json().catch(() => null);
       record(name, performance.now() - t, res.status < 500 && res.status !== 429, `${res.status} ${data && data.error}`);
       return { status: res.status, data };
-    } catch (e) { record(name, performance.now() - t, false, e.name + ' ' + e.message); return { status: 0, data: null }; }
+    } catch (e) { record(name, performance.now() - t, false, e.name + ' ' + e.message + (e.cause && e.cause.code ? ` (${e.cause.code})` : '')); return { status: 0, data: null }; }
   };
   // The instant-updates connection every staff page keeps open.
   call.live = async () => {
@@ -154,7 +154,8 @@ async function runPeople(job) {
 }
 const slice = (n, w, k) => Array.from({ length: n }, (_, i) => i).filter((i) => i % w === k);
 
-const snapshot = () => ({ stats: Object.fromEntries(stats), errors: errors.slice(0, 50), errorCount: errors.length, reqs, events, liveOpen, liveFailed });
+const errorKinds = () => { const k = {}; for (const e of errors) { const key = e.replace(/^[^:]+: /, '').replace(/\d{3,}/g, (d) => (d.length === 3 ? d : '#')).slice(0, 80); k[key] = (k[key] || 0) + 1; } return k; };
+const snapshot = () => ({ stats: Object.fromEntries(stats), errors: errors.slice(0, 50), kinds: errorKinds(), errorCount: errors.length, reqs, events, liveOpen, liveFailed });
 if (process.env.LOAD_TEST_WORKER) {
   process.on('message', async (job) => {
     // Never hang: report whatever we have 25 s after the end.
@@ -181,10 +182,10 @@ if (process.env.LOAD_TEST_WORKER) {
       w.send(job);
     });
   }));
-  const all = new Map(); let total = 0; let errCount = 0; let ev = 0; let open = 0; let refused = 0; const errs = [];
+  const all = new Map(); let total = 0; let errCount = 0; let ev = 0; let open = 0; let refused = 0; const errs = []; const kinds = {};
   for (const r of results) {
     for (const [k, v] of Object.entries(r.stats)) all.set(k, [...(all.get(k) || []), ...v]);
-    total += r.reqs; errCount += r.errorCount; ev += r.events; open += r.liveOpen; refused += r.liveFailed; errs.push(...r.errors);
+    total += r.reqs; errCount += r.errorCount; ev += r.events; open += r.liveOpen; refused += r.liveFailed; errs.push(...r.errors); for (const [k, n] of Object.entries(r.kinds || {})) kinds[k] = (kinds[k] || 0) + n;
   }
   const secs = (performance.now() - t0) / 1000;
   const pct = (a, p) => a[Math.min(a.length - 1, Math.floor(a.length * p))];
@@ -196,5 +197,6 @@ if (process.env.LOAD_TEST_WORKER) {
     console.log(k.padEnd(18), String(v.length).padStart(7), pct(v, 0.5).toFixed(0).padStart(8), pct(v, 0.95).toFixed(0).padStart(8), v.at(-1).toFixed(0).padStart(8));
   }
   if (errCount) console.log('first errors:', [...new Set(errs)].slice(0, 8));
+  if (errCount) { console.log('errors by kind:'); for (const [k, n] of Object.entries(kinds).sort((a, b) => b[1] - a[1]).slice(0, 12)) console.log(`  ${String(n).padStart(7)}  ${k}`); }
   process.exit(0);
 })();

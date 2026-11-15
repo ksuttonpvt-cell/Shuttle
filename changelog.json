@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.5.1",
+    "date": "2026-11-15",
+    "title": "Tidier shutdowns",
+    "changes": [
+      "When the site stops or restarts, its copies on each core stop quietly instead of filling the log with harmless errors."
+    ]
+  },
+  {
     "version": "2.5.0",
     "date": "2026-11-15",
     "title": "Uses every processor core; memory and bandwidth limits; traffic by kind",
