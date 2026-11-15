@@ -159,6 +159,26 @@ button:disabled { opacity: .55; cursor: default; }
 .route-pick input { width: 22px; height: 22px; min-height: 0; margin-top: .1rem; flex: none; }
 .route-total { font-weight: 800; font-size: 1.05rem; }
 .timeline { margin-top: .6rem; }
+/* ---------- Admin → Server ---------- */
+.stat .stat-note { display: block; font-size: .75rem; color: var(--muted); margin-top: .15rem; }
+.checks { list-style: none; padding: 0; margin: 0; }
+.checks li { display: flex; gap: .6rem; align-items: flex-start; padding: .45rem 0; border-bottom: 1px solid var(--line); }
+.checks li:last-child { border-bottom: 0; }
+.dot { font-size: 1rem; line-height: 1.2; }
+.dot-ok { color: var(--btn-green); } .dot-bad { color: var(--red); } .dot-off { color: var(--muted); }
+.spark { width: 100%; height: auto; display: block; }
+.spark .b-req { fill: var(--blue); } .spark .b-err { fill: var(--red); }
+.spark .hit { fill: transparent; } .spark .bar:hover .b-req, .spark .bar:hover .b-err { opacity: .75; }
+.spark .base { stroke: var(--line); stroke-width: 1; }
+.spark .axis { fill: var(--muted); font-size: 10px; }
+.chart-legend { display: flex; gap: 1rem; flex-wrap: wrap; color: var(--muted); margin-top: .3rem; }
+.chart-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: .35rem; vertical-align: -1px; }
+.sw-req { background: var(--blue); } .sw-err { background: var(--red); }
+.log-tools { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
+.logview { font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; background: #0f1115; color: #d7dae0; border-radius: 8px; padding: .6rem .7rem; height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+.logview time { color: #8a909c; }
+.logview .lvl { font-weight: 700; }
+.logview .log-warn .lvl { color: #ffb454; } .logview .log-error { color: #ff9b9b; } .logview .log-error .lvl { color: #ff6b6b; }
 .seat-pill { display: inline-block; font-size: .75rem; font-weight: 700; padding: 0 .4rem; border-radius: 99px; background: var(--gray-bg); color: var(--gray-fg); vertical-align: middle; }
 .offer-sheet { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); width: min(560px, calc(100% - 24px)); z-index: 3000;
   background: var(--card); color: var(--ink); border: 3px solid var(--btn-green); border-radius: 14px; padding: .9rem 1rem; box-shadow: 0 10px 30px rgba(0,0,0,.35); }

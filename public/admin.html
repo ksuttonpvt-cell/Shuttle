@@ -18,6 +18,7 @@
     <button data-tab="vehicles">Vehicles</button>
     <button data-tab="links">QR codes &amp; links</button>
     <button data-tab="settings">Settings</button>
+    <button data-tab="server">Server</button>
   </div>
   <div id="resetAlert" class="hidden"></div>
 
@@ -190,11 +191,57 @@
     </div>
     <div id="smsLog" style="margin-top:1rem"></div>
     <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
-    <h2>Software updates</h2>
-    <div id="verInfo" class="small muted">Loading…</div>
-    <div id="verMsg"></div>
-    <button type="button" class="btn-ghost" id="checkUpdates" style="margin-top:.6rem">Check for updates now</button>
+    <p class="small muted">Software updates, backups, the server log and restart are on the <b>Server</b> tab.</p>
   </section>
+
+  <!-- Server -->
+  <section data-pane="server" class="grid hidden">
+    <div class="stats" id="srvStats"></div>
+    <div class="grid cols-2">
+      <div class="card">
+        <div class="card-head"><h2>Health checks</h2><button class="btn-ghost btn-sm" id="srvRecheck">Check again</button></div>
+        <ul class="checks" id="srvChecks"><li class="muted small">Checking…</li></ul>
+        <div class="small muted" id="srvMachine" style="margin-top:.6rem"></div>
+      </div>
+      <div class="card" style="align-self:start">
+        <div class="card-head"><h2>Traffic, last hour</h2><span class="small muted" id="srvTrafficSum"></span></div>
+        <div id="srvChart"></div>
+        <div class="chart-legend small"><span><i class="sw sw-req"></i>Requests per minute</span><span><i class="sw sw-err"></i>Minutes with server errors</span></div>
+      </div>
+      <div class="card">
+        <h2>Updates &amp; restart</h2>
+        <div id="verInfo" class="small muted">Loading…</div>
+        <div id="verMsg"></div>
+        <div class="actions"><button type="button" class="btn-ghost" id="checkUpdates">Check for updates now</button>
+          <button type="button" class="btn-dark" id="srvRestart">Restart the site</button></div>
+        <details style="margin-top:.6rem"><summary class="small">Recent changes installed</summary><ol class="small" id="srvHistory" style="padding-left:1.2rem"></ol></details>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Backups</h2><button class="btn-blue btn-sm" id="srvBackupNow">Back up now</button></div>
+        <div id="srvRestorePending"></div>
+        <form id="srvBackupForm" class="linkbox" style="align-items:end;gap:.5rem;margin-bottom:.4rem">
+          <div style="flex:1"><label>Nightly backup at</label><input name="backup_time" type="time" style="max-width:180px"></div>
+          <button class="btn-ghost btn-sm">Save</button>
+        </form>
+        <p class="small muted" style="margin:.2rem 0 .6rem">Nightly backups run after customer info is cleared and are kept 14 days. “Back up now” copies are removed at the next midnight clear, so they don't keep customer details.</p>
+        <div id="srvBackupMsg"></div>
+        <div class="table-wrap" id="srvBackups"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Server log</h2>
+        <label class="check small" style="margin:0"><input type="checkbox" id="srvLive" checked> Live</label></div>
+      <div class="log-tools">
+        <div class="chips" role="group" aria-label="Log level" id="srvLevel">
+          <button data-level="" class="active">All</button><button data-level="warn">Warnings &amp; errors</button><button data-level="error">Errors only</button>
+        </div>
+        <input type="search" id="srvLogSearch" placeholder="Search the log…" style="max-width:260px">
+      </div>
+      <div class="logview" id="srvLog" role="log" aria-live="polite"></div>
+      <div class="small muted" id="srvLogFiles" style="margin-top:.5rem"></div>
+    </div>
+  </section>
+
 </main>
 <script src="/vendor/leaflet/leaflet.js"></script>
 <script src="/js/common.js"></script>
@@ -522,27 +569,179 @@
     }
     setTimeout(() => setMap.invalidateSize(), 100);
   }
-  async function loadVersion() {
-    try {
-      const v = await api('/api/version');
-      const when = v.version_date ? new Date(v.version_date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '';
-      $('#verInfo').innerHTML = `Running version <b>${esc(v.version || 'unknown')}</b>${when ? ` from ${when}` : ''}.<br>` +
-        (v.auto_update ? `✅ Updates install automatically.${v.last_check ? ` Last checked ${fmtTime(v.last_check)}.` : ''}` : `⚠️ Automatic updates are off. ${esc(v.reason || '')}`) +
-        (v.last_error ? `<div class="alert alert-err" style="margin-top:.5rem">Last update problem: ${esc(v.last_error)}</div>` : '');
-      $('#checkUpdates').classList.toggle('hidden', !v.auto_update);
-    } catch (err) { $('#verInfo').textContent = err.message; }
+
+  // ---------- server ----------
+  const fmtDur = (s) => { const d = Math.floor(s / 86400); const h = Math.floor((s % 86400) / 3600); const m = Math.floor((s % 3600) / 60);
+    return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`; };
+  const mb = (n) => (n >= 1024 ? `${(n / 1024).toFixed(1)} GB` : `${Math.round(n)} MB`);
+  const light = (ok) => (ok === true ? '<span class="dot dot-ok" aria-label="OK">●</span>' : ok === false ? '<span class="dot dot-bad" aria-label="Problem">●</span>' : '<span class="dot dot-off" aria-label="Not checked">●</span>');
+  let srvStatus = null;
+  function trafficChart(per) {
+    const W = 600; const H = 120; const pad = 18; const n = per.length;
+    const max = Math.max(5, ...per.map((m) => m.requests));
+    const bw = (W - 8) / n; const gap = 2;
+    const bars = per.map((m, i) => {
+      const h = m.requests ? Math.max(2, ((H - pad) * m.requests) / max) : 0;
+      const x = 4 + i * bw; const y = H - pad - h;
+      const t = new Date(m.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const tip = `${t}: ${m.requests} request${m.requests === 1 ? '' : 's'}${m.requests ? `, average ${m.avg_ms} ms` : ''}${m.errors ? `, ${m.errors} server error${m.errors === 1 ? '' : 's'}` : ''}`;
+      return `<g class="bar"><title>${tip}</title><rect class="hit" x="${x}" y="0" width="${bw}" height="${H - pad}"></rect>
+        ${h ? `<rect class="${m.errors ? 'b-err' : 'b-req'}" x="${x + gap / 2}" y="${y}" width="${Math.max(1, bw - gap)}" height="${h}" rx="1.5"></rect>` : ''}</g>`;
+    }).join('');
+    return `<svg viewBox="0 0 ${W} ${H}" class="spark" role="img" aria-label="Requests per minute over the last hour, highest ${max}">
+      <line class="base" x1="0" x2="${W}" y1="${H - pad}" y2="${H - pad}"></line>${bars}
+      <text x="4" y="${H - 4}" class="axis">60 min ago</text><text x="${W - 4}" y="${H - 4}" class="axis" text-anchor="end">now</text>
+      <text x="4" y="10" class="axis">${max}/min</text></svg>`;
+  }
+  async function loadServer() {
+    const s = srvStatus = await api('/api/server/status');
+    const online = s.online.admin + s.online.advisor + s.online.driver;
+    $('#srvStats').innerHTML = [
+      [fmtDur(s.uptime_s), 'Site running for', s.supervised ? 'Watched by Shuttle Control' : ''],
+      [online, 'Staff online now', `${s.online.customers} customer${s.online.customers === 1 ? '' : 's'} tracking rides`],
+      [s.requests.per_minute_now, 'Requests per minute', 'Average of the last 5 min'],
+      [`${s.requests.avg_ms_now} ms`, 'Average response', 'Under 200 ms feels instant'],
+      [`${s.cpu.process}%`, 'Processor (site)', `Whole PC: ${s.cpu.system}% of ${s.cpu.cores} cores`],
+      [mb(s.memory.site_mb), 'Memory (site)', `PC: ${mb(s.memory.pc_total_mb - s.memory.pc_free_mb)} of ${mb(s.memory.pc_total_mb)} in use`],
+      [s.log_counts.error, 'Errors in the last hour', s.log_counts.warn ? `${s.log_counts.warn} warnings` : 'No warnings'],
+    ].map(([n, l, d]) => `<div class="stat"><b>${n}</b><span>${l}</span>${d ? `<span class="stat-note">${d}</span>` : ''}</div>`).join('');
+    $('#srvChart').innerHTML = trafficChart(s.requests.per_minute);
+    $('#srvTrafficSum').textContent = `${s.requests.last_hour} requests · ${s.requests.errors_last_hour} server errors`;
+    const m = s.machine;
+    $('#srvMachine').innerHTML = `PC <b>${esc(m.name)}</b> · ${esc(m.platform)} · Node ${esc(m.node)} · PC on for ${fmtDur(m.pc_uptime_s)}<br>
+      Database ${s.database.size_mb} MB${s.disk ? ` · ${mb(s.disk.free_mb)} free on the disk` : ''} · ${s.shuttle.open_rides} open rides · ${s.shuttle.drivers_on_duty} drivers on duty · ${s.shuttle.signed_in_devices} signed-in devices
+      ${s.supervised ? '' : '<br>ℹ️ The <b>Shuttle Control</b> window on the server PC appears after start-shuttle.bat is restarted once.'}`;
+    showVersion(s.version);
+    $('#srvRestart').disabled = !s.can_restart;
+    showChecks();
+  }
+  let srvChecks = null;
+  async function loadChecks(fresh = false) {
+    try { srvChecks = await api('/api/server/checks' + (fresh ? '?fresh=1' : '')); } catch (err) { srvChecks = { error: err.message }; }
+    showChecks();
+  }
+  function showChecks() {
+    const s = srvStatus; const c = srvChecks;
+    if (!s) return;
+    const lastDaily = s.backups?.last_daily;
+    const backupOk = !s.backups ? null : !s.backups.time ? false : lastDaily ? Date.now() - new Date(lastDaily) < 36 * 3600000 : null;
+    const diskOk = s.disk ? s.disk.free_mb > 1024 : null;
+    const rows = [
+      [true, 'Shuttle website', `Running for ${fmtDur(s.uptime_s)}`],
+      [c?.public_site?.ok ?? null, 'Web address (Cloudflare Tunnel)', c ? (c.public_site.ok ? `${esc(c.public_site.note)} answered in ${c.public_site.ms} ms` : esc(c.public_site.note || '')) : 'Checking…'],
+      [c?.routing?.ok ?? null, 'Road routing for drivers', c ? (c.routing.ok ? `Answered in ${c.routing.ms} ms` : esc(c.routing.note || '')) : 'Checking…'],
+      [c?.database?.ok ?? null, 'Database', c ? esc(c.database.note || '') : 'Checking…'],
+      [s.version.last_error ? false : s.version.auto_update ? true : null, 'Automatic updates', s.version.last_error ? esc(s.version.last_error) : s.version.auto_update ? `On${s.version.last_check ? `, last checked ${fmtTime(s.version.last_check)}` : ''}` : esc(s.version.reason || 'Off')],
+      [backupOk, 'Nightly backup', !s.backups ? 'Not set up' : !s.backups.time ? 'Turned off' : lastDaily ? `Last one ${fmtTime(lastDaily)} · ${s.backups.count} kept (${s.backups.total_mb} MB)` : `First one tonight at ${s.backups.time}`],
+      [diskOk, 'Disk space', s.disk ? `${mb(s.disk.free_mb)} free of ${mb(s.disk.total_mb)}` : 'Unknown'],
+      [s.log_counts.error ? false : true, 'Errors in the last hour', s.log_counts.error ? `${s.log_counts.error} — see the log below` : 'None'],
+    ];
+    $('#srvChecks').innerHTML = rows.map(([ok, name, note]) => `<li>${light(ok)}<div><b>${name}</b><div class="small muted">${note}</div></div></li>`).join('');
+  }
+  $('#srvRecheck').onclick = () => { $('#srvChecks').innerHTML = '<li class="muted small">Checking…</li>'; loadChecks(true); };
+
+  function showVersion(v) {
+    const when = v.version_date ? new Date(v.version_date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    $('#verInfo').innerHTML = `Running version <b>${esc(v.version || 'unknown')}</b>${when ? ` from ${when}` : ''}.<br>` +
+      (v.auto_update ? `✅ Updates install automatically.${v.last_check ? ` Last checked ${fmtTime(v.last_check)}.` : ''}` : `⚠️ Automatic updates are off. ${esc(v.reason || '')}`) +
+      (v.last_error ? `<div class="alert alert-err" style="margin-top:.5rem">Last update problem: ${esc(v.last_error)}</div>` : '');
+    $('#checkUpdates').classList.toggle('hidden', !v.auto_update);
+  }
+  async function loadHistory() {
+    const { history } = await api('/api/server/updates');
+    $('#srvHistory').innerHTML = history.length ? history.map((h) => `<li><b>${esc(h.subject)}</b> <span class="muted">· ${fmtTime(h.date)} · ${esc(h.hash)}</span></li>`).join('') : '<li class="muted">Not available</li>';
   }
   $('#checkUpdates').onclick = async (e) => {
     e.target.disabled = true; e.target.textContent = 'Checking…'; App.flash($('#verMsg'), '');
     try {
       const r = await api('/api/updates/check', { body: {} });
       App.flash($('#verMsg'), r.message, true);
-      if (r.result === 'updated') setTimeout(() => location.reload(), 6000);
+      if (r.result === 'updated') setTimeout(() => location.reload(), 8000);
     } catch (err) { App.flash($('#verMsg'), err.message); }
     e.target.disabled = false; e.target.textContent = 'Check for updates now';
-    loadVersion();
+    loadServer().catch(() => {});
   };
-  loaders.settings = () => { loadVersion(); loadSms(); return loadSettings(); };
+  async function waitForSite() {
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      try { const r = await fetch('/healthz', { cache: 'no-store' }); if (r.ok) return location.reload(); } catch { /* still restarting */ }
+    }
+  }
+  $('#srvRestart').onclick = async () => {
+    if (!confirm('Restart the shuttle site now? Everyone stays signed in; pages reconnect after about 10 seconds.')) return;
+    try { const r = await api('/api/server/restart', { body: {} }); App.flash($('#verMsg'), r.message, true); waitForSite(); }
+    catch (err) { App.flash($('#verMsg'), err.message); }
+  };
+
+  const KIND = { daily: 'Nightly', manual: 'Made by hand', 'before-restore': 'Before a restore' };
+  async function loadBackups() {
+    let data;
+    try { data = await api('/api/server/backups'); } catch (err) { $('#srvBackups').innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+    $('#srvBackupForm').elements.backup_time.value = data.time || '';
+    $('#srvRestorePending').innerHTML = data.pending_restore ? `<div class="alert alert-warn small">A restore of ${esc(data.pending_restore.name)} is waiting for the next restart. <button class="btn-ghost btn-sm" data-cancel-restore>Cancel it</button></div>` : '';
+    $('#srvBackups').innerHTML = data.backups.length ? `<table><tr><th>Made</th><th>Type</th><th>Size</th><th></th></tr>${data.backups.map((b) => `
+      <tr data-name="${esc(b.name)}"><td>${fmtTime(b.made_at)}</td><td>${KIND[b.kind] || esc(b.kind)}</td><td>${b.size >= 1048576 ? (b.size / 1048576).toFixed(1) + ' MB' : Math.ceil(b.size / 1024) + ' KB'}</td>
+        <td style="white-space:nowrap"><a class="btn btn-ghost btn-sm" href="/api/server/backups/${encodeURIComponent(b.name)}" download>⬇ Download</a>
+          <button class="btn-ghost btn-sm" data-restore>Restore</button> <button class="btn-ghost btn-sm" data-delete aria-label="Delete backup">✕</button></td></tr>`).join('')}</table>`
+      : '<div class="empty">No backups yet. Tap “Back up now”, or wait for tonight\'s.</div>';
+  }
+  $('#srvBackupNow').onclick = async (e) => {
+    e.target.disabled = true;
+    try { const { backup } = await api('/api/server/backups', { body: {} }); App.flash($('#srvBackupMsg'), `Backup made: ${backup.name}`, true); loadBackups(); }
+    catch (err) { App.flash($('#srvBackupMsg'), err.message); }
+    e.target.disabled = false;
+  };
+  $('#srvBackupForm').onsubmit = async (e) => {
+    e.preventDefault();
+    try { await api('/api/settings', { method: 'PATCH', body: { backup_time: e.target.elements.backup_time.value } }); App.flash($('#srvBackupMsg'), 'Saved.', true); loadServer().catch(() => {}); }
+    catch (err) { App.flash($('#srvBackupMsg'), err.message); }
+  };
+  $('[data-pane="server"]').addEventListener('click', async (e) => {
+    if (e.target.closest('[data-cancel-restore]')) { await api('/api/server/restore', { method: 'DELETE' }).catch(() => {}); return loadBackups(); }
+    const row = e.target.closest('tr[data-name]'); if (!row) return;
+    const name = row.dataset.name;
+    try {
+      if (e.target.closest('[data-delete]')) {
+        if (!confirm(`Delete backup ${name}?`)) return;
+        await api(`/api/server/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }); loadBackups();
+      }
+      if (e.target.closest('[data-restore]')) {
+        const typed = prompt(`Restore ${name}?\n\nEverything changed since this backup (rides, staff, settings) goes back to how it was then. The current database is saved first as a "Before a restore" backup.\n\nType RESTORE to continue.`);
+        if (typed !== 'RESTORE') return;
+        const r = await api(`/api/server/backups/${encodeURIComponent(name)}/restore`, { body: {} });
+        App.flash($('#srvBackupMsg'), r.message, true); waitForSite();
+      }
+    } catch (err) { App.flash($('#srvBackupMsg'), err.message); }
+  });
+
+  // Log: live tail with level filter and search.
+  let logLevel = ''; let logAfter = 0; let logQ = '';
+  const logLine = (l) => `<div class="log-${l.level}"><time>${new Date(l.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}</time> <span class="lvl">${l.level === 'info' ? '' : l.level.toUpperCase()}</span> ${esc(l.text)}</div>`;
+  async function loadLog(reset = false) {
+    if (reset) { logAfter = 0; $('#srvLog').innerHTML = ''; }
+    const { lines, files } = await api(`/api/server/logs?after=${logAfter}&level=${logLevel}&q=${encodeURIComponent(logQ)}&limit=400`);
+    const box = $('#srvLog'); const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    if (lines.length) {
+      logAfter = lines[lines.length - 1].seq;
+      box.insertAdjacentHTML('beforeend', lines.map(logLine).join(''));
+      while (box.children.length > 800) box.firstElementChild.remove();
+      if (atBottom || reset) box.scrollTop = box.scrollHeight;
+    }
+    if (!box.children.length) box.innerHTML = '<div class="muted">Nothing here yet.</div>';
+    else box.querySelector(':scope > .muted')?.remove();
+    $('#srvLogFiles').innerHTML = files.length ? `Full daily logs (kept 14 days): ${files.slice(0, 7).map((f) => `<a href="/api/server/logs/file/${f.day}" download>${f.day}</a>`).join(' · ')}` : '';
+  }
+  $$('#srvLevel [data-level]').forEach((b) => b.onclick = () => {
+    logLevel = b.dataset.level; $$('#srvLevel [data-level]').forEach((x) => x.classList.toggle('active', x === b)); loadLog(true).catch(() => {});
+  });
+  let searchT; $('#srvLogSearch').oninput = (e) => { clearTimeout(searchT); searchT = setTimeout(() => { logQ = e.target.value; loadLog(true).catch(() => {}); }, 300); };
+
+  const serverVisible = () => !$('[data-pane="server"]').classList.contains('hidden') && !document.hidden;
+  loaders.server = () => { loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
+  setInterval(() => { if (serverVisible()) { loadServer().catch(() => {}); if ($('#srvLive').checked) loadLog().catch(() => {}); } }, 5000);
+  setInterval(() => { if (serverVisible()) loadChecks(); }, 60000);
+
+  loaders.settings = () => { loadSms(); return loadSettings(); };
   sf.onsubmit = async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(sf));

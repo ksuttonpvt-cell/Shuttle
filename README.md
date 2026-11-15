@@ -25,6 +25,14 @@ Every open ride gets a queue number. Ride in progress (on board or en route) com
 - **Ride offers:** when a ride is waiting for a driver, the closest free on-duty driver (no rides, or just finishing one) gets a ding, a phone notification and a pop-up: *Ride near you. Want it?* with **Take it** or **No thanks**. If they pass or don't answer within 90 seconds, it goes to the next closest driver. Advisors see "Offered to …" on the ride. Admins can turn this off in Settings.
 - Road times come from the free public OSRM routing server. If it can't be reached, the planner uses a straight-line estimate instead (shown as a dashed line). Set `ROUTING=off` in `.env` to always use the estimate.
 
+### Server tools
+
+- **Admin → Server** (from any device): the site's health checks (web address through the Cloudflare Tunnel, road routing, database, updates, nightly backup, disk space), live numbers (people online, requests per minute, response time, processor, memory), a traffic chart for the last hour, the server log with filters and search, update history, **Restart the site**, and **backups**.
+- **Backups:** a full copy of the database is made every night at 12:30 AM (after customer info is cleared) and kept 14 days in `data/backups`. **Back up now** makes an extra copy, removed at the next midnight clear so customer details aren't kept. Any backup can be downloaded or **restored**: the site saves the current database first, restarts, and swaps the backup in.
+- **Shuttle Control** (on the server PC only): double-click **Shuttle Control.bat** for a window with the site's status, a live log, and **Start / Stop / Restart**, plus buttons to open the log and backup folders. It keeps working while the website is stopped. It's part of `start-shuttle.bat`, so it appears after that has been restarted once following this update.
+- **Logs** are saved per day in `data/logs` and kept 14 days. Passwords are never written to them.
+- **No black window:** `start-shuttle-hidden.vbs` starts everything hidden (good for Task Scheduler or the Startup folder); use Shuttle Control to see or stop it.
+
 ### Logins
 Each person has their **own email + password** (8+ characters). Passwords are hashed with scrypt, and sign-in is rate-limited. Admins create accounts and reset passwords, and anyone can change their own password from the top bar.
 

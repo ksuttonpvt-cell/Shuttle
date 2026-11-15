@@ -7,6 +7,9 @@ const { rankRides, distanceKm } = require('./priority');
 const { toE164, createTwilioSender } = require('./sms');
 const { createPush } = require('./push');
 const { planRoute, KM_TO_MI, STOP_MINUTES } = require('./routing');
+const fs = require('node:fs');
+const { createStats } = require('./serverstats');
+const { createLogbook } = require('./logbook');
 
 const SESSION_DAYS = 14;
 const RIDE_STATUSES = ['requested', 'assigned', 'en_route', 'onboard', 'completed', 'cancelled'];
@@ -24,7 +27,8 @@ const DEFAULT_SETTINGS = {
   auto_end_shift: '20:00', // every driver is taken off shift at this local time each day ('' = off)
   auto_sign_out: '00:00',  // everyone is signed out at this local time each day ('' = off)
   ride_offers: '1',        // offer waiting rides to the closest free driver, who can accept or pass
-  clear_customer_info: '00:00', // finished rides lose their customer details at this local time each day ('' = off)
+  clear_customer_info: '00:00',
+  backup_time: '00:30',    // nightly database backup, after customer info is cleared ('' = off) // finished rides lose their customer details at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
   sms_booked: '1',
   sms_en_route: '1',
@@ -45,6 +49,15 @@ function createApp(db, opts = {}) {
     return (fromTunnel && req.get('cf-connecting-ip')) || req.ip || peer;
   };
   app.use(express.json({ limit: '100kb' }));
+  // Live numbers for Admin → Server.
+  const stats = opts.stats || createStats({ timers: !opts.noTimers });
+  const logbook = opts.logbook || createLogbook();
+  let publicBase = opts.publicUrl || process.env.PUBLIC_URL || null; // learned from tunnel visits if not set
+  app.use(stats.middleware);
+  app.use((req, _res, next) => {
+    if (!publicBase && req.get('cf-connecting-ip') && req.get('host')) publicBase = `https://${req.get('host')}`;
+    next();
+  });
 
   // Express 4 doesn't catch errors from async handlers; an unhandled one stops the whole
   // server. Wrap every async handler so its errors go to the normal error handler instead.
@@ -167,7 +180,7 @@ function createApp(db, opts = {}) {
     if (token) {
       const row = q(`SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
                      WHERE s.token = ? AND s.expires_at > ? AND u.active = 1`).get(token, now());
-      if (row) { req.user = row; req.sessionToken = token; }
+      if (row) { req.user = row; req.sessionToken = token; stats.sawUser(row); }
     }
     next();
   });
@@ -885,6 +898,7 @@ function createApp(db, opts = {}) {
   app.get('/api/public/track/:token', (req, res) => {
     const ride = q(`${RIDE_SELECT} WHERE r.track_token = ?`).get(String(req.params.token));
     if (!ride) return bad(res, 'Ride not found.', 404);
+    stats.sawTracker(ride.track_token);
     let driverLoc = null;
     if (ride.driver_id && ['en_route', 'onboard'].includes(ride.status)) {
       const d = q('SELECT last_lat, last_lng, last_loc_at FROM users WHERE id = ?').get(ride.driver_id);
@@ -927,7 +941,7 @@ function createApp(db, opts = {}) {
       if ((k === 'dealer_lat' || k === 'dealer_lng') && Number.isNaN(Number(v))) return bad(res, 'Latitude/longitude must be numbers.');
       if (YES_NO_SETTINGS.includes(k)) v = req.body[k] && req.body[k] !== '0' ? '1' : '0';
       if (k === 'timezone') { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); } catch { return bad(res, 'Unknown time zone.'); } }
-      if (k === 'auto_end_shift' || k === 'auto_sign_out' || k === 'clear_customer_info') {
+      if (k === 'auto_end_shift' || k === 'auto_sign_out' || k === 'clear_customer_info' || k === 'backup_time') {
         v = v.trim();
         if (v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) return bad(res, 'Pick a time, like 8:00 PM, or leave it empty to turn it off.');
       }
@@ -940,6 +954,7 @@ function createApp(db, opts = {}) {
       q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
       if (k === 'auto_sign_out' && changed) resetSignOutSchedule(v);
       if (k === 'clear_customer_info' && changed) customerWipe.reset(v);
+      if (k === 'backup_time' && changed) nightlyBackup.reset(v);
     }
     res.json({ settings: shareableSettings() });
   });
@@ -1033,6 +1048,8 @@ function createApp(db, opts = {}) {
     for (const id of ids) wipe.run(CLEARED_NAME, randomToken(18), at, id);
     const texts = q('DELETE FROM sms_log').run().changes;
     geoCache.clear(); // searched addresses
+    // Hand-made and before-restore backups still hold the day's customer details: remove them.
+    if (opts.backups) { try { opts.backups.prune({ temporary: true }); } catch (e) { console.error('Removing temporary backups failed:', e.message); } }
     if (ids.length || texts) console.log(new Date().toLocaleString(), `[privacy] Cleared customer info from ${ids.length} finished ride(s) and ${texts} text log entr${texts === 1 ? 'y' : 'ies'}.`);
     return ids.length;
   }
@@ -1058,12 +1075,40 @@ function createApp(db, opts = {}) {
     return { tick, reset };
   })();
   app.locals.clearCustomerInfo = customerWipe.tick;
+
+  // ---------- nightly backup ----------
+  // Same daily timing rules: installing it never runs on the spot; a time later today still runs tonight.
+  const nightlyBackup = (() => {
+    const LAST = 'backup_last';
+    const setLast = (v) => q("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(LAST, v);
+    function tick(at = new Date()) {
+      if (!opts.backups) return null;
+      const s = getSettings();
+      const cutoff = (s.backup_time || '').trim();
+      if (!/^\d{2}:\d{2}$/.test(cutoff)) return null;
+      const nowHM = new Intl.DateTimeFormat('en-GB', { timeZone: tz(), hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at);
+      const today = localDate(at.toISOString());
+      if (!s[LAST]) { setLast(nowHM >= cutoff ? today : 'pending'); return null; }
+      if (nowHM < cutoff || s[LAST] === today) return null;
+      setLast(today);
+      const made = opts.backups.make('daily', at);
+      opts.backups.prune();
+      return made;
+    }
+    function reset(cutoff, at = new Date()) {
+      q('DELETE FROM settings WHERE key = ?').run(LAST);
+      if (cutoff) tick(at);
+    }
+    return { tick, reset };
+  })();
+  app.locals.nightlyBackup = nightlyBackup.tick;
   app.locals.resetClearSchedule = customerWipe.reset;
   if (!opts.noTimers) {
     setInterval(() => {
       try { autoEndShifts(); } catch (e) { console.error('Auto end of shift failed:', e.message); }
       try { autoSignOut(); } catch (e) { console.error('Auto sign-out failed:', e.message); }
       try { customerWipe.tick(); } catch (e) { console.error('Clearing customer info failed:', e.message); }
+      try { nightlyBackup.tick(); } catch (e) { console.error('Nightly backup failed:', e.message); }
     }, 60000).unref();
   }
 
@@ -1159,6 +1204,122 @@ function createApp(db, opts = {}) {
       busy: 'Already checking — try again in a moment.', skipped: opts.updater.state.reason || 'Automatic updates are off.',
       error: opts.updater.state.lastError || 'The update check failed.' }[result];
     res.status(result === 'error' ? 502 : 200).json({ result, message: msg });
+  });
+
+  // ---------- server (Admin → Server) ----------
+  const dataDir = opts.dbFile && opts.dbFile !== ':memory:' ? path.dirname(opts.dbFile) : null;
+  const fileSize = (f) => { try { return fs.statSync(f).size; } catch { return 0; } };
+  function diskFree() {
+    if (!dataDir || !fs.statfsSync) return null;
+    try { const s = fs.statfsSync(dataDir); return { free_mb: Math.round((s.bavail * s.bsize) / 1048576), total_mb: Math.round((s.blocks * s.bsize) / 1048576) }; } catch { return null; }
+  }
+  app.get('/api/server/status', requireRole('admin'), (req, res) => {
+    const u = opts.updater?.state || {};
+    const b = opts.backups;
+    const backups = b ? b.list() : [];
+    res.json({
+      ...stats.snapshot(),
+      supervised: !!opts.supervised,
+      can_restart: !!opts.restart,
+      version: { version: u.version || null, version_date: u.versionDate || null, auto_update: !!u.enabled, reason: u.reason || null, last_check: u.lastCheck || null, last_error: u.lastError || null, checking: !!u.checking },
+      database: { size_mb: Math.round(((fileSize(opts.dbFile) + fileSize(`${opts.dbFile}-wal`)) / 1048576) * 10) / 10, file: opts.dbFile || null },
+      disk: diskFree(),
+      shuttle: {
+        open_rides: q("SELECT COUNT(*) AS n FROM rides WHERE status IN ('requested','assigned','en_route','onboard')").get().n,
+        drivers_on_duty: q("SELECT COUNT(*) AS n FROM users WHERE role = 'driver' AND on_duty = 1").get().n,
+        signed_in_devices: q('SELECT COUNT(*) AS n FROM sessions WHERE expires_at > ?').get(now()).n,
+      },
+      log_counts: logbook.counts(),
+      backups: b ? {
+        count: backups.length, total_mb: Math.round((b.totalSize() / 1048576) * 10) / 10,
+        last_daily: backups.find((x) => x.kind === 'daily')?.made_at || null, time: getSettings().backup_time || '', pending_restore: b.pendingRestore(),
+      } : null,
+      public_url: publicBase,
+    });
+  });
+
+  // Can the outside world reach us, and can we reach the services we use? (cached a minute)
+  let checksCache = null;
+  app.get('/api/server/checks', requireRole('admin'), async (req, res) => {
+    if (checksCache && Date.now() - checksCache.at < 60000 && !req.query.fresh) return res.json(checksCache.data);
+    const timed = async (fn) => {
+      const t0 = Date.now();
+      try { const note = await fn(); return { ok: true, ms: Date.now() - t0, note: note || null }; } catch (e) { return { ok: false, ms: Date.now() - t0, note: e.message }; }
+    };
+    const dealer = dealerOrigin();
+    const [publicSite, routing] = await Promise.all([
+      publicBase ? timed(async () => {
+        const r = await fetch(`${publicBase}/healthz`, { signal: AbortSignal.timeout(8000) });
+        if (!r.ok) throw new Error(`answered ${r.status}`);
+        return publicBase;
+      }) : Promise.resolve({ ok: null, note: 'Not known yet. It appears after the first visit through your web address, or set PUBLIC_URL in .env.' }),
+      opts.router ? timed(async () => { await opts.router.path([dealer, { lat: dealer.lat + 0.01, lng: dealer.lng }]); return 'Real road times available'; })
+        : Promise.resolve({ ok: null, note: 'Turned off (ROUTING=off). Routes use estimates.' }),
+    ]);
+    const database = await timed(async () => {
+      const r = q('PRAGMA quick_check').get();
+      const v = Object.values(r)[0];
+      if (v !== 'ok') throw new Error(String(v));
+      return 'No problems found';
+    });
+    const data = { at: now(), public_site: publicSite, routing, database };
+    checksCache = { at: Date.now(), data };
+    res.json(data);
+  });
+
+  app.get('/api/server/logs', requireRole('admin'), (req, res) => {
+    res.json({ lines: logbook.recent({ after: Number(req.query.after) || 0, level: req.query.level, q: req.query.q, limit: req.query.limit }),
+      files: (opts.logsDir ? createLogbook({ dir: opts.logsDir }).files() : []) });
+  });
+  app.get('/api/server/logs/file/:day', requireRole('admin'), (req, res) => {
+    const p = opts.logsDir && createLogbook({ dir: opts.logsDir }).filePath(req.params.day);
+    if (!p) return bad(res, 'No log for that day.', 404);
+    res.download(p);
+  });
+
+  app.get('/api/server/updates', requireRole('admin'), async (req, res) => {
+    res.json({ history: opts.updater?.history ? await opts.updater.history() : [] });
+  });
+
+  app.post('/api/server/restart', requireRole('admin'), (req, res) => {
+    if (!opts.restart) return bad(res, 'Restart is not available here.');
+    console.log(new Date().toLocaleString(), `[server] Restart requested by ${req.user.name}.`);
+    res.json({ ok: true, message: 'Restarting. The site will be back in about 10 seconds.' });
+    setTimeout(opts.restart, 300);
+  });
+
+  // Backups
+  const needBackups = (res) => { if (!opts.backups) { bad(res, 'Backups are not set up on this server.'); return false; } return true; };
+  app.get('/api/server/backups', requireRole('admin'), (req, res) => {
+    if (!needBackups(res)) return;
+    res.json({ backups: opts.backups.list(), pending_restore: opts.backups.pendingRestore(), time: getSettings().backup_time || '' });
+  });
+  app.post('/api/server/backups', requireRole('admin'), (req, res) => {
+    if (!needBackups(res)) return;
+    try { res.status(201).json({ backup: opts.backups.make('manual') }); } catch (e) { bad(res, `Backup failed: ${e.message}`, 500); }
+  });
+  app.get('/api/server/backups/:name', requireRole('admin'), (req, res) => {
+    if (!needBackups(res)) return;
+    const p = opts.backups.path(req.params.name);
+    if (!p) return bad(res, 'Backup not found.', 404);
+    res.download(p);
+  });
+  app.delete('/api/server/backups/:name', requireRole('admin'), (req, res) => {
+    if (!needBackups(res)) return;
+    if (!opts.backups.remove(req.params.name)) return bad(res, 'Backup not found.', 404);
+    res.json({ ok: true });
+  });
+  app.post('/api/server/backups/:name/restore', requireRole('admin'), (req, res) => {
+    if (!needBackups(res)) return;
+    if (!opts.restart) return bad(res, 'Restoring needs the site started with start-shuttle.bat, so it can restart itself.');
+    try { opts.backups.scheduleRestore(req.params.name); } catch (e) { return bad(res, e.message); }
+    console.log(new Date().toLocaleString(), `[backups] ${req.user.name} asked to restore ${req.params.name}. Restarting to swap it in...`);
+    res.json({ ok: true, message: 'Restoring. The site restarts and will be back in about 10 seconds.' });
+    setTimeout(opts.restart, 300);
+  });
+  app.delete('/api/server/restore', requireRole('admin'), (req, res) => {
+    if (!needBackups(res)) return;
+    opts.backups.cancelRestore(); res.json({ ok: true });
   });
 
   // ---------- QR codes + share links ----------
