@@ -296,3 +296,22 @@ test('hardening: lockouts, crash guard, damaged cookies', async () => {
   for (let i = 0; i < 11; i++) if ((await admin('/api/me/password', { body: { current: 'wrong' + i, next: 'newpassword1' } })).status === 429) pwLocked++;
   assert.equal(pwLocked, 1);
 });
+
+test('odd input gets a clear answer, never a server error', async () => {
+  const admin = client();
+  await admin('/api/login', { body: { email: 'admin@test.local', password: 'adminpass1' } });
+  const ride = (await admin('/api/rides', { body: { type: 'pickup', customer_name: 'Odd', customer_phone: '3035550101', address: '1 Main St', lat: 40.01, lng: -105.27, scheduled_at: new Date(Date.now() + 3600e3).toISOString(), passengers: 1 } })).data.ride;
+  for (const body of [{ driver_id: 0 }, { driver_id: false }, { driver_id: ' ' }]) {
+    const r = await admin(`/api/rides/${ride.id}`, { method: 'PATCH', body });
+    assert.ok(r.status < 500, `${JSON.stringify(body)} -> ${r.status}`);
+  }
+  for (const vehicle_id of [-1, 999999, 1e308]) {
+    const r = await admin(`/api/rides/${ride.id}`, { method: 'PATCH', body: { vehicle_id } });
+    assert.equal(r.status, 400, `vehicle ${vehicle_id}`);
+    assert.equal(r.data.error, 'Vehicle not found.');
+  }
+  for (const raw of ['null', '"x"', '123', '{bad json']) {
+    const r = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: raw });
+    assert.equal(r.status, 400, raw);
+  }
+});

@@ -156,6 +156,15 @@ function createApp(db, opts = {}) {
 
   // ---------- helpers ----------
   const q = (sql) => db.prepare(sql);
+  // Steps that check something and then change it (claiming a ride, taking a van, booking
+  // the ride back) run as one database transaction. With a copy of the site on each core,
+  // two people tapping at the same moment could otherwise both "win".
+  function atomic(handler) {
+    return (req, res, next) => {
+      try { db.exec('BEGIN IMMEDIATE'); } catch (e) { return next(e); }
+      try { handler(req, res, next); db.exec('COMMIT'); } catch (e) { try { db.exec('ROLLBACK'); } catch { /* already ended */ } next(e); }
+    };
+  }
   const now = () => new Date().toISOString();
 
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) {
@@ -606,7 +615,7 @@ function createApp(db, opts = {}) {
   });
 
   // ---------- drivers: shift + location ----------
-  app.post('/api/driver/shift', requireRole('driver'), (req, res) => {
+  app.post('/api/driver/shift', requireRole('driver'), atomic((req, res) => {
     const onDuty = !!req.body.on_duty;
     let vehicleId = num(req.body.vehicle_id);
     if (onDuty) {
@@ -624,7 +633,7 @@ function createApp(db, opts = {}) {
     }
     scheduleOfferSweep();
     res.json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)) });
-  });
+  }));
 
   app.post('/api/driver/location', requireRole('driver'), (req, res) => {
     const lat = num(req.body.lat); const lng = num(req.body.lng);
@@ -1023,7 +1032,7 @@ function createApp(db, opts = {}) {
     res.json({ ride: withLinks(req, ride) });
   });
 
-  app.post('/api/rides', requireRole('advisor'), (req, res) => {
+  app.post('/api/rides', requireRole('advisor'), atomic((req, res) => {
     const { r, error, adjusted } = cleanRide(req.body, {}, { byAdmin: req.user.role === 'admin' });
     if (error) return bad(res, error);
     // "Customer ready": a drop off booked from a pick up remembers which one.
@@ -1039,9 +1048,9 @@ function createApp(db, opts = {}) {
     notifyCustomer(ride.id, 'booked', baseUrl(req));
     pushNewRide(ride.id);
     res.status(201).json({ ride: withLinks(req, ride), adjusted_to: adjusted, wait_min: adjusted ? dropoffWait() : 0 });
-  });
+  }));
 
-  app.patch('/api/rides/:id', requireRole(), (req, res) => {
+  app.patch('/api/rides/:id', requireRole(), atomic((req, res) => {
     const ride = q('SELECT * FROM rides WHERE id = ?').get(Number(req.params.id));
     if (!ride) return bad(res, 'Ride not found.', 404);
     const b = req.body; const role = req.user.role;
@@ -1062,7 +1071,7 @@ function createApp(db, opts = {}) {
         else if (b.driver_id === null && ride.driver_id === req.user.id) updates.driver_id = null;
         else return bad(res, 'That ride belongs to another driver.', 403);
       } else {
-        const id = num(b.driver_id);
+        const id = num(b.driver_id) || null; // 0, false or blank means "no driver"
         if (id && !q("SELECT id FROM users WHERE id = ? AND role = 'driver' AND active = 1").get(id)) return bad(res, 'Driver not found.');
         updates.driver_id = id;
       }
@@ -1075,7 +1084,11 @@ function createApp(db, opts = {}) {
         if (['assigned', 'en_route'].includes(ride.status)) updates.status = 'requested';
       }
     }
-    if (b.vehicle_id !== undefined && role !== 'driver') updates.vehicle_id = num(b.vehicle_id);
+    if (b.vehicle_id !== undefined && role !== 'driver') {
+      const vid = num(b.vehicle_id) || null;
+      if (vid && !q('SELECT id FROM vehicles WHERE id = ?').get(vid)) return bad(res, 'Vehicle not found.');
+      updates.vehicle_id = vid;
+    }
     if (b.no_return !== undefined && role !== 'driver') updates.no_return = b.no_return ? 1 : 0;
 
     // Status.
@@ -1123,7 +1136,7 @@ function createApp(db, opts = {}) {
     scheduleOfferSweep(); // a driver may be free now, or a ride may need someone again
     stampPlace(ride.id);
     res.json({ ride: withLinks(req, q(`${RIDE_SELECT} WHERE r.id = ?`).get(ride.id)) });
-  });
+  }));
 
   app.delete('/api/rides/:id', requireRole('admin'), (req, res) => {
     q('DELETE FROM rides WHERE id = ?').run(Number(req.params.id));
@@ -1922,6 +1935,11 @@ function createApp(db, opts = {}) {
   app.use('/api', (req, res) => bad(res, 'Not found.', 404));
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, _next) => {
+    // Requests that aren't readable (not JSON, or too big) are the sender's mistake, not ours.
+    if (err && err.type === 'entity.parse.failed') return res.status(400).json({ error: "That request couldn't be read." });
+    if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'That is too much to send at once.' });
+    // Two people adding the same email at the same moment: the database refuses the second.
+    if (/UNIQUE constraint failed: users\.email/.test(err && err.message)) return res.status(400).json({ error: 'That email already has an account.' });
     console.error(err);
     res.status(500).json({ error: 'Something went wrong.' });
   });

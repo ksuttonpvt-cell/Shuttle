@@ -80,6 +80,31 @@ test('three copies: updates reach every screen, limits are shared, numbers add u
   assert.match(log, /on 3 processor cores/);
 });
 
+test('two drivers tapping at once on different copies: only one gets the ride or the van', async () => {
+  const { cookie } = await call('/api/login', { body: { email: 'boss@cores.test', password: 'adminpass1' } });
+  const drivers = [];
+  for (let i = 0; i < 6; i++) {
+    const u = (await call('/api/users', { cookie, body: { name: `Racer ${i}`, email: `racer${i}@cores.test`, role: 'driver', password: 'driverpass1' } })).data.user;
+    drivers.push({ id: u.id, cookie: (await call('/api/login', { body: { email: `racer${i}@cores.test`, password: 'driverpass1' } })).cookie });
+  }
+  const ride = (k) => ({ type: 'pickup', customer_name: `Race ${k}`, customer_phone: '3035550101', address: '1300 Pearl St', lat: 40.018, lng: -105.278, scheduled_at: new Date(Date.now() + 3600e3).toISOString(), passengers: 1 });
+  for (let k = 0; k < 10; k++) {
+    const r = (await call('/api/rides', { cookie, body: ride(k) })).data.ride;
+    const res = await Promise.all(drivers.map((d) => call(`/api/rides/${r.id}`, { method: 'PATCH', cookie: d.cookie, body: { driver_id: d.id } })));
+    const winners = res.map((x, i) => (x.status === 200 ? drivers[i].id : null)).filter(Boolean);
+    assert.equal(winners.length, 1, `ride ${k}: ${res.map((x) => x.status).join(' ')}`);
+    assert.equal((await call(`/api/rides?scope=all`, { cookie })).data.rides.find((x) => x.id === r.id).driver_id, winners[0], 'the winner really has it');
+  }
+  const v = (await call('/api/vehicles', { cookie, body: { name: 'Race Van', seats: 7 } })).data.vehicle;
+  const shifts = await Promise.all(drivers.map((d) => call('/api/driver/shift', { cookie: d.cookie, body: { on_duty: true, vehicle_id: v.id } })));
+  assert.equal(shifts.filter((x) => x.status === 200).length, 1, 'one driver per van');
+  const p = (await call('/api/rides', { cookie, body: ride('p') })).data.ride;
+  const backs = await Promise.all(Array.from({ length: 5 }, () => call('/api/rides', { cookie, body: { ...ride('back'), type: 'dropoff', return_of: p.id } })));
+  assert.equal(backs.filter((x) => x.status === 201).length, 1, 'the ride back is booked once');
+  const dup = await Promise.all(Array.from({ length: 4 }, (_, i) => call('/api/users', { cookie, body: { name: `Dup ${i}`, email: 'dup@cores.test', role: 'advisor', password: 'testpass1' } })));
+  assert.deepEqual(dup.map((x) => x.status).sort(), [201, 400, 400, 400]);
+});
+
 test('cores, memory and bandwidth settings are checked and saved', async () => {
   const { cookie } = await call('/api/login', { body: { email: 'boss@cores.test', password: 'adminpass1' } });
   assert.equal((await call('/api/server/resources', { cookie, method: 'PUT', body: { cores: 999 } })).status, 400);
