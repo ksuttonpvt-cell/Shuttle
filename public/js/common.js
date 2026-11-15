@@ -67,14 +67,46 @@ const App = (() => {
     el.innerHTML = `
       <a class="brand brand-classic" href="/"><span class="logo">🚐</span><span>Shuttle<small>${esc(settings.dealer_name)}</small></span></a>
       <a class="brand brand-corwin" href="/">${brandMark(settings.dealer_name, 'Shuttle')}</a>
-      <nav>${nav}<button id="themeBtn" title="Light or dark screen"></button><button id="pwBtn" title="Change password">Password</button><button id="logoutBtn">Sign out</button></nav>
+      <nav>${nav}<button id="helpBtn" title="Ask for help or suggest an idea">💬 Help</button><button id="themeBtn" title="Light or dark screen"></button><button id="pwBtn" title="Change password">Password</button><button id="logoutBtn">Sign out</button></nav>
       <span class="who">${esc(user.name)} · ${esc(user.role)}</span>`;
     $('#logoutBtn').onclick = async () => { await api('/api/logout', { body: {} }); location.href = '/login'; };
     applyBrand(settings.dealer_name);
     $('#pwBtn').onclick = changePassword;
+    $('#helpBtn').onclick = () => helpWindow(settings);
     const paintTheme = () => { $('#themeBtn').textContent = { auto: '🌓 Auto', dark: '🌙 Dark', light: '☀️ Light' }[getTheme()]; };
     paintTheme();
     $('#themeBtn').onclick = () => { setTheme({ auto: 'dark', dark: 'light', light: 'auto' }[getTheme()]); paintTheme(); };
+  }
+
+  // ---------- Help & suggestions ----------
+  // Goes to the managers' Discord channel (if set up) and is kept in Admin → Settings.
+  function helpWindow(settings) {
+    const invite = settings.discord_invite;
+    const m = modal(`<h2>💬 Help &amp; suggestions</h2>
+      <p class="small muted" style="margin-top:0">Stuck, have an idea, or found a problem? Send it to the shuttle managers.</p>
+      <form>
+        <div class="seg seg-3" role="radiogroup" aria-label="Kind of message">
+          <input type="radio" name="kind" value="help" id="fbHelp" checked><label for="fbHelp">🙋 Help</label>
+          <input type="radio" name="kind" value="idea" id="fbIdea"><label for="fbIdea">💡 Idea</label>
+          <input type="radio" name="kind" value="problem" id="fbProblem"><label for="fbProblem">🐞 Problem</label>
+        </div>
+        <label for="fbMsg">Message</label>
+        <textarea id="fbMsg" name="message" required minlength="3" maxlength="2000" rows="5" placeholder="What do you need, or what's your idea?"></textarea>
+        <p class="small muted" style="margin:.3rem 0 0">Please leave out customers' phone numbers and addresses.</p>
+        <div class="msg"></div>
+        <div class="actions"><button>Send</button><button type="button" class="btn-ghost" data-close>Close</button></div>
+      </form>
+      ${invite ? `<p class="small" style="margin-bottom:0">Or chat with the team: <a href="${esc(invite)}" target="_blank" rel="noopener">Join our Discord</a></p>` : ''}`);
+    const f = $('form', m);
+    setTimeout(() => f.elements.message.focus(), 50);
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = $('button', f); btn.disabled = true;
+      try {
+        await api('/api/feedback', { body: { kind: f.elements.kind.value, message: f.elements.message.value, page: location.pathname } });
+        $('.modal', m).innerHTML = `<h2>✅ Sent. Thank you!</h2><p>The shuttle managers will see it shortly.</p><div class="actions"><button type="button" data-close>Close</button></div>`;
+      } catch (err) { flash($('.msg', m), err.message); btn.disabled = false; }
+    };
   }
 
   // ---------- dealership branding (the Corwin look) ----------

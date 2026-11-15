@@ -84,3 +84,19 @@ test('Corwin look: setting, page markup, preview script, and a safe logo upload'
   assert.equal(r.data.settings.logo_v, '');
   assert.equal((await fetch(`${base}/brand/logo`)).status, 404);
 });
+
+test('links and QR codes use https when visitors come through Cloudflare', async () => {
+  const admin = client();
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Visitor': '{"scheme":"https"}', 'CF-Connecting-IP': '203.0.113.9', Host: 'corwinshuttle.example' },
+    body: JSON.stringify({ email: 'admin@test.local', password: 'adminpass1' }) });
+  assert.match(login.headers.get('set-cookie'), /; Secure/, 'sign-in cookie is marked secure');
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const links = await (await fetch(`${base}/api/links`, { headers: { Cookie: cookie, 'CF-Visitor': '{"scheme":"https"}', Host: 'corwinshuttle.example' } })).json();
+  assert.match(links.links[0].url, /^https:\/\/127\.0\.0\.1:\d+\/request$/, 'https when the visitor used https');
+  const qr = await fetch(`${base}/api/qr?text=${encodeURIComponent(links.links[0].url + '?type=pickup')}`, { headers: { Cookie: cookie, 'CF-Visitor': '{"scheme":"https"}', Host: 'corwinshuttle.example' } });
+  assert.equal(qr.status, 200);
+  // Without Cloudflare's header (e.g. opened on the server PC itself) it stays http.
+  const plain = await (await fetch(`${base}/api/links`, { headers: { Cookie: cookie } })).json();
+  assert.match(plain.links[0].url, /^http:\/\/127\.0\.0\.1/);
+  void admin;
+});
