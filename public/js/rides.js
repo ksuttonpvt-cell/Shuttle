@@ -26,7 +26,8 @@ const Rides = (() => {
         <div><label>Passengers</label><input name="passengers" type="number" min="1" max="15" value="${r.passengers || 1}"></div>
       </div>
       <label>Notes for the driver</label><textarea name="notes" placeholder="Gate code, which door, wheelchair, car seat…">${esc(r.notes)}</textarea>
-      <label class="check"><input type="checkbox" name="priority" value="urgent" ${r.priority === 'urgent' ? 'checked' : ''}> Urgent — move to the front of the line</label>`;
+      <label class="check"><input type="checkbox" name="priority" value="urgent" ${r.priority === 'urgent' ? 'checked' : ''}> Urgent — move to the front of the line</label>
+      <div data-urgent-wrap ${r.priority === 'urgent' ? '' : 'hidden'}><label>Why is it urgent? *</label><input name="urgent_reason" maxlength="300" value="${esc(r.urgent_reason)}" placeholder="e.g. Customer has a flight at 2 PM"></div>`;
   }
 
   // Wires up map + address search inside a form. Returns a reset function.
@@ -48,13 +49,77 @@ const Rides = (() => {
       form.elements.lat.value = ''; form.elements.lng.value = '';
       $('[data-pinmsg]', form).textContent = 'Pick a search result or tap the map to set the exact spot.';
     });
+    // Urgent needs a reason: show the box and make it required only when urgent is picked.
+    const syncUrgent = () => {
+      const pr = form.elements.priority;
+      const urgent = pr instanceof RadioNodeList ? pr.value === 'urgent' : pr.checked;
+      const wrap = $('[data-urgent-wrap]', form);
+      wrap.hidden = !urgent; form.elements.urgent_reason.required = urgent;
+      if (urgent && !form.elements.urgent_reason.value) setTimeout(() => form.elements.urgent_reason.focus(), 30);
+    };
+    form.addEventListener('change', (e) => { if (e.target.name === 'priority') syncUrgent(); });
     setTimeout(() => map.invalidateSize(), 200);
-    return { map, reset() { picker.reset(); $('[data-pinmsg]', form).textContent = 'Tip: tap the map to drop an exact pin.'; } };
+    return { map, syncUrgent, reset() { picker.reset(); $('[data-pinmsg]', form).textContent = 'Tip: tap the map to drop an exact pin.'; } };
+  }
+
+  // New-ride form for advisors, one question at a time:
+  // ride type -> customer -> location -> time & people -> urgent or regular (+ notes, review).
+  function stepFormHtml() {
+    const when = new Date(Date.now() + 30 * 60000);
+    return `
+      <div class="progress" data-progress></div>
+      <section data-step="type" data-title="Ride" data-auto>
+        <h3 class="step-q">Is this a pick up or a drop off?</h3>
+        <div class="seg" hidden>
+          <input type="radio" name="type" value="pickup" id="t-pu-n" checked><label for="t-pu-n">Pick up</label>
+          <input type="radio" name="type" value="dropoff" id="t-do-n"><label for="t-do-n">Drop off</label>
+        </div>
+        <div class="choice-grid">
+          <button type="button" class="choice" data-choose="pickup" data-next-on-click><span class="choice-icon">⬆</span><b>Pick up</b><span>Bring the customer to the dealership</span></button>
+          <button type="button" class="choice" data-choose="dropoff" data-next-on-click><span class="choice-icon">⬇</span><b>Drop off</b><span>Take the customer from the dealership</span></button>
+        </div>
+      </section>
+      <section data-step="customer" data-title="Customer" hidden>
+        <h3 class="step-q">Customer name and phone</h3>
+        <label>Customer name *</label><input name="customer_name" required autocomplete="off">
+        <label>Mobile phone</label><input name="customer_phone" type="tel" autocomplete="off" placeholder="For the tracking link and texts">
+        <label>Email</label><input name="customer_email" type="email" autocomplete="off">
+      </section>
+      <section data-step="where" data-title="Location" hidden>
+        <h3 class="step-q" data-addr-label>Where are we picking them up?</h3>
+        <input name="address" required autocomplete="off" placeholder="Start typing an address, or tap the map">
+        <div data-results></div>
+        <input type="hidden" name="lat"><input type="hidden" name="lng">
+        <div class="map map-sm" data-map style="margin-top:.5rem"></div>
+        <div class="small muted" data-pinmsg>Tip: tap the map to drop an exact pin.</div>
+      </section>
+      <section data-step="when" data-title="Time &amp; people" hidden>
+        <div class="chips" style="margin:0 0 .3rem">
+          <button type="button" data-in="0">Now</button><button type="button" data-in="15">In 15 min</button>
+          <button type="button" data-in="30">In 30 min</button><button type="button" data-in="60">In 1 hour</button>
+        </div>
+        <div class="row">
+          <div><label>Date &amp; time *</label><input name="scheduled_at" type="datetime-local" required value="${toLocalInput(when)}"></div>
+          <div><label>People riding</label><input name="passengers" type="number" min="1" max="15" value="1" inputmode="numeric"></div>
+        </div>
+        <div class="alert alert-warn small" data-wait-note hidden></div>
+      </section>
+      <section data-step="priority" data-title="Urgent?" hidden>
+        <h3 class="step-q">Is it urgent, or do they just need a ride?</h3>
+        <div class="choice-grid">
+          <label class="choice choice-radio"><input type="radio" name="priority" value="normal" checked><span class="choice-icon">🙂</span><b>Just needs a ride</b><span>Goes in line by time</span></label>
+          <label class="choice choice-radio"><input type="radio" name="priority" value="urgent"><span class="choice-icon">🚨</span><b>Urgent</b><span>Move to the front of the line</span></label>
+        </div>
+        <div data-urgent-wrap hidden><label>Why is it urgent? *</label><input name="urgent_reason" maxlength="300" placeholder="e.g. Customer has a flight at 2 PM"></div>
+        <label>Notes for the driver</label><textarea name="notes" placeholder="Gate code, which door, wheelchair, car seat…"></textarea>
+        <div class="review" data-summary></div>
+      </section>`;
   }
 
   function formData(form) {
     const f = Object.fromEntries(new FormData(form));
-    f.priority = form.elements.priority.checked ? 'urgent' : 'normal';
+    const pr = form.elements.priority;
+    f.priority = (pr instanceof RadioNodeList ? pr.value === 'urgent' : pr.checked) ? 'urgent' : 'normal';
     f.scheduled_at = new Date(f.scheduled_at).toISOString();
     if (!f.lat) { f.lat = null; f.lng = null; }
     return f;
@@ -77,6 +142,7 @@ const Rides = (() => {
           <div>🕒 ${fmtTime(r.scheduled_at)} ${open ? '· ' + relTime(r.scheduled_at) : ''} · ${r.passengers} pax</div>
           <div>📍 ${esc(r.address)}${r.distance_mi != null ? ` · ${r.distance_mi} mi` : ''}${r.lat == null ? ' <span class="late">(no map pin)</span>' : ''}</div>
           ${r.customer_phone ? `<div>📞 <a href="${App.telLink(r.customer_phone)}">${esc(r.customer_phone)}</a></div>` : ''}
+          ${r.priority === 'urgent' && r.urgent_reason ? `<div class="urgent-why">🚨 Urgent: ${esc(r.urgent_reason)}</div>` : ''}
           ${r.notes ? `<div>📝 ${esc(r.notes)}</div>` : ''}
           <div>👤 Advisor: ${esc(r.advisor_name || (r.source === 'customer' ? 'Customer request' : '—'))}
             ${r.driver_name ? ` · 🚐 ${esc(r.driver_name)}${r.vehicle_name ? ' in ' + esc(r.vehicle_name) : ''}` : ''}${!r.driver_id && r.offered_to ? ` · ⏳ Offered to ${esc(r.offered_to)}, waiting for an answer` : ''}</div>
@@ -128,5 +194,5 @@ const Rides = (() => {
     };
   }
 
-  return { formHtml, wireForm, formData, card, bind, edit };
+  return { formHtml, stepFormHtml, wireForm, formData, card, bind, edit };
 })();

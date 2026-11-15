@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shuttle Control</title>
+<style>
+  :root {
+    --bg: #f3f4f6; --card: #fff; --ink: #15171a; --muted: #5f6672; --line: #e2e4e8;
+    --green: #0f8a3c; --green-bg: #e3f5ea; --red: #c8102e; --red-bg: #fde8eb; --amber: #b26a00; --amber-bg: #fff1e0;
+    --btn: #15171a; --btn-ink: #fff; --ghost: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0e1013; --card: #171a1f; --ink: #e9ebef; --muted: #9aa1ad; --line: #2a2f37;
+      --green: #4fd283; --green-bg: #15301f; --red: #ff6b6b; --red-bg: #3a1519; --amber: #ffb454; --amber-bg: #3a2a12;
+      --btn: #e9ebef; --btn-ink: #15171a; --ghost: #1f232a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, "Segoe UI", Roboto, sans-serif; }
+  header { background: #111; color: #fff; padding: .7rem 1rem; display: flex; align-items: center; gap: .7rem; }
+  header b { font-size: 1.05rem; } header span { color: #b8bec8; font-size: .85rem; }
+  main { padding: 1rem; display: grid; gap: 1rem; max-width: 1100px; margin: 0 auto; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1rem; }
+  .status { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: space-between; }
+  .big { display: flex; align-items: center; gap: .7rem; }
+  .light { width: 18px; height: 18px; border-radius: 50%; background: var(--muted); flex: none; }
+  .ok .light { background: var(--green); box-shadow: 0 0 0 5px var(--green-bg); }
+  .bad .light { background: var(--red); box-shadow: 0 0 0 5px var(--red-bg); }
+  .busy .light { background: var(--amber); box-shadow: 0 0 0 5px var(--amber-bg); }
+  .big h1 { margin: 0; font-size: 1.4rem; }
+  .muted { color: var(--muted); } .small { font-size: .85rem; }
+  .actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+  button, .btn { font: inherit; font-weight: 600; border-radius: 8px; padding: .55rem .95rem; border: 1px solid var(--line); background: var(--ghost); color: var(--ink); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: .35rem; min-height: 40px; }
+  button.primary { background: var(--btn); color: var(--btn-ink); border-color: var(--btn); }
+  button.go { background: var(--green); color: #fff; border-color: var(--green); }
+  button.stop { color: var(--red); }
+  button:disabled { opacity: .45; cursor: default; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .75rem; margin-top: .9rem; }
+  .facts div { border-top: 1px solid var(--line); padding-top: .5rem; }
+  .facts b { display: block; font-size: 1.05rem; }
+  .tools { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: space-between; align-items: center; margin-bottom: .5rem; }
+  .chips button { min-height: 32px; padding: .3rem .7rem; font-size: .85rem; }
+  .chips button.on { background: var(--btn); color: var(--btn-ink); border-color: var(--btn); }
+  input[type=search] { font: inherit; padding: .45rem .7rem; border-radius: 8px; border: 1px solid var(--line); background: var(--ghost); color: var(--ink); min-width: 220px; }
+  .log { font: 12px/1.45 ui-monospace, Consolas, monospace; background: #0f1115; color: #d7dae0; border-radius: 8px; padding: .6rem .7rem; height: 52vh; min-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+  .log time { color: #8a909c; } .log .lvl { font-weight: 700; }
+  .log .warn .lvl { color: #ffb454; } .log .error { color: #ff9b9b; } .log .error .lvl { color: #ff6b6b; } .log .control { color: #9cc4ff; }
+  .msg { margin-top: .6rem; font-size: .9rem; }
+  h2 { margin: 0; font-size: 1.05rem; }
+</style>
+</head>
+<body>
+<header><b>🚐 Shuttle Control</b><span>This PC only · keeps working even when the website is stopped</span></header>
+<main>
+  <section class="card">
+    <div class="status">
+      <div class="big" id="big"><span class="light"></span><div><h1 id="stateText">Checking…</h1><div class="small muted" id="stateNote"></div></div></div>
+      <div class="actions">
+        <button class="go" id="bStart">▶ Start</button>
+        <button class="primary" id="bRestart">⟳ Restart</button>
+        <button class="stop" id="bStop">■ Stop</button>
+      </div>
+    </div>
+    <div class="facts" id="facts"></div>
+    <div class="actions" style="margin-top:.9rem">
+      <a class="btn" id="openSite" target="_blank" rel="noopener" href="http://localhost:{{SITE_PORT}}">🌐 Open the website</a>
+      <a class="btn" target="_blank" rel="noopener" href="http://localhost:{{SITE_PORT}}/admin#server">📊 Admin → Server page</a>
+      <button data-open="open-logs">📄 Log files folder</button>
+      <button data-open="open-backups">💾 Backups folder</button>
+      <button data-open="open-app">📁 App folder</button>
+      <button id="bQuit" class="stop" style="margin-left:auto">⏻ Turn off completely</button>
+    </div>
+    <div class="msg" id="msg" role="status"></div>
+  </section>
+
+  <section class="card">
+    <div class="tools">
+      <h2>Live log</h2>
+      <div class="chips actions" id="levels"><button data-level="" class="on">All</button><button data-level="warn">Warnings &amp; errors</button><button data-level="error">Errors only</button></div>
+      <input type="search" id="q" placeholder="Search the log…">
+    </div>
+    <div class="log" id="log" role="log" aria-live="polite"></div>
+    <div class="small muted" id="files" style="margin-top:.5rem"></div>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const ago = (iso) => { const s = Math.max(0, Math.round((Date.now() - new Date(iso)) / 1000)); const d = Math.floor(s / 86400); const h = Math.floor((s % 86400) / 3600); const m = Math.floor((s % 3600) / 60);
+    return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : m ? `${m}m` : `${s}s`; };
+  const when = (iso) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  async function post(action) {
+    const r = await fetch(`/api/${action}`, { method: 'POST', headers: { 'X-Shuttle-Control': '1' } });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'That did not work.');
+  }
+  const LABEL = {
+    running: ['ok', 'Website is running'], starting: ['busy', 'Starting…'], stopping: ['busy', 'Stopping…'],
+    stopped: ['bad', 'Website is stopped'], waiting: ['bad', 'Website crashed, restarting soon'],
+  };
+  let lost = false;
+  async function status() {
+    let s;
+    try { s = await (await fetch('/api/status', { cache: 'no-store' })).json(); lost = false; } catch {
+      lost = true;
+      $('#big').className = 'big bad'; $('#stateText').textContent = 'Shuttle Control is off';
+      $('#stateNote').textContent = 'start-shuttle.bat is not running. Start it to run the website and this window.';
+      for (const b of ['#bStart', '#bStop', '#bRestart', '#bQuit']) $(b).disabled = true;
+      return;
+    }
+    let [cls, text] = LABEL[s.state] || ['busy', s.state];
+    if (s.state === 'running' && !s.site_ok) { cls = 'busy'; text = 'Running, but not answering yet'; }
+    $('#big').className = `big ${cls}`; $('#stateText').textContent = text;
+    $('#stateNote').textContent = s.state === 'running' ? `for ${ago(s.since)} · ${s.site_url}` : `since ${when(s.since)}`;
+    $('#bStart').disabled = !['stopped', 'waiting'].includes(s.state);
+    $('#bStop').disabled = ['stopped', 'stopping'].includes(s.state);
+    $('#bRestart').disabled = ['stopping', 'starting'].includes(s.state);
+    $('#bQuit').disabled = false;
+    const v = s.version;
+    $('#facts').innerHTML = [
+      ['Version', v ? `${esc(v.hash)} <span class="small muted">· ${when(v.date)}</span>` : 'Unknown', v ? esc(v.subject) : ''],
+      ['Restarts', s.restarts, s.last_exit ? `Last stop ${when(s.last_exit.at)} (${esc(s.last_exit.signal || 'code ' + s.last_exit.code)})` : 'None since Shuttle Control started'],
+      ['Problems in the last hour', `${s.log_counts.error} error${s.log_counts.error === 1 ? '' : 's'}`, `${s.log_counts.warn} warning${s.log_counts.warn === 1 ? '' : 's'}`],
+      ['Shuttle Control running for', ago(s.control_started), `Process ${s.pid || '—'}`],
+    ].map(([k, b, n]) => `<div><span class="small muted">${k}</span><b>${b}</b><span class="small muted">${n}</span></div>`).join('');
+    $('#files').innerHTML = s.log_files.length ? `Log files are in ${esc(s.logs_dir)} (kept 14 days): ${s.log_files.map((f) => esc(f.day)).join(' · ')}` : '';
+  }
+  const act = (action, ask) => async () => {
+    if (ask && !confirm(ask)) return;
+    $('#msg').textContent = '';
+    try { await post(action); setTimeout(status, 400); } catch (e) { $('#msg').textContent = `⚠️ ${e.message}`; }
+  };
+  $('#bStart').onclick = act('start');
+  $('#bRestart').onclick = act('restart');
+  $('#bStop').onclick = act('stop', 'Stop the shuttle website? Nobody (drivers, advisors, customers) can use it until you press Start.');
+  $('#bQuit').onclick = act('quit', 'Turn everything off? The website and this window stop. To run it again, start start-shuttle.bat.');
+  document.querySelectorAll('[data-open]').forEach((b) => { b.onclick = act(b.dataset.open); });
+
+  let after = 0; let level = ''; let q = '';
+  async function logs(reset) {
+    if (lost) return;
+    if (reset) { after = 0; $('#log').innerHTML = ''; }
+    const { lines } = await (await fetch(`/api/logs?after=${after}&level=${level}&q=${encodeURIComponent(q)}`, { cache: 'no-store' })).json();
+    const box = $('#log'); const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    if (lines.length) {
+      after = lines[lines.length - 1].seq;
+      box.insertAdjacentHTML('beforeend', lines.map((l) => `<div class="${l.level} ${l.source === 'control' ? 'control' : ''}"><time>${new Date(l.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}</time> <span class="lvl">${l.level === 'info' ? '' : l.level.toUpperCase()}</span> ${esc(l.text)}</div>`).join(''));
+      while (box.children.length > 1500) box.firstElementChild.remove();
+      if (atBottom || reset) box.scrollTop = box.scrollHeight;
+    }
+  }
+  document.querySelectorAll('#levels [data-level]').forEach((b) => { b.onclick = () => {
+    level = b.dataset.level; document.querySelectorAll('#levels button').forEach((x) => x.classList.toggle('on', x === b)); logs(true).catch(() => {});
+  }; });
+  let t; $('#q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { q = e.target.value; logs(true).catch(() => {}); }, 300); };
+
+  status(); logs(true).catch(() => {});
+  setInterval(status, 2000); setInterval(() => logs().catch(() => {}), 1500);
+})();
+</script>
+</body>
+</html>

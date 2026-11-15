@@ -2,18 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<script>/* apply the saved light/dark choice before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
+<script>/* apply the saved light/dark choice and any look preview before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;var q=new URLSearchParams(location.search).get("look");if(q==="corwin"||q==="classic")localStorage.setItem("shuttle.look",q);else if(q==="off")localStorage.removeItem("shuttle.look");var l=localStorage.getItem("shuttle.look");if(l==="corwin"||l==="classic")document.documentElement.dataset.look=l}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Your Shuttle Ride</title>
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
-<div class="hero"><div style="font-size:2rem">🚐</div><h1 id="title">Your shuttle ride</h1><div id="dealer" style="color:#ccc"></div></div>
+<div class="hero"><div data-brand class="brand-block"></div><div class="hero-emoji" style="font-size:2rem">🚐</div><h1 id="title">Your shuttle ride</h1><div id="dealer" style="color:#ccc"></div></div>
 <main class="wrap grid" style="max-width:600px">
   <div class="card" id="status"><div class="empty">Loading…</div></div>
   <div class="card"><div id="map" class="map"></div></div>
   <div class="card small muted" id="foot"></div>
 </main>
+<footer class="site-foot" data-foot></footer>
 <script src="/vendor/leaflet/leaflet.js"></script>
 <script src="/js/common.js"></script>
 <script>
@@ -29,6 +30,7 @@
     catch (err) { $('#status').innerHTML = `<h2>Ride not found</h2><p>${esc(err.message)}</p>`; return; }
     const { ride, dealer, driver_location: loc, queue_position: pos, eta } = data;
     $('#dealer').textContent = dealer.name;
+    if (!document.querySelector('[data-brand] *')) App.applyBrand(dealer.name);
     $('#title').textContent = ride.type === 'pickup' ? `Hi ${ride.customer_first_name}, we're coming to get you` : `Hi ${ride.customer_first_name}, your ride home`;
 
     let body;

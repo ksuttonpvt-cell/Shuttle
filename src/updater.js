@@ -98,8 +98,16 @@ function createUpdater({
     timer = setInterval(check, minutes * 60000); timer.unref();
   }
   function stop() { clearInterval(timer); }
+  // The most recent changes installed on this copy (newest first).
+  async function history(n = 15) {
+    if (!isGit) return [];
+    try {
+      const out = await git(cwd, 'log', `-${n}`, '--no-merges', '--format=%h|%cI|%s');
+      return out.split('\n').filter(Boolean).map((l) => { const [hash, date, ...s] = l.split('|'); return { hash, date, subject: s.join('|') }; });
+    } catch { return []; }
+  }
 
-  return { state, check, start, stop, readVersion };
+  return { state, check, start, stop, readVersion, history };
 }
 
 module.exports = { createUpdater, RESTART_CODE };

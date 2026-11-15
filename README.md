@@ -25,6 +25,31 @@ Every open ride gets a queue number. Ride in progress (on board or en route) com
 - **Ride offers:** when a ride is waiting for a driver, the closest free on-duty driver (no rides, or just finishing one) gets a ding, a phone notification and a pop-up: *Ride near you. Want it?* with **Take it** or **No thanks**. If they pass or don't answer within 90 seconds, it goes to the next closest driver. Advisors see "Offered to …" on the ride. Admins can turn this off in Settings.
 - Road times come from the free public OSRM routing server. If it can't be reached, the planner uses a straight-line estimate instead (shown as a dashed line). Set `ROUTING=off` in `.env` to always use the estimate.
 
+### Booking a ride, one step at a time
+
+Advisors (and customers on the request page) book in five short steps with a progress bar, Back and Next: **pick up or drop off → customer name and phone → location → time and number of people → urgent or just needs a ride** (customers get notes and a review instead of "urgent"). Required answers are checked before moving on, Enter goes to the next step, and the last step shows a review before booking.
+
+### Drop-off waiting time and urgent rides
+
+Drop offs leave at least **30 minutes** after they're booked (change it in Admin → Settings → *Drop-off waiting time*; 0 turns it off), so the shuttle can line up rides. A drop off booked sooner is moved to the earliest time, and the advisor is told. **Urgent** rides skip the wait and go to the front of the line, but an advisor must give a reason (when booking or when switching a ride to urgent later). Drivers and advisors see the reason on the ride. Customers can't mark their own requests urgent.
+
+### Easter egg 🌮
+
+Every **Tuesday at noon** (dealership time) it rains tacos for 10 seconds on every open page. Turn it on or off in Admin → Settings → **Easter egg** (there's a *Try it now* button too).
+
+### Corwin look (dealership branding)
+
+- **Admin → Settings → Look:** try the **Corwin** look on one device first (*Preview Corwin look on this device*, or add `?look=corwin` to any page address; `?look=off` stops it). When it's right, choose **Corwin** and **Save look** to switch everyone: staff pages, sign-in, and the customer request and tracking pages.
+- It uses a dark header and banners with an accent stripe and a **CORWIN / TOYOTA OF BOULDER** wordmark made from the dealership name (change the wording under *Name shown in the header*). The accent and header colors can be changed, and the official logo can be uploaded (PNG, JPG, WebP or SVG; a white logo on a transparent background looks best).
+
+### Server tools
+
+- **Admin → Server** (from any device): the site's health checks (web address through the Cloudflare Tunnel, road routing, database, updates, nightly backup, disk space), live numbers (people online, requests per minute, response time, processor, memory), a traffic chart for the last hour, the server log with filters and search, update history, **Restart the site**, and **backups**.
+- **Backups:** a full copy of the database is made every night at 12:30 AM (after customer info is cleared) and kept 14 days in `data/backups`. **Back up now** makes an extra copy, removed at the next midnight clear so customer details aren't kept. Any backup can be downloaded or **restored**: the site saves the current database first, restarts, and swaps the backup in.
+- **Shuttle Control** (on the server PC only): double-click **Shuttle Control.bat** for a window with the site's status, a live log, and **Start / Stop / Restart**, plus buttons to open the log and backup folders. It keeps working while the website is stopped. It's part of `start-shuttle.bat`, so it appears after that has been restarted once following this update.
+- **Logs** are saved per day in `data/logs` and kept 14 days. Passwords are never written to them.
+- **No black window:** `start-shuttle-hidden.vbs` starts everything hidden (good for Task Scheduler or the Startup folder); use Shuttle Control to see or stop it.
+
 ### Logins
 Each person has their **own email + password** (8+ characters). Passwords are hashed with scrypt, and sign-in is rate-limited. Admins create accounts and reset passwords, and anyone can change their own password from the top bar.
 

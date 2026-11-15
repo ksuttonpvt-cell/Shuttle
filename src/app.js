@@ -7,6 +7,10 @@ const { rankRides, distanceKm } = require('./priority');
 const { toE164, createTwilioSender } = require('./sms');
 const { createPush } = require('./push');
 const { planRoute, KM_TO_MI, STOP_MINUTES } = require('./routing');
+const fs = require('node:fs');
+const { createStats } = require('./serverstats');
+const { createLogbook } = require('./logbook');
+const { cityOf, estimatedRideMiles } = require('./places');
 
 const SESSION_DAYS = 14;
 const RIDE_STATUSES = ['requested', 'assigned', 'en_route', 'onboard', 'completed', 'cancelled'];
@@ -21,16 +25,23 @@ const DEFAULT_SETTINGS = {
   public_requests: '1',
   timezone: 'America/Denver',
   service_radius_mi: '15.5',
+  dropoff_wait_min: '30',   // drop offs leave at least this many minutes after booking, unless urgent
   auto_end_shift: '20:00', // every driver is taken off shift at this local time each day ('' = off)
   auto_sign_out: '00:00',  // everyone is signed out at this local time each day ('' = off)
-  ride_offers: '1',        // offer waiting rides to the closest free driver, who can accept or pass
-  clear_customer_info: '00:00', // finished rides lose their customer details at this local time each day ('' = off)
+  ride_offers: '1',
+  easter_egg: '1',          // Easter egg: tacos rain for 10 seconds every Tuesday at noon
+  look: 'classic',          // 'classic' or 'corwin' (dealership branding) for everyone
+  brand_color: '#eb0a1e',   // Corwin look: accent (buttons, stripes)
+  brand_dark: '#0d0f12',    // Corwin look: header and banner background
+  brand_name: '',           // Corwin look: name shown in the header (blank = dealership name); first word is big        // offer waiting rides to the closest free driver, who can accept or pass
+  clear_customer_info: '00:00',
+  backup_time: '00:30',    // nightly database backup, after customer info is cleared ('' = off) // finished rides lose their customer details at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
   sms_booked: '1',
   sms_en_route: '1',
   sms_cancelled: '1',
 };
-const YES_NO_SETTINGS = ['public_requests', 'ride_offers', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
+const YES_NO_SETTINGS = ['public_requests', 'ride_offers', 'easter_egg', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
 
 function createApp(db, opts = {}) {
   const app = express();
@@ -44,7 +55,16 @@ function createApp(db, opts = {}) {
     const fromTunnel = peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
     return (fromTunnel && req.get('cf-connecting-ip')) || req.ip || peer;
   };
-  app.use(express.json({ limit: '100kb' }));
+  app.use((req, res, next) => (req.path === '/api/brand/logo' ? next() : express.json({ limit: '100kb' })(req, res, next)));
+  // Live numbers for Admin → Server.
+  const stats = opts.stats || createStats({ timers: !opts.noTimers });
+  const logbook = opts.logbook || createLogbook();
+  let publicBase = opts.publicUrl || process.env.PUBLIC_URL || null; // learned from tunnel visits if not set
+  app.use(stats.middleware);
+  app.use((req, _res, next) => {
+    if (!publicBase && req.get('cf-connecting-ip') && req.get('host')) publicBase = `https://${req.get('host')}`;
+    next();
+  });
 
   // Express 4 doesn't catch errors from async handlers; an unhandled one stops the whole
   // server. Wrap every async handler so its errors go to the normal error handler instead.
@@ -73,8 +93,11 @@ function createApp(db, opts = {}) {
   function shareableSettings() {
     const s = getSettings(); const out = {};
     for (const k of Object.keys(DEFAULT_SETTINGS)) out[k] = s[k];
+    out.logo_v = s.brand_logo ? (s.brand_logo_v || '1') : ''; // the logo itself is served from /brand/logo
     return out;
   }
+  // Minutes a drop off waits after booking before the shuttle leaves (0 = none).
+  const dropoffWait = () => { const n = Number(getSettings().dropoff_wait_min); return Number.isFinite(n) && n > 0 ? n : 0; };
   // How far from the dealership the shuttle will go, in miles (0 = no limit).
   const serviceRadius = () => Math.max(0, Number(getSettings().service_radius_mi) || 0);
   const milesFromDealer = (lat, lng) => distanceKm(dealerOrigin(), { lat, lng }) * 0.621371;
@@ -167,7 +190,7 @@ function createApp(db, opts = {}) {
     if (token) {
       const row = q(`SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
                      WHERE s.token = ? AND s.expires_at > ? AND u.active = 1`).get(token, now());
-      if (row) { req.user = row; req.sessionToken = token; }
+      if (row) { req.user = row; req.sessionToken = token; stats.sawUser(row); }
     }
     next();
   });
@@ -441,6 +464,19 @@ function createApp(db, opts = {}) {
     const lat = num(req.body.lat); const lng = num(req.body.lng);
     if (lat == null || lng == null || Math.abs(lat) > 90 || Math.abs(lng) > 180) return bad(res, 'Bad location.');
     const heading = num(req.body.heading); const speed = num(req.body.speed);
+    // Odometer: add the distance since the last report (on shift, gaps up to 5 minutes,
+    // ignoring GPS jitter under 20 m and impossible jumps).
+    const u = req.user;
+    if (u.on_duty && u.last_lat != null && u.last_loc_at) {
+      const dt = (Date.now() - new Date(u.last_loc_at)) / 1000;
+      const meters = distanceKm({ lat: u.last_lat, lng: u.last_lng }, { lat, lng }) * 1000;
+      const mph = dt > 0 ? (meters / dt) * 2.237 : 0;
+      if (dt > 0 && dt <= 300 && mph <= 95 && meters >= 20) {
+        q(`INSERT INTO driver_days (driver_id, day, miles, moving_s) VALUES (?, ?, ?, ?)
+           ON CONFLICT(driver_id, day) DO UPDATE SET miles = miles + excluded.miles, moving_s = moving_s + excluded.moving_s`)
+          .run(u.id, localDate(now()), meters / 1609.344, mph >= 3 ? Math.round(dt) : 0);
+      }
+    }
     q('UPDATE users SET last_lat = ?, last_lng = ?, last_loc_at = ?, last_heading = ?, last_speed = ? WHERE id = ?')
       .run(lat, lng, now(), heading != null && heading >= 0 && heading <= 360 ? heading : null, speed != null && speed >= 0 && speed < 100 ? speed : null, req.user.id);
     scheduleOfferSweep();
@@ -681,6 +717,7 @@ function createApp(db, opts = {}) {
     set('ro_number', str(b.ro_number, 40));
     set('customer_vehicle', str(b.customer_vehicle, 120));
     set('notes', str(b.notes, 1000));
+    set('urgent_reason', str(b.urgent_reason, 300));
     if (b.scheduled_at !== undefined) {
       const d = new Date(b.scheduled_at);
       if (Number.isNaN(d.getTime())) return { error: 'Pick a valid date and time.' };
@@ -691,7 +728,22 @@ function createApp(db, opts = {}) {
     if (!r.address) return { error: 'Address is required.' };
     if (!r.scheduled_at) return { error: 'Pick a date and time.' };
     r.priority = r.priority === 'urgent' ? 'urgent' : 'normal';
+    // Urgent needs a reason, so everyone knows why it jumped the line.
+    if (r.priority === 'urgent' && !r.urgent_reason) return { error: 'Give a reason for making this ride urgent.' };
+    if (r.priority !== 'urgent') r.urgent_reason = null;
     r.passengers = Math.min(Math.max(r.passengers || 1, 1), 15);
+    // Drop offs wait a set time after booking (unless urgent). Only checked when the time,
+    // type or urgency is being set, so editing notes on an older ride doesn't move it.
+    let adjusted = null;
+    const wait = dropoffWait();
+    const timing = !existing.id || r.scheduled_at !== existing.scheduled_at || r.type !== existing.type || r.priority !== existing.priority;
+    if (timing && wait > 0 && r.type === 'dropoff' && r.priority !== 'urgent') {
+      const earliest = new Date(Date.now() + wait * 60000);
+      if (new Date(r.scheduled_at) < new Date(earliest.getTime() - 60000)) {
+        earliest.setSeconds(0, 0);
+        r.scheduled_at = earliest.toISOString(); adjusted = r.scheduled_at;
+      }
+    }
     // Service area: refuse a new or moved location that's too far from the dealership.
     const moved = r.lat != null && r.lng != null && (r.lat !== existing.lat || r.lng !== existing.lng);
     const radius = serviceRadius();
@@ -703,16 +755,26 @@ function createApp(db, opts = {}) {
           forCustomer ? `Please call the service department${phone ? ` at ${phone}` : ''} and we'll help you make other arrangements.` : '(An admin can book it if needed.)'}` };
       }
     }
-    return { r };
+    return { r, adjusted };
   }
 
   const RIDE_FIELDS = ['type', 'customer_name', 'customer_phone', 'customer_email', 'address', 'lat', 'lng',
-    'scheduled_at', 'priority', 'passengers', 'ro_number', 'customer_vehicle', 'notes'];
+    'scheduled_at', 'priority', 'urgent_reason', 'passengers', 'ro_number', 'customer_vehicle', 'notes'];
+
+  // City and estimated miles for reports (kept when customer details are cleared).
+  function stampPlace(id) {
+    const r = q('SELECT id, address, lat, lng FROM rides WHERE id = ?').get(id);
+    if (!r || r.address === '(cleared)') return;
+    q('UPDATE rides SET city = ?, est_miles = ? WHERE id = ?').run(cityOf(r.address, r.lat, r.lng), estimatedRideMiles(dealerOrigin(), r.lat, r.lng), r.id);
+  }
+  // Rides from before this update get theirs now.
+  for (const r of q("SELECT id FROM rides WHERE city IS NULL AND est_miles IS NULL AND address <> '(cleared)'").all()) stampPlace(r.id);
 
   function insertRide(r, extra) {
     const cols = [...RIDE_FIELDS, 'status', 'source', 'advisor_id', 'track_token', 'return_of'];
     const vals = [...RIDE_FIELDS.map((f) => r[f] ?? null), extra.status || 'requested', extra.source, extra.advisor_id ?? null, randomToken(12), extra.return_of ?? null];
     const res = q(`INSERT INTO rides (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
+    stampPlace(res.lastInsertRowid);
     return q(`${RIDE_SELECT} WHERE r.id = ?`).get(res.lastInsertRowid);
   }
 
@@ -747,7 +809,7 @@ function createApp(db, opts = {}) {
   });
 
   app.post('/api/rides', requireRole('advisor'), (req, res) => {
-    const { r, error } = cleanRide(req.body, {}, { byAdmin: req.user.role === 'admin' });
+    const { r, error, adjusted } = cleanRide(req.body, {}, { byAdmin: req.user.role === 'admin' });
     if (error) return bad(res, error);
     // "Customer ready": a drop off booked from a pick up remembers which one.
     let returnOf = null;
@@ -761,7 +823,7 @@ function createApp(db, opts = {}) {
     const ride = insertRide(r, { source: 'advisor', advisor_id: req.user.id, return_of: returnOf });
     notifyCustomer(ride.id, 'booked', baseUrl(req));
     pushNewRide(ride.id);
-    res.status(201).json({ ride: withLinks(req, ride) });
+    res.status(201).json({ ride: withLinks(req, ride), adjusted_to: adjusted, wait_min: adjusted ? dropoffWait() : 0 });
   });
 
   app.patch('/api/rides/:id', requireRole(), (req, res) => {
@@ -844,6 +906,7 @@ function createApp(db, opts = {}) {
       quietly(push.notifyUsers([ride.driver_id], { title: '❌ Ride cancelled', body: `${rideLine(after)}${after.cancel_reason ? ` — ${after.cancel_reason}` : ''}`, tag: `ride-${after.id}` }));
     }
     scheduleOfferSweep(); // a driver may be free now, or a ride may need someone again
+    stampPlace(ride.id);
     res.json({ ride: withLinks(req, q(`${RIDE_SELECT} WHERE r.id = ?`).get(ride.id)) });
   });
 
@@ -858,8 +921,36 @@ function createApp(db, opts = {}) {
     res.json({
       dealer_name: s.dealer_name, dealer_address: s.dealer_address, dealer_phone: s.dealer_phone,
       dealer_lat: Number(s.dealer_lat), dealer_lng: Number(s.dealer_lng), public_requests: s.public_requests === '1',
-      service_radius_mi: serviceRadius(),
+      service_radius_mi: serviceRadius(), dropoff_wait_min: dropoffWait(),
     });
+  });
+
+  // ---------- dealership logo (Corwin look) ----------
+  // Stored in the database so it's included in backups. SVGs are served so they can't run
+  // scripts even if opened directly.
+  const LOGO_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
+  const setSetting = (k, v) => q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
+  app.get('/brand/logo', (req, res) => {
+    const s = getSettings();
+    const m = /^data:([a-z/+]+);base64,(.+)$/.exec(s.brand_logo || '');
+    if (!m || !LOGO_TYPES[m[1]]) return res.status(404).end();
+    res.set({ 'Content-Type': m[1], 'Cache-Control': 'public, max-age=31536000, immutable',
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox", 'X-Content-Type-Options': 'nosniff' });
+    res.send(Buffer.from(m[2], 'base64'));
+  });
+  app.post('/api/brand/logo', requireRole('admin'), express.json({ limit: '900kb' }), (req, res) => {
+    const m = /^data:([a-z/+]+);base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body.data || ''));
+    if (!m || !LOGO_TYPES[m[1]]) return bad(res, 'Upload a PNG, JPG, WebP or SVG image.');
+    const bytes = Buffer.from(m[2], 'base64');
+    if (bytes.length > 600 * 1024) return bad(res, 'That image is too big. Keep the logo under 600 KB.');
+    if (m[1] === 'image/svg+xml' && !/<svg[\s>]/i.test(bytes.toString('utf8'))) return bad(res, "That file isn't an SVG image.");
+    setSetting('brand_logo', `data:${m[1]};base64,${m[2]}`);
+    setSetting('brand_logo_v', Date.now().toString(36));
+    res.json({ settings: shareableSettings() });
+  });
+  app.delete('/api/brand/logo', requireRole('admin'), (req, res) => {
+    q("DELETE FROM settings WHERE key IN ('brand_logo', 'brand_logo_v')").run();
+    res.json({ settings: shareableSettings() });
   });
 
   const publicHits = new Map();
@@ -870,7 +961,7 @@ function createApp(db, opts = {}) {
     if (hits.length >= 10) return bad(res, 'Too many requests. Please call the dealership.', 429);
     hits.push(t); publicHits.set(key, hits);
     if (!str(req.body.customer_phone)) return bad(res, 'A phone number is required so the driver can reach you.');
-    const body = { ...req.body, priority: 'normal' };
+    const body = { ...req.body, priority: 'normal', urgent_reason: null };
     const { r, error } = cleanRide(body, {}, { forCustomer: true });
     if (error) return bad(res, error);
     if (serviceRadius() > 0 && (r.lat == null || r.lng == null)) {
@@ -885,6 +976,7 @@ function createApp(db, opts = {}) {
   app.get('/api/public/track/:token', (req, res) => {
     const ride = q(`${RIDE_SELECT} WHERE r.track_token = ?`).get(String(req.params.token));
     if (!ride) return bad(res, 'Ride not found.', 404);
+    stats.sawTracker(ride.track_token);
     let driverLoc = null;
     if (ride.driver_id && ['en_route', 'onboard'].includes(ride.status)) {
       const d = q('SELECT last_lat, last_lng, last_loc_at FROM users WHERE id = ?').get(ride.driver_id);
@@ -926,10 +1018,17 @@ function createApp(db, opts = {}) {
       let v = String(req.body[k]).slice(0, 300);
       if ((k === 'dealer_lat' || k === 'dealer_lng') && Number.isNaN(Number(v))) return bad(res, 'Latitude/longitude must be numbers.');
       if (YES_NO_SETTINGS.includes(k)) v = req.body[k] && req.body[k] !== '0' ? '1' : '0';
+      if (k === 'look' && !['classic', 'corwin'].includes(v)) return bad(res, 'Pick Classic or Corwin.');
+      if ((k === 'brand_color' || k === 'brand_dark') && !/^#[0-9a-f]{6}$/i.test(v)) return bad(res, 'Colors must look like #eb0a1e.');
       if (k === 'timezone') { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); } catch { return bad(res, 'Unknown time zone.'); } }
-      if (k === 'auto_end_shift' || k === 'auto_sign_out' || k === 'clear_customer_info') {
+      if (k === 'auto_end_shift' || k === 'auto_sign_out' || k === 'clear_customer_info' || k === 'backup_time') {
         v = v.trim();
         if (v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) return bad(res, 'Pick a time, like 8:00 PM, or leave it empty to turn it off.');
+      }
+      if (k === 'dropoff_wait_min') {
+        const n = Number(v);
+        if (v === '' || !Number.isInteger(n) || n < 0 || n > 240) return bad(res, 'The drop-off waiting time must be 0 to 240 minutes.');
+        v = String(n);
       }
       if (k === 'service_radius_mi') {
         const n = Number(v);
@@ -940,6 +1039,7 @@ function createApp(db, opts = {}) {
       q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
       if (k === 'auto_sign_out' && changed) resetSignOutSchedule(v);
       if (k === 'clear_customer_info' && changed) customerWipe.reset(v);
+      if (k === 'backup_time' && changed) nightlyBackup.reset(v);
     }
     res.json({ settings: shareableSettings() });
   });
@@ -1033,6 +1133,8 @@ function createApp(db, opts = {}) {
     for (const id of ids) wipe.run(CLEARED_NAME, randomToken(18), at, id);
     const texts = q('DELETE FROM sms_log').run().changes;
     geoCache.clear(); // searched addresses
+    // Hand-made and before-restore backups still hold the day's customer details: remove them.
+    if (opts.backups) { try { opts.backups.prune({ temporary: true }); } catch (e) { console.error('Removing temporary backups failed:', e.message); } }
     if (ids.length || texts) console.log(new Date().toLocaleString(), `[privacy] Cleared customer info from ${ids.length} finished ride(s) and ${texts} text log entr${texts === 1 ? 'y' : 'ies'}.`);
     return ids.length;
   }
@@ -1058,12 +1160,40 @@ function createApp(db, opts = {}) {
     return { tick, reset };
   })();
   app.locals.clearCustomerInfo = customerWipe.tick;
+
+  // ---------- nightly backup ----------
+  // Same daily timing rules: installing it never runs on the spot; a time later today still runs tonight.
+  const nightlyBackup = (() => {
+    const LAST = 'backup_last';
+    const setLast = (v) => q("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(LAST, v);
+    function tick(at = new Date()) {
+      if (!opts.backups) return null;
+      const s = getSettings();
+      const cutoff = (s.backup_time || '').trim();
+      if (!/^\d{2}:\d{2}$/.test(cutoff)) return null;
+      const nowHM = new Intl.DateTimeFormat('en-GB', { timeZone: tz(), hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at);
+      const today = localDate(at.toISOString());
+      if (!s[LAST]) { setLast(nowHM >= cutoff ? today : 'pending'); return null; }
+      if (nowHM < cutoff || s[LAST] === today) return null;
+      setLast(today);
+      const made = opts.backups.make('daily', at);
+      opts.backups.prune();
+      return made;
+    }
+    function reset(cutoff, at = new Date()) {
+      q('DELETE FROM settings WHERE key = ?').run(LAST);
+      if (cutoff) tick(at);
+    }
+    return { tick, reset };
+  })();
+  app.locals.nightlyBackup = nightlyBackup.tick;
   app.locals.resetClearSchedule = customerWipe.reset;
   if (!opts.noTimers) {
     setInterval(() => {
       try { autoEndShifts(); } catch (e) { console.error('Auto end of shift failed:', e.message); }
       try { autoSignOut(); } catch (e) { console.error('Auto sign-out failed:', e.message); }
       try { customerWipe.tick(); } catch (e) { console.error('Clearing customer info failed:', e.message); }
+      try { nightlyBackup.tick(); } catch (e) { console.error('Nightly backup failed:', e.message); }
     }, 60000).unref();
   }
 
@@ -1103,6 +1233,11 @@ function createApp(db, opts = {}) {
         avg_wait_min: avg(waits),
         on_time_pct: timed.length ? Math.round((waits.filter((w) => w <= 10).length / timed.length) * 100) : null,
         avg_ride_min: avg(timed.filter((r) => r.completed_at).map((r) => mins(r.onboard_at, r.completed_at))),
+        // Estimated miles (dealership <-> customer round trip) for completed rides.
+        est_miles: Math.round(done.reduce((n, r) => n + (r.est_miles || 0), 0) * 10) / 10,
+        // Time on rides: from "on my way" (or customer in) until the ride was complete.
+        ride_time_min: Math.round(done.filter((r) => r.completed_at && (r.en_route_at || r.onboard_at))
+          .reduce((n, r) => n + Math.max(0, mins(r.en_route_at || r.onboard_at, r.completed_at)), 0)),
       };
     }
     const days = [];
@@ -1115,6 +1250,27 @@ function createApp(db, opts = {}) {
       for (const r of rides) { const k = keyFn(r); if (k) m.set(k, [...(m.get(k) || []), r]); }
       return [...m.entries()].map(([name, list]) => ({ name, ...summarize(list) })).sort((a, b) => b.rides - a.rides);
     };
+    // GPS miles and moving time per driver per day (from the drivers' phones while on shift).
+    const gps = q(`SELECT g.*, u.name FROM driver_days g JOIN users u ON u.id = g.driver_id WHERE g.day >= ? AND g.day <= ?`).all(from, to);
+    const gpsBy = (key) => { const m = new Map(); for (const g of gps) { const k = key(g); const o = m.get(k) || { miles: 0, moving_s: 0 }; o.miles += g.miles; o.moving_s += g.moving_s; m.set(k, o); } return m; };
+    const gpsDriver = gpsBy((g) => g.name); const gpsDay = gpsBy((g) => g.day);
+    const r1 = (n) => Math.round(n * 10) / 10;
+    for (const d of days) { const g = gpsDay.get(d.day); d.gps_miles = g ? r1(g.miles) : 0; d.moving_min = g ? Math.round(g.moving_s / 60) : 0; }
+    const drivers = group((r) => r.driver_name);
+    for (const [name] of gpsDriver) if (!drivers.some((d) => d.name === name)) drivers.push({ name, ...summarize([]) });
+    for (const d of drivers) { const g = gpsDriver.get(d.name); d.gps_miles = g ? r1(g.miles) : 0; d.moving_min = g ? Math.round(g.moving_s / 60) : 0; }
+    // Cities.
+    const cities = group((r) => r.city || 'Unknown');
+    // Advisor scheduling: what each advisor booked and how much notice they gave.
+    const advisors = group((r) => r.advisor_name || (r.source === 'customer' ? 'Customer (online request)' : null));
+    for (const a of advisors) {
+      const mine = rides.filter((r) => (r.advisor_name || (r.source === 'customer' ? 'Customer (online request)' : null)) === a.name);
+      const notice = mine.map((r) => Math.max(0, mins(r.created_at.replace(' ', 'T') + (r.created_at.includes('T') ? '' : 'Z'), r.scheduled_at)));
+      a.avg_notice_min = notice.length ? Math.round(notice.reduce((n, x) => n + x, 0) / notice.length) : null;
+      a.ahead_pct = notice.length ? Math.round((notice.filter((x) => x >= 30).length / notice.length) * 100) : null;
+      a.customer_ready = mine.filter((r) => r.return_of).length;
+    }
+    const allGps = [...gpsDriver.values()].reduce((t, g) => ({ miles: t.miles + g.miles, s: t.s + g.moving_s }), { miles: 0, s: 0 });
     const reasons = new Map();
     for (const r of rides.filter((x) => x.status === 'cancelled')) {
       const k = (r.cancel_reason || 'No reason given').split(':')[0].trim();
@@ -1122,10 +1278,11 @@ function createApp(db, opts = {}) {
     }
     res.json({
       from, to, timezone: tz(), type, type_counts: typeCounts,
-      totals: summarize(rides),
+      totals: { ...summarize(rides), gps_miles: r1(allGps.miles), moving_min: Math.round(allGps.s / 60) },
       days,
-      drivers: group((r) => r.driver_name),
-      advisors: group((r) => r.advisor_name || (r.source === 'customer' ? 'Customer (online request)' : null)),
+      drivers: drivers.sort((a, b) => b.rides - a.rides || b.gps_miles - a.gps_miles),
+      advisors,
+      cities: cities.sort((a, b) => b.rides - a.rides),
       cancel_reasons: [...reasons.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
     });
   });
@@ -1159,6 +1316,122 @@ function createApp(db, opts = {}) {
       busy: 'Already checking — try again in a moment.', skipped: opts.updater.state.reason || 'Automatic updates are off.',
       error: opts.updater.state.lastError || 'The update check failed.' }[result];
     res.status(result === 'error' ? 502 : 200).json({ result, message: msg });
+  });
+
+  // ---------- server (Admin → Server) ----------
+  const dataDir = opts.dbFile && opts.dbFile !== ':memory:' ? path.dirname(opts.dbFile) : null;
+  const fileSize = (f) => { try { return fs.statSync(f).size; } catch { return 0; } };
+  function diskFree() {
+    if (!dataDir || !fs.statfsSync) return null;
+    try { const s = fs.statfsSync(dataDir); return { free_mb: Math.round((s.bavail * s.bsize) / 1048576), total_mb: Math.round((s.blocks * s.bsize) / 1048576) }; } catch { return null; }
+  }
+  app.get('/api/server/status', requireRole('admin'), (req, res) => {
+    const u = opts.updater?.state || {};
+    const b = opts.backups;
+    const backups = b ? b.list() : [];
+    res.json({
+      ...stats.snapshot(),
+      supervised: !!opts.supervised,
+      can_restart: !!opts.restart,
+      version: { version: u.version || null, version_date: u.versionDate || null, auto_update: !!u.enabled, reason: u.reason || null, last_check: u.lastCheck || null, last_error: u.lastError || null, checking: !!u.checking },
+      database: { size_mb: Math.round(((fileSize(opts.dbFile) + fileSize(`${opts.dbFile}-wal`)) / 1048576) * 10) / 10, file: opts.dbFile || null },
+      disk: diskFree(),
+      shuttle: {
+        open_rides: q("SELECT COUNT(*) AS n FROM rides WHERE status IN ('requested','assigned','en_route','onboard')").get().n,
+        drivers_on_duty: q("SELECT COUNT(*) AS n FROM users WHERE role = 'driver' AND on_duty = 1").get().n,
+        signed_in_devices: q('SELECT COUNT(*) AS n FROM sessions WHERE expires_at > ?').get(now()).n,
+      },
+      log_counts: logbook.counts(),
+      backups: b ? {
+        count: backups.length, total_mb: Math.round((b.totalSize() / 1048576) * 10) / 10,
+        last_daily: backups.find((x) => x.kind === 'daily')?.made_at || null, time: getSettings().backup_time || '', pending_restore: b.pendingRestore(),
+      } : null,
+      public_url: publicBase,
+    });
+  });
+
+  // Can the outside world reach us, and can we reach the services we use? (cached a minute)
+  let checksCache = null;
+  app.get('/api/server/checks', requireRole('admin'), async (req, res) => {
+    if (checksCache && Date.now() - checksCache.at < 60000 && !req.query.fresh) return res.json(checksCache.data);
+    const timed = async (fn) => {
+      const t0 = Date.now();
+      try { const note = await fn(); return { ok: true, ms: Date.now() - t0, note: note || null }; } catch (e) { return { ok: false, ms: Date.now() - t0, note: e.message }; }
+    };
+    const dealer = dealerOrigin();
+    const [publicSite, routing] = await Promise.all([
+      publicBase ? timed(async () => {
+        const r = await fetch(`${publicBase}/healthz`, { signal: AbortSignal.timeout(8000) });
+        if (!r.ok) throw new Error(`answered ${r.status}`);
+        return publicBase;
+      }) : Promise.resolve({ ok: null, note: 'Not known yet. It appears after the first visit through your web address, or set PUBLIC_URL in .env.' }),
+      opts.router ? timed(async () => { await opts.router.path([dealer, { lat: dealer.lat + 0.01, lng: dealer.lng }]); return 'Real road times available'; })
+        : Promise.resolve({ ok: null, note: 'Turned off (ROUTING=off). Routes use estimates.' }),
+    ]);
+    const database = await timed(async () => {
+      const r = q('PRAGMA quick_check').get();
+      const v = Object.values(r)[0];
+      if (v !== 'ok') throw new Error(String(v));
+      return 'No problems found';
+    });
+    const data = { at: now(), public_site: publicSite, routing, database };
+    checksCache = { at: Date.now(), data };
+    res.json(data);
+  });
+
+  app.get('/api/server/logs', requireRole('admin'), (req, res) => {
+    res.json({ lines: logbook.recent({ after: Number(req.query.after) || 0, level: req.query.level, q: req.query.q, limit: req.query.limit }),
+      files: (opts.logsDir ? createLogbook({ dir: opts.logsDir }).files() : []) });
+  });
+  app.get('/api/server/logs/file/:day', requireRole('admin'), (req, res) => {
+    const p = opts.logsDir && createLogbook({ dir: opts.logsDir }).filePath(req.params.day);
+    if (!p) return bad(res, 'No log for that day.', 404);
+    res.download(p);
+  });
+
+  app.get('/api/server/updates', requireRole('admin'), async (req, res) => {
+    res.json({ history: opts.updater?.history ? await opts.updater.history() : [] });
+  });
+
+  app.post('/api/server/restart', requireRole('admin'), (req, res) => {
+    if (!opts.restart) return bad(res, 'Restart is not available here.');
+    console.log(new Date().toLocaleString(), `[server] Restart requested by ${req.user.name}.`);
+    res.json({ ok: true, message: 'Restarting. The site will be back in about 10 seconds.' });
+    setTimeout(opts.restart, 300);
+  });
+
+  // Backups
+  const needBackups = (res) => { if (!opts.backups) { bad(res, 'Backups are not set up on this server.'); return false; } return true; };
+  app.get('/api/server/backups', requireRole('admin'), (req, res) => {
+    if (!needBackups(res)) return;
+    res.json({ backups: opts.backups.list(), pending_restore: opts.backups.pendingRestore(), time: getSettings().backup_time || '' });
+  });
+  app.post('/api/server/backups', requireRole('admin'), (req, res) => {
+    if (!needBackups(res)) return;
+    try { res.status(201).json({ backup: opts.backups.make('manual') }); } catch (e) { bad(res, `Backup failed: ${e.message}`, 500); }
+  });
+  app.get('/api/server/backups/:name', requireRole('admin'), (req, res) => {
+    if (!needBackups(res)) return;
+    const p = opts.backups.path(req.params.name);
+    if (!p) return bad(res, 'Backup not found.', 404);
+    res.download(p);
+  });
+  app.delete('/api/server/backups/:name', requireRole('admin'), (req, res) => {
+    if (!needBackups(res)) return;
+    if (!opts.backups.remove(req.params.name)) return bad(res, 'Backup not found.', 404);
+    res.json({ ok: true });
+  });
+  app.post('/api/server/backups/:name/restore', requireRole('admin'), (req, res) => {
+    if (!needBackups(res)) return;
+    if (!opts.restart) return bad(res, 'Restoring needs the site started with start-shuttle.bat, so it can restart itself.');
+    try { opts.backups.scheduleRestore(req.params.name); } catch (e) { return bad(res, e.message); }
+    console.log(new Date().toLocaleString(), `[backups] ${req.user.name} asked to restore ${req.params.name}. Restarting to swap it in...`);
+    res.json({ ok: true, message: 'Restoring. The site restarts and will be back in about 10 seconds.' });
+    setTimeout(opts.restart, 300);
+  });
+  app.delete('/api/server/restore', requireRole('admin'), (req, res) => {
+    if (!needBackups(res)) return;
+    opts.backups.cancelRestore(); res.json({ ok: true });
   });
 
   // ---------- QR codes + share links ----------
@@ -1261,7 +1534,14 @@ function createApp(db, opts = {}) {
       html = html.replace(/((?:src|href)="\/(?:js|css|vendor\/leaflet)\/[^"?]+\.(?:js|css))"/g, `$1?v=${assetVersion}"`);
       pageCache.set(file, html);
     }
-    res.set('Cache-Control', 'no-store').type('html').send(html);
+    const s = getSettings();
+    const color = /^#[0-9a-f]{6}$/i.test(s.brand_color || '') ? s.brand_color : DEFAULT_SETTINGS.brand_color;
+    const dark = /^#[0-9a-f]{6}$/i.test(s.brand_dark || '') ? s.brand_dark : DEFAULT_SETTINGS.brand_dark;
+    const look = s.look === 'corwin' ? 'corwin' : 'classic';
+    const logo = s.brand_logo ? (s.brand_logo_v || '1') : '';
+    const name = String(s.brand_name || s.dealer_name || '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+    res.set('Cache-Control', 'no-store').type('html')
+      .send(html.replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-brand-name="${name}" data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" style="--brand:${color};--brand-dark:${dark}">`));
   };
   app.get('/', (req, res) => {
     if (!req.user) return res.redirect('/login');
@@ -1283,6 +1563,9 @@ function createApp(db, opts = {}) {
     index: false, maxAge: '30d',
     setHeaders: (res, file) => { if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-store'); },
   }));
+  // Brand fonts for the Corwin look (bundled, so pages don't depend on an outside font site).
+  app.use('/vendor/fonts/barlow', express.static(path.join(path.dirname(require.resolve('@fontsource/barlow/package.json')), 'files'), { maxAge: '30d' }));
+  app.use('/vendor/fonts/barlow-sc', express.static(path.join(path.dirname(require.resolve('@fontsource/barlow-semi-condensed/package.json')), 'files'), { maxAge: '30d' }));
   app.use('/vendor/leaflet', express.static(path.join(path.dirname(require.resolve('leaflet/package.json')), 'dist'), { maxAge: '30d' }));
 
   app.use('/api', (req, res) => bad(res, 'Not found.', 404));

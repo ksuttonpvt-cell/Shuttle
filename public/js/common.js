@@ -65,14 +65,45 @@ const App = (() => {
     const nav = links.map(([href, label]) => `<a href="${href}" class="${location.pathname === href ? 'active' : ''}">${label}</a>`).join('');
     el.className = 'topbar';
     el.innerHTML = `
-      <a class="brand" href="/"><span class="logo">🚐</span><span>Shuttle<small>${esc(settings.dealer_name)}</small></span></a>
+      <a class="brand brand-classic" href="/"><span class="logo">🚐</span><span>Shuttle<small>${esc(settings.dealer_name)}</small></span></a>
+      <a class="brand brand-corwin" href="/">${brandMark(settings.dealer_name, 'Shuttle')}</a>
       <nav>${nav}<button id="themeBtn" title="Light or dark screen"></button><button id="pwBtn" title="Change password">Password</button><button id="logoutBtn">Sign out</button></nav>
       <span class="who">${esc(user.name)} · ${esc(user.role)}</span>`;
     $('#logoutBtn').onclick = async () => { await api('/api/logout', { body: {} }); location.href = '/login'; };
+    applyBrand(settings.dealer_name);
     $('#pwBtn').onclick = changePassword;
     const paintTheme = () => { $('#themeBtn').textContent = { auto: '🌓 Auto', dark: '🌙 Dark', light: '☀️ Light' }[getTheme()]; };
     paintTheme();
     $('#themeBtn').onclick = () => { setTheme({ auto: 'dark', dark: 'light', light: 'auto' }[getTheme()]); paintTheme(); };
+  }
+
+  // ---------- dealership branding (the Corwin look) ----------
+  // The logo if one was uploaded, otherwise a wordmark made from the dealership name:
+  // "CORWIN" big, "TOYOTA OF BOULDER · SHUTTLE" small.
+  function brandMark(dealerName, extra = '') {
+    const logo = document.documentElement.dataset.logo;
+    const name = document.documentElement.dataset.brandName || dealerName;
+    const words = String(name || '').trim().split(/\s+/);
+    const first = words.shift() || 'Shuttle';
+    const rest = [words.join(' '), extra].filter(Boolean).join(' · ');
+    if (logo) return `<img class="brand-logo" src="/brand/logo?v=${encodeURIComponent(logo)}" alt="${esc(name)}"><span class="brand-sub">${esc(extra)}</span>`;
+    return `<span class="wordmark">${esc(first)}</span><span class="brand-sub">${esc(rest)}</span>`;
+  }
+  // Fills [data-brand] spots and shows a note while previewing a look on this device.
+  function applyBrand(dealerName) {
+    $$('[data-brand]').forEach((el) => { el.innerHTML = brandMark(dealerName, el.dataset.brand || ''); });
+    const name = document.documentElement.dataset.brandName || dealerName;
+    $$('[data-foot]').forEach((el) => { el.innerHTML = `<b>${esc(name)}</b> · Service shuttle`; });
+    let preview = null;
+    try { preview = localStorage.getItem('shuttle.look'); } catch { /* storage blocked */ }
+    const site = document.documentElement.dataset.siteLook;
+    if (preview && preview !== site && !$('#lookPreview')) {
+      const pill = document.createElement('div');
+      pill.id = 'lookPreview'; pill.className = 'look-preview no-print';
+      pill.innerHTML = `<span>Previewing the <b>${preview === 'corwin' ? 'Corwin' : 'Classic'}</b> look<span class="lp-long"> on this device</span></span><button type="button">Stop preview</button>`;
+      pill.querySelector('button').onclick = () => { try { localStorage.removeItem('shuttle.look'); } catch { /* ignore */ } location.reload(); };
+      document.body.appendChild(pill);
+    }
   }
 
   // Light / dark screen: 'auto' follows the device setting. Saved on this device only.
@@ -417,6 +448,99 @@ const App = (() => {
     return `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${encodeURIComponent(dest)}${pts.length ? `&waypoints=${encodeURIComponent(pts.join('|'))}` : ''}`;
   }
 
+  // ---------- step-by-step forms ----------
+  // A form split into <section data-step="name" data-title="Title"> parts, shown one at a time
+  // with a progress bar and Back / Next. Required fields are checked before moving on;
+  // opts.check[name]() can return a message to stop on that step. The last step shows the
+  // submit button. Buttons with data-next (e.g. a big choice) move on by themselves.
+  function stepper(form, opts = {}) {
+    const steps = $$('[data-step]', form);
+    const bar = $('[data-progress]', form);
+    const back = $('[data-back]', form); const next = $('[data-next]', form); const submit = $('[data-submit]', form);
+    let at = 0; let reached = 0;
+    function paint() {
+      steps.forEach((s, i) => { s.hidden = i !== at; });
+      if (bar) {
+        bar.innerHTML = steps.map((s, i) => `<button type="button" class="pstep ${i === at ? 'now' : i < at ? 'done' : ''}" data-goto="${i}" ${i > reached ? 'disabled' : ''}
+          aria-current="${i === at ? 'step' : 'false'}"><i>${i < at ? '✓' : i + 1}</i><span>${esc(s.dataset.title || '')}</span></button>`).join('');
+      }
+      if (back) back.hidden = at === 0;
+      if (next) next.hidden = at === steps.length - 1 || steps[at].hasAttribute('data-auto');
+      if (submit) submit.hidden = at !== steps.length - 1;
+      if (opts.onShow) opts.onShow(steps[at].dataset.step, at);
+      const first = steps[at].querySelector('input:not([type=hidden]):not([type=radio]):not([type=checkbox]), textarea, select');
+      if (first && !opts.noFocus) setTimeout(() => first.focus({ preventScroll: true }), 30);
+      (opts.scrollTo || form).scrollIntoView?.({ block: 'nearest' });
+    }
+    function valid() {
+      for (const el of steps[at].querySelectorAll('input, textarea, select')) {
+        if (el.willValidate && !el.checkValidity()) { el.reportValidity(); return false; }
+      }
+      const msg = opts.check?.[steps[at].dataset.step]?.();
+      if (msg) { flash(opts.msg || null, msg); return false; }
+      if (opts.msg) flash(opts.msg, '');
+      return true;
+    }
+    function go(i) { at = Math.max(0, Math.min(steps.length - 1, i)); reached = Math.max(reached, at); paint(); }
+    const forward = () => { if (valid()) go(at + 1); };
+    if (next) next.onclick = forward;
+    if (back) back.onclick = () => go(at - 1);
+    if (bar) bar.addEventListener('click', (e) => { const b = e.target.closest('[data-goto]'); if (b && !b.disabled) go(Number(b.dataset.goto)); });
+    form.addEventListener('click', (e) => { if (e.target.closest('[data-next-on-click]')) setTimeout(forward, 0); });
+    // Enter moves to the next step instead of sending the form early.
+    form.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON' || at === steps.length - 1) return;
+      if (e.target.closest('[data-results]')) return;
+      e.preventDefault(); forward();
+    });
+    paint();
+    return { go, next: forward, reset() { reached = 0; go(0); }, get step() { return steps[at].dataset.step; }, valid };
+  }
+
+  // ---------- Easter egg ----------
+  // Every Tuesday at noon (dealership time) it rains tacos for 10 seconds on every open page.
+  // Admins can turn it off in Settings → Easter egg.
+  let raining = false;
+  function tacoRain(seconds = 10) {
+    if (raining) return; raining = true;
+    const calm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const sky = document.createElement('div');
+    sky.className = 'taco-sky'; sky.setAttribute('aria-hidden', 'true');
+    const toast = document.createElement('div');
+    toast.className = 'taco-toast'; toast.setAttribute('role', 'status');
+    toast.textContent = '🌮 It\'s Taco Tuesday! 🌮';
+    document.body.append(sky, toast);
+    const until = Date.now() + seconds * 1000;
+    const drop = () => {
+      const t = document.createElement('span');
+      t.className = 'taco'; t.textContent = '🌮';
+      const size = 22 + Math.random() * 34; const fall = 2.4 + Math.random() * 2.6;
+      t.style.cssText = `left:${Math.random() * 100}vw;font-size:${size}px;animation-duration:${fall}s;--spin:${(Math.random() < 0.5 ? -1 : 1) * (180 + Math.random() * 540)}deg;--drift:${(Math.random() - 0.5) * 120}px`;
+      sky.appendChild(t);
+      setTimeout(() => t.remove(), fall * 1000 + 100);
+    };
+    const timer = calm ? null : setInterval(() => { if (Date.now() < until) { drop(); if (Math.random() < 0.6) drop(); } }, 110);
+    setTimeout(() => {
+      clearInterval(timer); toast.classList.add('bye');
+      setTimeout(() => { sky.remove(); toast.remove(); raining = false; }, 5200);
+    }, seconds * 1000);
+  }
+  (function watchForTuesdayNoon() {
+    const root = document.documentElement;
+    if (root.dataset.egg !== '1') return;
+    let fmt;
+    try { fmt = new Intl.DateTimeFormat('en-US', { timeZone: root.dataset.tz || undefined, weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }); }
+    catch { fmt = new Intl.DateTimeFormat('en-US', { weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }); }
+    let done = '';
+    setInterval(() => {
+      const p = Object.fromEntries(fmt.formatToParts(new Date()).map((x) => [x.type, x.value]));
+      const today = new Date().toDateString();
+      if (p.weekday === 'Tue' && p.hour === '12' && p.minute === '00' && Number(p.second) < 10 && done !== today) {
+        done = today; tacoRain(10 - Number(p.second));
+      }
+    }, 1000);
+  })();
+
   // Runs fn now and every ms. Pauses while the page is hidden unless background is true.
   function poll(fn, ms, { background = false } = {}) {
     const run = () => Promise.resolve().then(fn).catch(() => { /* try again next time */ });
@@ -431,7 +555,7 @@ const App = (() => {
 
   return {
     esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
-    directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
+    brandMark, applyBrand, stepper, tacoRain, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
 })();

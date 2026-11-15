@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<script>/* apply the saved light/dark choice before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
+<script>/* apply the saved light/dark choice and any look preview before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;var q=new URLSearchParams(location.search).get("look");if(q==="corwin"||q==="classic")localStorage.setItem("shuttle.look",q);else if(q==="off")localStorage.removeItem("shuttle.look");var l=localStorage.getItem("shuttle.look");if(l==="corwin"||l==="classic")document.documentElement.dataset.look=l}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Driver App</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#111111">
@@ -156,6 +156,7 @@
         <div class="ride-meta">
           <div>🕒 ${fmtTime(r.scheduled_at)} · ${relTime(r.scheduled_at)} · ${r.passengers} passenger${r.passengers > 1 ? 's' : ''}</div>
           <div>📍 ${dest}${r.distance_mi != null ? ` · ${r.distance_mi} mi` : ''}</div>
+          ${r.priority === 'urgent' && r.urgent_reason ? `<div class="urgent-why">🚨 Urgent: ${esc(r.urgent_reason)}</div>` : ''}
           ${r.notes ? `<div>📝 ${esc(r.notes)}</div>` : ''}
           ${r.driver_name && !mine ? `<div>🚐 ${esc(r.driver_name)}</div>` : ''}
           ${r.reasons ? `<div class="small">Why this order: ${esc(r.reasons.join(' · '))}</div>` : ''}

@@ -37,6 +37,7 @@ if not exist ".env" (
 echo.
 echo  Starting... Leave this window open. Open http://localhost:3000 in a browser.
 echo  Updates install themselves; the site restarts on its own when one arrives.
+echo  To see status and the log, or stop/restart the site, open "Shuttle Control.bat".
 echo.
 node src\supervisor.js
 exit /b
