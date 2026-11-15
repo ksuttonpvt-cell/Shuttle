@@ -11,6 +11,7 @@ const http = require('node:http');
 const { spawn, execFile } = require('node:child_process');
 const { RESTART_CODE } = require('./updater');
 const { createLogbook, eachLine } = require('./logbook');
+const tunnelKit = require('./tunnel');
 
 const root = path.join(__dirname, '..');
 const envFile = path.join(root, '.env');
@@ -68,8 +69,31 @@ function restart() {
   restartNext = true; setState('stopping'); child.kill();
 }
 
+// ---------- Cloudflare connection ----------
+// With CLOUDFLARE_TUNNEL_TOKEN in .env (saved from Shuttle Control), this runs cloudflared
+// too and reconnects it if it drops. If cloudflared already runs another way (for example
+// as a Windows service), it's left alone and just shown.
+const tunnel = tunnelKit.createTunnel({
+  root,
+  log: (m, level) => say(`[tunnel] ${m}`, level),
+  line: (l) => {
+    const level = /\bERR\b/.test(l) ? 'error' : /\bWRN\b/.test(l) ? 'warn' : 'info';
+    logbook.add(`[cloudflared] ${l.replace(/^\S+Z\s+/, '')}`, { level, source: 'tunnel' });
+  },
+});
+const tunnelOpts = () => ({ token: process.env.CLOUDFLARE_TUNNEL_TOKEN || '', protocol: process.env.TUNNEL_PROTOCOL || 'auto' });
+async function startTunnelIfSetUp() {
+  if (!process.env.CLOUDFLARE_TUNNEL_TOKEN) return;
+  const other = await tunnelKit.probe();
+  if (other.ready && !tunnel.state().running) {
+    say(`Cloudflare is already connected by another cloudflared on this PC (status port ${other.port}), so Shuttle Control won't start a second one.`);
+    return;
+  }
+  try { tunnel.start(tunnelOpts()); } catch (e) { say(`[tunnel] ${e.message}`, 'warn'); }
+}
+
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGBREAK']) {
-  process.on(sig, () => { quitting = true; if (child) child.kill(sig === 'SIGBREAK' ? 'SIGTERM' : sig); else process.exit(0); });
+  process.on(sig, () => { quitting = true; tunnel.stop(); if (child) child.kill(sig === 'SIGBREAK' ? 'SIGTERM' : sig); else process.exit(0); });
 }
 
 // ---------- Shuttle Control (this PC only) ----------
@@ -89,6 +113,11 @@ function openFolder(dir) {
   const cmd = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
   spawn(cmd, [dir], { detached: true, stdio: 'ignore', windowsHide: false }).on('error', () => {}).unref();
 }
+const readBody = (req) => new Promise((resolve, reject) => {
+  let s = ''; req.setEncoding('utf8');
+  req.on('data', (d) => { s += d; if (s.length > 20000) { reject(new Error('too big')); req.destroy(); } });
+  req.on('end', () => resolve(s)); req.on('error', reject);
+});
 const json = (res, code, data) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
 
 const control = http.createServer(async (req, res) => {
@@ -102,7 +131,11 @@ const control = http.createServer(async (req, res) => {
     return res.end(fs.readFileSync(path.join(__dirname, 'control.html'), 'utf8').replaceAll('{{SITE_PORT}}', String(sitePort)));
   }
   if (req.method === 'GET' && url.pathname === '/api/status') {
+    const token = process.env.CLOUDFLARE_TUNNEL_TOKEN || '';
+    const t = await tunnelKit.probe();
     return json(res, 200, {
+      tunnel: { ...tunnel.state(), ...t, has_token: !!token, tunnel_id: token ? tunnelKit.tunnelIdOf(token) : null,
+        protocol: process.env.TUNNEL_PROTOCOL || 'auto', installed: !!tunnelKit.findCloudflared(root) },
       state, since: since.toISOString(), pid: child?.pid || null, restarts, last_exit: lastExit,
       site_ok: state === 'running' ? await siteHealthy() : false, site_url: `http://localhost:${sitePort}`,
       control_started: startedAt, version, log_counts: logbook.counts(), logs_dir: logsDir, data_dir: dataDir,
@@ -116,6 +149,38 @@ const control = http.createServer(async (req, res) => {
   if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
     if (req.headers['x-shuttle-control'] !== '1') return json(res, 403, { error: 'Not allowed.' });
     const action = url.pathname.slice(5);
+    if (action.startsWith('tunnel/')) {
+      let body = {};
+      try { body = JSON.parse(await readBody(req) || '{}'); } catch { return json(res, 400, { error: 'Bad request.' }); }
+      try {
+        const what = action.slice(7);
+        if (what === 'token') {
+          const token = tunnelKit.cleanToken(body.token);
+          if (!token) return json(res, 400, { error: "That doesn't look like a tunnel token. Copy the long code from the Cloudflare dashboard (it starts with eyJ)." });
+          tunnelKit.setEnvValue(envFile, 'CLOUDFLARE_TUNNEL_TOKEN', token);
+          process.env.CLOUDFLARE_TUNNEL_TOKEN = token;
+          say('Tunnel token saved. Connecting to Cloudflare...');
+          tunnel.restart(tunnelOpts());
+        } else if (what === 'forget') {
+          tunnel.stop(); tunnelKit.setEnvValue(envFile, 'CLOUDFLARE_TUNNEL_TOKEN', null); delete process.env.CLOUDFLARE_TUNNEL_TOKEN;
+          say('Tunnel token removed. Shuttle Control no longer runs the Cloudflare connection.', 'warn');
+        } else if (what === 'protocol') {
+          const p = ['auto', 'quic', 'http2'].includes(body.protocol) ? body.protocol : 'auto';
+          tunnelKit.setEnvValue(envFile, 'TUNNEL_PROTOCOL', p === 'auto' ? null : p);
+          if (p === 'auto') delete process.env.TUNNEL_PROTOCOL; else process.env.TUNNEL_PROTOCOL = p;
+          say(`Cloudflare connection type set to ${p === 'auto' ? 'automatic' : p.toUpperCase()}.`);
+          if (tunnel.state().running) tunnel.restart(tunnelOpts());
+        } else if (what === 'start') { tunnel.start(tunnelOpts()); say('Start Cloudflare pressed.'); }
+        else if (what === 'stop') { tunnel.stop(); say('Stop Cloudflare pressed.', 'warn'); }
+        else if (what === 'restart') { tunnel.restart(tunnelOpts()); say('Reconnect Cloudflare pressed.'); }
+        else if (what === 'download') {
+          say('Downloading cloudflared from Cloudflare...');
+          const file = await tunnelKit.downloadCloudflared(root);
+          say(`cloudflared downloaded to ${file}.`);
+        } else return json(res, 404, { error: 'Not found.' });
+        return json(res, 200, { ok: true });
+      } catch (e) { say(`[tunnel] ${e.message}`, 'error'); return json(res, 400, { error: e.message }); }
+    }
     if (action === 'start') { say('Start pressed in Shuttle Control.'); start(); return json(res, 200, { ok: true }); }
     if (action === 'stop') { say('Stop pressed in Shuttle Control.', 'warn'); stop(); return json(res, 200, { ok: true }); }
     if (action === 'restart') { say('Restart pressed in Shuttle Control.'); restart(); return json(res, 200, { ok: true }); }
@@ -125,7 +190,7 @@ const control = http.createServer(async (req, res) => {
     if (action === 'quit') {
       say('Turned off completely from Shuttle Control.', 'warn');
       json(res, 200, { ok: true });
-      quitting = true; setTimeout(() => (child ? child.kill() : process.exit(0)), 300);
+      quitting = true; tunnel.stop(); setTimeout(() => (child ? child.kill() : process.exit(0)), 300);
       return;
     }
   }
@@ -137,3 +202,4 @@ control.listen(controlPort, '127.0.0.1', () => say(`Shuttle Control is ready at 
 
 readVersion(); setInterval(readVersion, 5 * 60000).unref();
 start();
+startTunnelIfSetUp();

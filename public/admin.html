@@ -251,6 +251,19 @@
         <div class="chart-legend small"><span><i class="sw sw-req"></i>Requests per minute</span><span><i class="sw sw-err"></i>Minutes with server errors</span></div>
       </div>
       <div class="card">
+        <div class="card-head"><h2>Connection speed</h2><button class="btn-blue btn-sm" id="srvSpeed">Test speed</button></div>
+        <div id="srvSpeedOut" class="small muted">Times how long this device takes to reach the shuttle server and back, through Cloudflare.</div>
+        <div class="small" id="srvLiveNote" style="margin-top:.6rem"></div>
+        <details style="margin-top:.6rem"><summary class="small">If it feels slow or laggy</summary>
+          <ul class="small" style="padding-left:1.1rem;margin:.4rem 0">
+            <li>On the server PC, open <b>Shuttle Control</b>. The Cloudflare card should say <b>Connected</b> with 2–4 connections.</li>
+            <li>If the connection keeps dropping, set the Cloudflare <b>connection type</b> to <b>HTTP/2</b> in Shuttle Control. Some routers' security features slow down QUIC (UDP).</li>
+            <li>On the Ubiquiti router, make sure <b>Smart Queues</b> limits are above your fiber speed (or off), and that <b>IDS/IPS</b> isn't blocking <b>cloudflared</b>.</li>
+            <li>Plug the server PC into the router with a cable instead of Wi-Fi, and set its Windows power plan so it never sleeps.</li>
+            <li>A heavy game server on the same PC can slow it down at busy times; the site itself needs very little.</li>
+          </ul></details>
+      </div>
+      <div class="card">
         <h2>Updates &amp; restart</h2>
         <div id="verInfo" class="small muted">Loading…</div>
         <div id="verMsg"></div>
@@ -308,7 +321,9 @@
   const map = App.makeMap($('#map'), { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng) });
   App.dealerMarker(map, App.settings);
   const draw = App.ridesLayer(map);
-  App.liveDrivers(map); // vans move every few seconds, with each driver's planned route
+  const vans = App.liveDrivers(map); // vans move every few seconds, with each driver's planned route
+  const dashOpen = () => !$('[data-pane="dash"]').classList.contains('hidden');
+  App.live({ rides: () => dashOpen() && loadDash(), drivers: () => { vans.refresh(); if (dashOpen()) loadDash(); } });
   let openRides = []; let drivers = [];
   async function loadDash() {
     const [r, d, today] = await Promise.all([api('/api/rides?scope=open'), api('/api/drivers'), api('/api/rides?scope=today')]);
@@ -698,6 +713,7 @@
       [c?.public_site?.ok ?? null, 'Web address (Cloudflare Tunnel)', c ? (c.public_site.ok ? `${esc(c.public_site.note)} answered in ${c.public_site.ms} ms` : esc(c.public_site.note || '')) : 'Checking…'],
       [c?.routing?.ok ?? null, 'Road routing for drivers', c ? (c.routing.ok ? `Answered in ${c.routing.ms} ms` : esc(c.routing.note || '')) : 'Checking…'],
       [c?.database?.ok ?? null, 'Database', c ? esc(c.database.note || '') : 'Checking…'],
+      [c?.tunnel?.ok ?? null, 'Cloudflare connection (server PC)', c ? esc(c.tunnel.note || '') : 'Checking…'],
       [s.version.last_error ? false : s.version.auto_update ? true : null, 'Automatic updates', s.version.last_error ? esc(s.version.last_error) : s.version.auto_update ? `On${s.version.last_check ? `, last checked ${fmtTime(s.version.last_check)}` : ''}` : esc(s.version.reason || 'Off')],
       [backupOk, 'Nightly backup', !s.backups ? 'Not set up' : !s.backups.time ? 'Turned off' : lastDaily ? `Last one ${fmtTime(lastDaily)} · ${s.backups.count} kept (${s.backups.total_mb} MB)` : `First one tonight at ${s.backups.time}`],
       [diskOk, 'Disk space', s.disk ? `${mb(s.disk.free_mb)} free of ${mb(s.disk.total_mb)}` : 'Unknown'],
@@ -802,6 +818,30 @@
     logLevel = b.dataset.level; $$('#srvLevel [data-level]').forEach((x) => x.classList.toggle('active', x === b)); loadLog(true).catch(() => {});
   });
   let searchT; $('#srvLogSearch').oninput = (e) => { clearTimeout(searchT); searchT = setTimeout(() => { logQ = e.target.value; loadLog(true).catch(() => {}); }, 300); };
+
+  // Speed test: 8 round trips to the server; show the typical (median) time.
+  $('#srvSpeed').onclick = async (e) => {
+    e.target.disabled = true; const times = []; let colo = null; let via = false;
+    $('#srvSpeedOut').textContent = 'Testing…';
+    try {
+      for (let i = 0; i < 8; i++) {
+        const t0 = performance.now();
+        const r = await api('/api/server/ping');
+        times.push(performance.now() - t0); colo = r.colo || colo; via = r.via_cloudflare || via;
+      }
+      times.sort((a, b) => a - b);
+      const med = Math.round(times[Math.floor(times.length / 2)]); const best = Math.round(times[0]); const worst = Math.round(times[times.length - 1]);
+      const verdict = med < 120 ? ['ok', 'Fast'] : med < 300 ? ['ok', 'Good'] : med < 700 ? ['warn', 'A bit slow'] : ['bad', 'Slow'];
+      $('#srvSpeedOut').innerHTML = `<span class="dot dot-${verdict[0] === 'ok' ? 'ok' : verdict[0] === 'bad' ? 'bad' : 'off'}">●</span> <b>${verdict[1]}: about ${med} ms</b> per trip (best ${best} ms, worst ${worst} ms)
+        ${via ? `<br>Through Cloudflare${colo ? ` · data center <b>${esc(colo)}</b>` : ''}` : '<br>Direct (not through Cloudflare)'}${worst > med * 3 && worst > 500 ? '<br>⚠️ Some trips were much slower than others. That usually means a busy or dropping connection. See the tips below.' : ''}`;
+    } catch (err) { $('#srvSpeedOut').textContent = err.message; }
+    e.target.disabled = false;
+  };
+  setInterval(() => {
+    if (!$('#srvLiveNote')) return;
+    $('#srvLiveNote').innerHTML = App.liveState.connected ? '<span class="dot dot-ok">●</span> <b>Instant updates on.</b> Changes show up on every open screen right away.'
+      : '<span class="dot dot-off">●</span> Instant updates are reconnecting. Screens still refresh every few seconds.';
+  }, 2000);
 
   const serverVisible = () => !$('[data-pane="server"]').classList.contains('hidden') && !document.hidden;
   loaders.server = () => { loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
