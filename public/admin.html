@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<script>/* apply the saved light/dark choice before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
+<script>/* apply the saved light/dark choice and any look preview before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;var q=new URLSearchParams(location.search).get("look");if(q==="corwin"||q==="classic")localStorage.setItem("shuttle.look",q);else if(q==="off")localStorage.removeItem("shuttle.look");var l=localStorage.getItem("shuttle.look");if(l==="corwin"||l==="classic")document.documentElement.dataset.look=l}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shuttle Admin</title>
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/css/app.css">
@@ -194,6 +194,33 @@
       <div class="linkbox"><input id="smsTo" type="tel" placeholder="Your mobile number"><button type="button" class="btn-ghost btn-sm" id="smsSend">Send test</button></div>
     </div>
     <div id="smsLog" style="margin-top:1rem"></div>
+    <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
+    <h2>Look</h2>
+    <p class="small muted" style="margin-top:0">Try the <b>Corwin</b> dealership look on just this device first. When you like it, switch it on for everyone (staff pages, the customer request and tracking pages, and sign-in).</p>
+    <div class="actions" style="margin:.2rem 0 .8rem">
+      <a class="btn btn-ghost" href="/admin?look=corwin#settings">👀 Preview Corwin look on this device</a>
+      <a class="btn btn-ghost" href="/admin?look=off#settings">Stop preview</a>
+    </div>
+    <form id="lookForm">
+      <div class="seg" role="radiogroup" aria-label="Look for everyone">
+        <input type="radio" name="look" value="classic" id="lookClassic"><label for="lookClassic">Classic</label>
+        <input type="radio" name="look" value="corwin" id="lookCorwin"><label for="lookCorwin">Corwin</label>
+      </div>
+      <div class="look-swatches" style="margin-top:.8rem">
+        <div><label>Accent color</label><input type="color" name="brand_color"></div>
+        <div><label>Header color</label><input type="color" name="brand_dark"></div>
+        <button type="button" class="btn-ghost btn-sm" id="lookReset">Back to Corwin red &amp; black</button>
+      </div>
+      <label style="margin-top:1rem">Dealership logo (optional)</label>
+      <div class="actions" style="align-items:center;margin-top:0">
+        <span class="logo-preview" id="logoPreview"></span>
+        <input type="file" id="logoFile" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="max-width:260px">
+        <button type="button" class="btn-ghost btn-sm hidden" id="logoRemove">Remove logo</button>
+      </div>
+      <p class="small muted">A white or light logo on a transparent background looks best in the dark header. PNG, JPG, WebP or SVG, up to 600 KB. Without a logo, the header shows the dealership name as a wordmark.</p>
+      <div id="lookMsg"></div>
+      <button class="btn-block" style="margin-top:.6rem">Save look</button>
+    </form>
     <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
     <p class="small muted">Software updates, backups, the server log and restart are on the <b>Server</b> tab.</p>
   </section>
@@ -770,7 +797,56 @@
   setInterval(() => { if (serverVisible()) { loadServer().catch(() => {}); if ($('#srvLive').checked) loadLog().catch(() => {}); } }, 5000);
   setInterval(() => { if (serverVisible()) loadChecks(); }, 60000);
 
-  loaders.settings = () => { loadSms(); return loadSettings(); };
+  // ---------- look ----------
+  const lf = $('#lookForm');
+  function paintLogo(s) {
+    $('#logoPreview').innerHTML = App.brandMark(s.dealer_name);
+    $('#logoRemove').classList.toggle('hidden', !s.logo_v);
+  }
+  async function loadLook() {
+    const { settings } = await api('/api/me');
+    lf.elements.look.value = settings.look || 'classic';
+    lf.elements.brand_color.value = settings.brand_color || '#eb0a1e';
+    lf.elements.brand_dark.value = settings.brand_dark || '#0d0f12';
+    paintLogo(settings);
+  }
+  // Show color changes right away on this page.
+  for (const k of ['brand_color', 'brand_dark']) lf.elements[k].oninput = (e) => document.documentElement.style.setProperty(k === 'brand_color' ? '--brand' : '--brand-dark', e.target.value);
+  $('#lookReset').onclick = () => {
+    lf.elements.brand_color.value = '#eb0a1e'; lf.elements.brand_dark.value = '#0d0f12';
+    lf.elements.brand_color.dispatchEvent(new Event('input')); lf.elements.brand_dark.dispatchEvent(new Event('input'));
+  };
+  $('#logoFile').onchange = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    if (file.size > 600 * 1024) { App.flash($('#lookMsg'), 'That image is too big. Keep the logo under 600 KB.'); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const r = await fetch('/api/brand/logo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ data: reader.result }) });
+        const d = await r.json(); if (!r.ok) throw new Error(d.error || 'Upload failed.');
+        document.documentElement.dataset.logo = d.settings.logo_v;
+        paintLogo(d.settings); App.applyBrand(d.settings.dealer_name);
+        App.flash($('#lookMsg'), 'Logo saved.', true);
+      } catch (err) { App.flash($('#lookMsg'), err.message); }
+      e.target.value = '';
+    };
+    reader.readAsDataURL(file);
+  };
+  $('#logoRemove').onclick = async () => {
+    const { settings } = await api('/api/brand/logo', { method: 'DELETE' });
+    document.documentElement.dataset.logo = '';
+    paintLogo(settings); App.applyBrand(settings.dealer_name);
+  };
+  lf.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api('/api/settings', { method: 'PATCH', body: { look: lf.elements.look.value, brand_color: lf.elements.brand_color.value, brand_dark: lf.elements.brand_dark.value } });
+      App.flash($('#lookMsg'), lf.elements.look.value === 'corwin' ? 'Saved. Everyone now gets the Corwin look.' : 'Saved. Everyone gets the Classic look.', true);
+      try { localStorage.removeItem('shuttle.look'); } catch { /* ignore */ }
+      setTimeout(() => location.reload(), 900);
+    } catch (err) { App.flash($('#lookMsg'), err.message); }
+  };
+  loaders.settings = () => { loadSms(); loadLook(); return loadSettings(); };
   sf.onsubmit = async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(sf));

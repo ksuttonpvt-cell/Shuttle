@@ -25,6 +25,11 @@ Every open ride gets a queue number. Ride in progress (on board or en route) com
 - **Ride offers:** when a ride is waiting for a driver, the closest free on-duty driver (no rides, or just finishing one) gets a ding, a phone notification and a pop-up: *Ride near you. Want it?* with **Take it** or **No thanks**. If they pass or don't answer within 90 seconds, it goes to the next closest driver. Advisors see "Offered to …" on the ride. Admins can turn this off in Settings.
 - Road times come from the free public OSRM routing server. If it can't be reached, the planner uses a straight-line estimate instead (shown as a dashed line). Set `ROUTING=off` in `.env` to always use the estimate.
 
+### Corwin look (dealership branding)
+
+- **Admin → Settings → Look:** try the **Corwin** look on one device first (*Preview Corwin look on this device*, or add `?look=corwin` to any page address; `?look=off` stops it). When it's right, choose **Corwin** and **Save look** to switch everyone: staff pages, sign-in, and the customer request and tracking pages.
+- It uses a dark header and banners with an accent stripe and a **CORWIN** wordmark made from the dealership name. The accent and header colors can be changed, and the official logo can be uploaded (PNG, JPG, WebP or SVG; a white logo on a transparent background looks best).
+
 ### Server tools
 
 - **Admin → Server** (from any device): the site's health checks (web address through the Cloudflare Tunnel, road routing, database, updates, nightly backup, disk space), live numbers (people online, requests per minute, response time, processor, memory), a traffic chart for the last hour, the server log with filters and search, update history, **Restart the site**, and **backups**.

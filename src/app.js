@@ -27,7 +27,10 @@ const DEFAULT_SETTINGS = {
   service_radius_mi: '15.5',
   auto_end_shift: '20:00', // every driver is taken off shift at this local time each day ('' = off)
   auto_sign_out: '00:00',  // everyone is signed out at this local time each day ('' = off)
-  ride_offers: '1',        // offer waiting rides to the closest free driver, who can accept or pass
+  ride_offers: '1',
+  look: 'classic',          // 'classic' or 'corwin' (dealership branding) for everyone
+  brand_color: '#eb0a1e',   // Corwin look: accent (buttons, stripes)
+  brand_dark: '#0d0f12',    // Corwin look: header and banner background        // offer waiting rides to the closest free driver, who can accept or pass
   clear_customer_info: '00:00',
   backup_time: '00:30',    // nightly database backup, after customer info is cleared ('' = off) // finished rides lose their customer details at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
@@ -49,7 +52,7 @@ function createApp(db, opts = {}) {
     const fromTunnel = peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
     return (fromTunnel && req.get('cf-connecting-ip')) || req.ip || peer;
   };
-  app.use(express.json({ limit: '100kb' }));
+  app.use((req, res, next) => (req.path === '/api/brand/logo' ? next() : express.json({ limit: '100kb' })(req, res, next)));
   // Live numbers for Admin → Server.
   const stats = opts.stats || createStats({ timers: !opts.noTimers });
   const logbook = opts.logbook || createLogbook();
@@ -87,6 +90,7 @@ function createApp(db, opts = {}) {
   function shareableSettings() {
     const s = getSettings(); const out = {};
     for (const k of Object.keys(DEFAULT_SETTINGS)) out[k] = s[k];
+    out.logo_v = s.brand_logo ? (s.brand_logo_v || '1') : ''; // the logo itself is served from /brand/logo
     return out;
   }
   // How far from the dealership the shuttle will go, in miles (0 = no limit).
@@ -900,6 +904,34 @@ function createApp(db, opts = {}) {
     });
   });
 
+  // ---------- dealership logo (Corwin look) ----------
+  // Stored in the database so it's included in backups. SVGs are served so they can't run
+  // scripts even if opened directly.
+  const LOGO_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
+  const setSetting = (k, v) => q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
+  app.get('/brand/logo', (req, res) => {
+    const s = getSettings();
+    const m = /^data:([a-z/+]+);base64,(.+)$/.exec(s.brand_logo || '');
+    if (!m || !LOGO_TYPES[m[1]]) return res.status(404).end();
+    res.set({ 'Content-Type': m[1], 'Cache-Control': 'public, max-age=31536000, immutable',
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox", 'X-Content-Type-Options': 'nosniff' });
+    res.send(Buffer.from(m[2], 'base64'));
+  });
+  app.post('/api/brand/logo', requireRole('admin'), express.json({ limit: '900kb' }), (req, res) => {
+    const m = /^data:([a-z/+]+);base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body.data || ''));
+    if (!m || !LOGO_TYPES[m[1]]) return bad(res, 'Upload a PNG, JPG, WebP or SVG image.');
+    const bytes = Buffer.from(m[2], 'base64');
+    if (bytes.length > 600 * 1024) return bad(res, 'That image is too big. Keep the logo under 600 KB.');
+    if (m[1] === 'image/svg+xml' && !/<svg[\s>]/i.test(bytes.toString('utf8'))) return bad(res, "That file isn't an SVG image.");
+    setSetting('brand_logo', `data:${m[1]};base64,${m[2]}`);
+    setSetting('brand_logo_v', Date.now().toString(36));
+    res.json({ settings: shareableSettings() });
+  });
+  app.delete('/api/brand/logo', requireRole('admin'), (req, res) => {
+    q("DELETE FROM settings WHERE key IN ('brand_logo', 'brand_logo_v')").run();
+    res.json({ settings: shareableSettings() });
+  });
+
   const publicHits = new Map();
   app.post('/api/public/rides', (req, res) => {
     if (getSettings().public_requests !== '1') return bad(res, 'Online ride requests are turned off. Please call the dealership.', 403);
@@ -965,6 +997,8 @@ function createApp(db, opts = {}) {
       let v = String(req.body[k]).slice(0, 300);
       if ((k === 'dealer_lat' || k === 'dealer_lng') && Number.isNaN(Number(v))) return bad(res, 'Latitude/longitude must be numbers.');
       if (YES_NO_SETTINGS.includes(k)) v = req.body[k] && req.body[k] !== '0' ? '1' : '0';
+      if (k === 'look' && !['classic', 'corwin'].includes(v)) return bad(res, 'Pick Classic or Corwin.');
+      if ((k === 'brand_color' || k === 'brand_dark') && !/^#[0-9a-f]{6}$/i.test(v)) return bad(res, 'Colors must look like #eb0a1e.');
       if (k === 'timezone') { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); } catch { return bad(res, 'Unknown time zone.'); } }
       if (k === 'auto_end_shift' || k === 'auto_sign_out' || k === 'clear_customer_info' || k === 'backup_time') {
         v = v.trim();
@@ -1474,7 +1508,13 @@ function createApp(db, opts = {}) {
       html = html.replace(/((?:src|href)="\/(?:js|css|vendor\/leaflet)\/[^"?]+\.(?:js|css))"/g, `$1?v=${assetVersion}"`);
       pageCache.set(file, html);
     }
-    res.set('Cache-Control', 'no-store').type('html').send(html);
+    const s = getSettings();
+    const color = /^#[0-9a-f]{6}$/i.test(s.brand_color || '') ? s.brand_color : DEFAULT_SETTINGS.brand_color;
+    const dark = /^#[0-9a-f]{6}$/i.test(s.brand_dark || '') ? s.brand_dark : DEFAULT_SETTINGS.brand_dark;
+    const look = s.look === 'corwin' ? 'corwin' : 'classic';
+    const logo = s.brand_logo ? (s.brand_logo_v || '1') : '';
+    res.set('Cache-Control', 'no-store').type('html')
+      .send(html.replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" style="--brand:${color};--brand-dark:${dark}">`));
   };
   app.get('/', (req, res) => {
     if (!req.user) return res.redirect('/login');

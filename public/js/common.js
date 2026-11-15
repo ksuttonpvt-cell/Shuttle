@@ -65,14 +65,42 @@ const App = (() => {
     const nav = links.map(([href, label]) => `<a href="${href}" class="${location.pathname === href ? 'active' : ''}">${label}</a>`).join('');
     el.className = 'topbar';
     el.innerHTML = `
-      <a class="brand" href="/"><span class="logo">🚐</span><span>Shuttle<small>${esc(settings.dealer_name)}</small></span></a>
+      <a class="brand brand-classic" href="/"><span class="logo">🚐</span><span>Shuttle<small>${esc(settings.dealer_name)}</small></span></a>
+      <a class="brand brand-corwin" href="/">${brandMark(settings.dealer_name, 'Shuttle')}</a>
       <nav>${nav}<button id="themeBtn" title="Light or dark screen"></button><button id="pwBtn" title="Change password">Password</button><button id="logoutBtn">Sign out</button></nav>
       <span class="who">${esc(user.name)} · ${esc(user.role)}</span>`;
     $('#logoutBtn').onclick = async () => { await api('/api/logout', { body: {} }); location.href = '/login'; };
+    applyBrand(settings.dealer_name);
     $('#pwBtn').onclick = changePassword;
     const paintTheme = () => { $('#themeBtn').textContent = { auto: '🌓 Auto', dark: '🌙 Dark', light: '☀️ Light' }[getTheme()]; };
     paintTheme();
     $('#themeBtn').onclick = () => { setTheme({ auto: 'dark', dark: 'light', light: 'auto' }[getTheme()]); paintTheme(); };
+  }
+
+  // ---------- dealership branding (the Corwin look) ----------
+  // The logo if one was uploaded, otherwise a wordmark made from the dealership name:
+  // "CORWIN" big, "TOYOTA OF BOULDER · SHUTTLE" small.
+  function brandMark(dealerName, extra = '') {
+    const logo = document.documentElement.dataset.logo;
+    const words = String(dealerName || '').trim().split(/\s+/);
+    const first = words.shift() || 'Shuttle';
+    const rest = [words.join(' '), extra].filter(Boolean).join(' · ');
+    if (logo) return `<img class="brand-logo" src="/brand/logo?v=${encodeURIComponent(logo)}" alt="${esc(dealerName)}"><span class="brand-sub">${esc(extra)}</span>`;
+    return `<span class="wordmark">${esc(first)}</span><span class="brand-sub">${esc(rest)}</span>`;
+  }
+  // Fills [data-brand] spots and shows a note while previewing a look on this device.
+  function applyBrand(dealerName) {
+    $$('[data-brand]').forEach((el) => { el.innerHTML = brandMark(dealerName, el.dataset.brand || ''); });
+    let preview = null;
+    try { preview = localStorage.getItem('shuttle.look'); } catch { /* storage blocked */ }
+    const site = document.documentElement.dataset.siteLook;
+    if (preview && preview !== site && !$('#lookPreview')) {
+      const pill = document.createElement('div');
+      pill.id = 'lookPreview'; pill.className = 'look-preview no-print';
+      pill.innerHTML = `<span>Previewing the <b>${preview === 'corwin' ? 'Corwin' : 'Classic'}</b> look<span class="lp-long"> on this device</span></span><button type="button">Stop preview</button>`;
+      pill.querySelector('button').onclick = () => { try { localStorage.removeItem('shuttle.look'); } catch { /* ignore */ } location.reload(); };
+      document.body.appendChild(pill);
+    }
   }
 
   // Light / dark screen: 'auto' follows the device setting. Saved on this device only.
@@ -431,7 +459,7 @@ const App = (() => {
 
   return {
     esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
-    directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
+    brandMark, applyBrand, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
 })();

@@ -327,3 +327,56 @@ th { font-size: .78rem; text-transform: uppercase; color: var(--muted); letter-s
   background: #3a2a12; color: #ffd38a; font-weight: 600; font-size: .92rem; text-align: center;
   box-shadow: 0 6px 20px rgba(0,0,0,.3);
 }
+
+/* ---------- Corwin look (dealership branding) ----------
+   Turned on for everyone in Admin → Settings → Look, or previewed on one device with ?look=corwin.
+   --brand (accent) and --brand-dark (header) come from the settings. */
+.brand-corwin, .brand-block { display: none; }
+.look-preview { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 2500; background: #111; color: #fff;
+  padding: .45rem .5rem .45rem .9rem; border-radius: 99px; font-size: .85rem; display: flex; gap: .6rem; align-items: center; box-shadow: 0 6px 20px rgba(0,0,0,.3); }
+.look-preview button { padding: .3rem .7rem; font-size: .8rem; border-radius: 99px; background: #fff; color: #111; flex: none; }
+.look-preview > span { white-space: nowrap; }
+@media (max-width: 480px) { .look-preview .lp-long { display: none; } }
+html[data-look="corwin"] {
+  --red: var(--brand, #eb0a1e);
+  --red-dark: color-mix(in srgb, var(--brand, #eb0a1e) 82%, #000);
+  --ink: #16191d;
+  --bg: #eef0f3;
+}
+html[data-look="corwin"] .brand-classic, html[data-look="corwin"] .hero-emoji { display: none; }
+html[data-look="corwin"] .brand-corwin { display: flex; flex-direction: column; align-items: flex-start; gap: 0; line-height: 1.05; }
+html[data-look="corwin"] .brand-block { display: flex; flex-direction: column; align-items: center; gap: .15rem; margin-bottom: .6rem; }
+html[data-look="corwin"] .wordmark { font-weight: 800; letter-spacing: .22em; font-size: 1.25rem; text-transform: uppercase; color: #fff; }
+html[data-look="corwin"] .brand-sub { font-size: .66rem; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; color: rgba(255,255,255,.72); }
+html[data-look="corwin"] .brand-logo { max-height: 34px; max-width: 200px; display: block; }
+html[data-look="corwin"] .brand-block .brand-logo { max-height: 56px; max-width: 260px; }
+html[data-look="corwin"] .brand-block .wordmark { font-size: 2rem; }
+html[data-look="corwin"] .brand-block .brand-sub { font-size: .75rem; }
+/* On the sign-in card (light background), the wordmark is dark with an accent rule. */
+html[data-look="corwin"] .brand-block-card .wordmark { color: var(--ink); }
+html[data-look="corwin"] .brand-block-card .brand-sub { color: var(--muted); }
+html[data-look="corwin"] .brand-block-card::after { content: ""; width: 48px; height: 3px; background: var(--brand); border-radius: 2px; margin-top: .5rem; }
+html[data-look="corwin"] .topbar { background: var(--brand-dark); border-bottom: 3px solid var(--brand); }
+html[data-look="corwin"] .topbar nav a.active, html[data-look="corwin"] .topbar nav a:hover, html[data-look="corwin"] .topbar nav button:hover { background: rgba(255,255,255,.12); }
+html[data-look="corwin"] .hero { background: var(--brand-dark); border-bottom: 4px solid var(--brand); padding: 1.6rem 1rem 1.3rem; }
+html[data-look="corwin"] .hero h1 { text-transform: uppercase; letter-spacing: .06em; font-size: 1.25rem; font-weight: 800; }
+html[data-look="corwin"] h1, html[data-look="corwin"] h2 { letter-spacing: .01em; }
+html[data-look="corwin"] .card h2 { font-weight: 800; }
+html[data-look="corwin"] .tabs button.active { background: var(--brand-dark); border-color: var(--brand-dark); box-shadow: inset 0 -3px 0 var(--brand); }
+html[data-look="corwin"] .chips button.active { background: var(--brand-dark); border-color: var(--brand-dark); }
+html[data-look="corwin"] .auth-card { border-top: 4px solid var(--brand); }
+html[data-look="corwin"] .stat { border-top: 3px solid var(--brand); }
+html[data-look="corwin"] .btn-dark { background: var(--brand-dark); color: #fff; border-color: rgba(255,255,255,.18); }
+.look-swatches { display: flex; gap: 1rem; flex-wrap: wrap; align-items: end; }
+.look-swatches input[type=color] { width: 64px; height: 40px; padding: 2px; border-radius: 8px; }
+.logo-preview { background: var(--brand-dark, #0d0f12); border-radius: 10px; padding: .8rem 1rem; display: inline-flex; align-items: center; min-height: 56px; }
+.logo-preview img { max-height: 40px; max-width: 240px; }
+@media (prefers-color-scheme: dark) {
+  html[data-look="corwin"]:not([data-theme="light"]) { --ink: #e9ebef; --bg: #0b0d10; }
+}
+html[data-look="corwin"][data-theme="dark"] { --ink: #e9ebef; --bg: #0b0d10; }
+@media (prefers-color-scheme: dark) {
+  html[data-look="corwin"]:not([data-theme="light"]) .tabs button.active, html[data-look="corwin"]:not([data-theme="light"]) .chips button.active { background: #2a2f37; border-color: #2a2f37; color: #fff; }
+}
+html[data-look="corwin"][data-theme="dark"] .tabs button.active, html[data-look="corwin"][data-theme="dark"] .chips button.active { background: #2a2f37; border-color: #2a2f37; color: #fff; }
+@media (max-width: 700px) { html[data-look="corwin"] .topbar .brand-sub { display: none; } html[data-look="corwin"] .topbar .wordmark { font-size: 1.05rem; } }
