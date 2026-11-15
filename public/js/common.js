@@ -168,8 +168,16 @@ const App = (() => {
     const back = document.createElement('div');
     back.className = 'modal-back';
     back.innerHTML = `<div class="modal">${html}</div>`;
-    back.addEventListener('click', (e) => { if (e.target === back || e.target.closest('[data-close]')) back.remove(); });
+    back.setAttribute('role', 'dialog'); back.setAttribute('aria-modal', 'true');
+    const close = () => { back.remove(); document.removeEventListener('keydown', onKey); if (opener && opener.isConnected) opener.focus(); };
+    // Escape closes the top-most window.
+    const onKey = (e) => { if (e.key === 'Escape' && back.isConnected && back === [...document.querySelectorAll('.modal-back')].pop()) close(); };
+    const opener = document.activeElement;
+    back.addEventListener('click', (e) => { if (e.target === back || e.target.closest('[data-close]')) close(); });
+    document.addEventListener('keydown', onKey);
     document.body.appendChild(back);
+    // Put the keyboard focus inside the window.
+    setTimeout(() => { const f = back.querySelector('input:not([type=hidden]), textarea, select, button'); if (f && !back.contains(document.activeElement)) f.focus({ preventScroll: true }); }, 30);
     return back;
   }
 
@@ -443,7 +451,9 @@ const App = (() => {
   // Keeps on-duty drivers (and their planned routes) up to date on a map, every few seconds.
   function liveDrivers(map, { exclude = null, routes = true, every = 5000, onUpdate = null } = {}) {
     const markers = new Map(); const lines = new Map(); let latest = [];
+    let lastTick = 0;
     async function tick() {
+      lastTick = Date.now();
       const { drivers } = await api('/api/drivers/live');
       latest = drivers;
       const seen = new Set();
@@ -469,7 +479,9 @@ const App = (() => {
       for (const [id, l] of lines) if (!drivers.some((d) => d.id === id && d.route)) { l.remove(); lines.delete(id); }
       if (onUpdate) onUpdate(drivers);
     }
-    poll(tick, every);
+    // While instant updates are on, vans move when the server says so; the regular check is
+    // only a backup (every 15 s), which keeps traffic low with many people on the site.
+    poll(() => (liveState.connected && Date.now() - lastTick < 15000 ? null : tick()), every);
     return { get drivers() { return latest; }, refresh: () => tick().catch(() => {}), points: () => [...markers.values()].map((m) => m.getLatLng()) };
   }
 
