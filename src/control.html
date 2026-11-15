@@ -132,7 +132,7 @@
     $('#bQuit').disabled = false;
     const v = s.version;
     $('#facts').innerHTML = [
-      ['Version', v ? `${esc(v.hash)} <span class="small muted">· ${when(v.date)}</span>` : 'Unknown', v ? esc(v.subject) : ''],
+      ['Version', v ? `${v.app ? `v${esc(v.app)}` : esc(v.hash)} <span class="small muted">· ${when(v.date)}</span>` : 'Unknown', v ? `${v.app ? `Build ${esc(v.hash)} · ` : ''}${esc(v.subject)}` : ''],
       ['Restarts', s.restarts, s.last_exit ? `Last stop ${when(s.last_exit.at)} (${esc(s.last_exit.signal || 'code ' + s.last_exit.code)})` : 'None since Shuttle Control started'],
       ['Problems in the last hour', `${s.log_counts.error} error${s.log_counts.error === 1 ? '' : 's'}`, `${s.log_counts.warn} warning${s.log_counts.warn === 1 ? '' : 's'}`],
       ['Shuttle Control running for', ago(s.control_started), `Process ${s.pid || '—'}`],

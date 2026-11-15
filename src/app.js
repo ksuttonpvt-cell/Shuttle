@@ -16,6 +16,15 @@ const { parseFleet, FUELS } = require('./fleet');
 const { createLogbook } = require('./logbook');
 const { cityOf, estimatedRideMiles } = require('./places');
 
+// The site's version (package.json) and the "What's new" list (changelog.json).
+// Both change only with an update, which restarts the site, so they're read once.
+const ROOT_DIR = path.join(__dirname, '..');
+function readJson(file, fallback) { try { return JSON.parse(fs.readFileSync(path.join(ROOT_DIR, file), 'utf8')); } catch { return fallback; } }
+const APP_VERSION = String(readJson('package.json', {}).version || '0.0.0');
+const CHANGELOG = (Array.isArray(readJson('changelog.json', [])) ? readJson('changelog.json', []) : [])
+  .filter((e) => e && typeof e.version === 'string')
+  .map((e) => ({ version: e.version, date: e.date || null, title: String(e.title || ''), changes: Array.isArray(e.changes) ? e.changes.map(String) : [] }));
+
 const SESSION_DAYS = 14;
 const RIDE_STATUSES = ['requested', 'assigned', 'en_route', 'onboard', 'completed', 'cancelled'];
 const OPEN_STATUSES = ['requested', 'assigned', 'en_route', 'onboard'];
@@ -322,7 +331,8 @@ function createApp(db, opts = {}) {
   app.locals.live = live;
 
   app.get('/api/me', (req, res) => {
-    res.json({ user: publicUser(req.user) || null, settings: shareableSettings(), base_url: baseUrl(req) });
+    const isAdmin = req.user?.role === 'admin';
+    res.json({ user: publicUser(req.user) || null, settings: shareableSettings(), base_url: baseUrl(req), ...(isAdmin ? { version: APP_VERSION } : {}) });
   });
 
   app.post('/api/me/password', requireRole(), async (req, res) => {
@@ -1504,6 +1514,12 @@ function createApp(db, opts = {}) {
     if (!dataDir || !fs.statfsSync) return null;
     try { const s = fs.statfsSync(dataDir); return { free_mb: Math.round((s.bavail * s.bsize) / 1048576), total_mb: Math.round((s.blocks * s.bsize) / 1048576) }; } catch { return null; }
   }
+  // Version and "What's new", for admins.
+  app.get('/api/about', requireRole('admin'), (req, res) => {
+    const u = opts.updater?.state || {};
+    res.json({ version: APP_VERSION, build: { hash: u.version || null, date: u.versionDate || null }, changelog: CHANGELOG });
+  });
+
   app.get('/api/server/status', requireRole('admin'), (req, res) => {
     const u = opts.updater?.state || {};
     const b = opts.backups;
@@ -1512,7 +1528,7 @@ function createApp(db, opts = {}) {
       ...stats.snapshot(),
       supervised: !!opts.supervised,
       can_restart: !!opts.restart,
-      version: { version: u.version || null, version_date: u.versionDate || null, auto_update: !!u.enabled, reason: u.reason || null, last_check: u.lastCheck || null, last_error: u.lastError || null, checking: !!u.checking },
+      version: { app: APP_VERSION, version: u.version || null, version_date: u.versionDate || null, auto_update: !!u.enabled, reason: u.reason || null, last_check: u.lastCheck || null, last_error: u.lastError || null, checking: !!u.checking },
       database: { size_mb: Math.round(((fileSize(opts.dbFile) + fileSize(`${opts.dbFile}-wal`)) / 1048576) * 10) / 10, file: opts.dbFile || null },
       disk: diskFree(),
       shuttle: {
