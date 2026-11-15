@@ -2,7 +2,7 @@
 // tells them the moment something changes, instead of them asking every few seconds.
 // Works through the Cloudflare Tunnel; a small "ping" every 25 s keeps the connection open.
 
-function createLive({ maxClients = 300, perUser = 6, heartbeatMs = 25000 } = {}) {
+function createLive({ maxClients = 10000, perUser = 6, heartbeatMs = 25000 } = {}) {
   const clients = new Set();
   let nextId = 0;
 

@@ -477,8 +477,12 @@
         <div class="offer-msg"></div>`;
       sheet.classList.remove('hidden');
     }
-    async function check() {
+    let lastCheck = 0;
+    async function check(force = false) {
       if (!me.on_duty || busy) return;
+      // Offers arrive instantly while live updates are on, so the backup check can be slower.
+      if (!force && App.liveState.connected && Date.now() - lastCheck < 20000) return;
+      lastCheck = Date.now();
       const { offer } = await api('/api/offers/mine');
       if (!offer) { if (current) { current = null; paint(); } return; }
       if (!current || current.id !== offer.id) { current = offer; paint(); alerts.ding(); }
@@ -516,7 +520,7 @@
 
   const vans = App.liveDrivers(map, { exclude: me.id, routes: false });
   // Changes (new rides, assignments, offers) show up right away instead of on the next check.
-  App.live({ rides: () => refresh(), offer: () => offers.check(), drivers: () => vans.refresh() });
+  App.live({ rides: () => refresh(), offer: () => offers.check(true), drivers: () => vans.refresh(), moved: () => vans.refresh() });
 
   async function refresh() {
     // Notice if the shift was ended elsewhere (e.g. the automatic end of shift at night).

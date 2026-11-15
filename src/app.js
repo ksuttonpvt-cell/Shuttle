@@ -16,6 +16,15 @@ const { parseFleet, FUELS } = require('./fleet');
 const { createLogbook } = require('./logbook');
 const { cityOf, estimatedRideMiles } = require('./places');
 
+// The site's version (package.json) and the "What's new" list (changelog.json).
+// Both change only with an update, which restarts the site, so they're read once.
+const ROOT_DIR = path.join(__dirname, '..');
+function readJson(file, fallback) { try { return JSON.parse(fs.readFileSync(path.join(ROOT_DIR, file), 'utf8')); } catch { return fallback; } }
+const APP_VERSION = String(readJson('package.json', {}).version || '0.0.0');
+const CHANGELOG = (Array.isArray(readJson('changelog.json', [])) ? readJson('changelog.json', []) : [])
+  .filter((e) => e && typeof e.version === 'string')
+  .map((e) => ({ version: e.version, date: e.date || null, title: String(e.title || ''), changes: Array.isArray(e.changes) ? e.changes.map(String) : [] }));
+
 const SESSION_DAYS = 14;
 const RIDE_STATUSES = ['requested', 'assigned', 'en_route', 'onboard', 'completed', 'cancelled'];
 const OPEN_STATUSES = ['requested', 'assigned', 'en_route', 'onboard'];
@@ -35,7 +44,7 @@ const DEFAULT_SETTINGS = {
   ride_offers: '1',
   discord_invite: '',       // optional "Join our Discord" link shown in the Help window
   easter_egg: '1',          // Easter egg: tacos rain for 10 seconds every Tuesday at noon
-  look: 'classic',          // 'classic' or 'corwin' (dealership branding) for everyone
+  look: 'corwin',           // 'corwin' (dealership branding) or 'classic', for everyone
   brand_color: '#eb0a1e',   // Corwin look: accent (buttons, stripes)
   brand_dark: '#0d0f12',    // Corwin look: header and banner background
   brand_name: '',           // Corwin look: name shown in the header (blank = dealership name); first word is big        // offer waiting rides to the closest free driver, who can accept or pass
@@ -84,13 +93,16 @@ function createApp(db, opts = {}) {
   // Instant updates: after any change to rides, offers, routes or drivers, tell open pages
   // right away (they still check now and then in case a message is missed).
   const live = opts.live || createLive();
+  let ridesVersion = 0;
+  const ridesChanged = () => { ridesVersion++; };
   app.use((req, res, next) => {
     if (req.method !== 'GET') {
       res.on('finish', () => {
         if (res.statusCode >= 400) return;
+        if (!/^\/api\/driver\/location/.test(req.path)) ridesChanged(); // shared ride lists are rebuilt
         const p = req.path;
         if (/^\/api\/(rides|public\/rides|offers|route)/.test(p)) live.soon('rides', 300);
-        if (/^\/api\/driver\/location/.test(p)) live.soon('drivers', 1500);
+        if (/^\/api\/driver\/location/.test(p)) live.soon('moved', 3000); // vans move: maps only (at most every 3 s)
         else if (/^\/api\/(driver\/shift|route|users|vehicles)/.test(p)) live.soon('drivers', 300);
       });
     }
@@ -119,10 +131,22 @@ function createApp(db, opts = {}) {
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) {
     q('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(k, v);
   }
+  // The Corwin look became the site's look (Nov 2026). Switch existing sites over once;
+  // a later choice in Admin → Settings → Look sticks.
+  if (!q("SELECT 1 FROM settings WHERE key = 'look_corwin_switched'").get()) {
+    q("UPDATE settings SET value = 'corwin' WHERE key = 'look'").run();
+    q("INSERT INTO settings (key, value) VALUES ('look_corwin_switched', '1')").run();
+  }
+  // Settings are read many times per request, so they're kept until the database changes.
+  // The uploaded logo image isn't loaded here (only whether there is one).
+  let settingsCache = null; let settingsAt = -1;
   function getSettings() {
+    const changes = q('SELECT total_changes() AS n').get().n;
+    if (settingsCache && changes === settingsAt) return { ...settingsCache };
     const s = {};
-    for (const row of q('SELECT key, value FROM settings').all()) s[row.key] = row.value;
-    return s;
+    for (const row of q("SELECT key, CASE WHEN key = 'brand_logo' THEN (CASE WHEN value <> '' THEN 'set' END) ELSE value END AS value FROM settings").all()) s[row.key] = row.value;
+    settingsCache = s; settingsAt = changes;
+    return { ...s };
   }
   // Only these settings ever leave the server (never the notification keys).
   function shareableSettings() {
@@ -307,7 +331,8 @@ function createApp(db, opts = {}) {
   app.locals.live = live;
 
   app.get('/api/me', (req, res) => {
-    res.json({ user: publicUser(req.user) || null, settings: shareableSettings(), base_url: baseUrl(req) });
+    const isAdmin = req.user?.role === 'admin';
+    res.json({ user: publicUser(req.user) || null, settings: shareableSettings(), base_url: baseUrl(req), ...(isAdmin ? { version: APP_VERSION } : {}) });
   });
 
   app.post('/api/me/password', requireRole(), async (req, res) => {
@@ -617,16 +642,27 @@ function createApp(db, opts = {}) {
     return route;
   }
   // Small and fast, so maps can ask every few seconds.
+  // Every map asks for this every few seconds; the same answer is shared for 2 seconds.
+  const brief = new Map();
+  function briefly(key, ms, build) {
+    const hit = brief.get(key);
+    if (hit && Date.now() - hit.at < ms) return hit.body;
+    const body = build(); brief.set(key, { at: Date.now(), body });
+    if (brief.size > 200) brief.delete(brief.keys().next().value);
+    return body;
+  }
   app.get('/api/drivers/live', requireRole(), (req, res) => {
-    const rows = q(`SELECT u.*, v.name AS vehicle_name FROM users u LEFT JOIN vehicles v ON v.id = u.vehicle_id
-                    WHERE u.role = 'driver' AND u.active = 1 AND u.on_duty = 1`).all();
-    res.json({
-      at: now(),
-      drivers: rows.map((u) => ({
-        id: u.id, name: u.name, vehicle_name: u.vehicle_name, lat: u.last_lat, lng: u.last_lng, at: u.last_loc_at,
-        heading: u.last_heading, speed: u.last_speed, route: liveRoute(u),
-      })),
-    });
+    res.type('json').send(briefly(`live|${ridesVersion}`, 2000, () => { // rebuilt at once when rides/routes/shifts change
+      const rows = q(`SELECT u.*, v.name AS vehicle_name FROM users u LEFT JOIN vehicles v ON v.id = u.vehicle_id
+                      WHERE u.role = 'driver' AND u.active = 1 AND u.on_duty = 1`).all();
+      return JSON.stringify({
+        at: now(),
+        drivers: rows.map((u) => ({
+          id: u.id, name: u.name, vehicle_name: u.vehicle_name, lat: u.last_lat, lng: u.last_lng, at: u.last_loc_at,
+          heading: u.last_heading, speed: u.last_speed, route: liveRoute(u),
+        })),
+      });
+    }));
   });
 
   // ---------- nearby ride offers ----------
@@ -639,7 +675,7 @@ function createApp(db, opts = {}) {
     if (opts.noTimers || sweepTimer) return; // tests run app.locals.offerSweep themselves
     sweepTimer = setTimeout(() => {
       sweepTimer = null;
-      try { if (offerSweep().length) live.soon('rides', 300); } catch (e) { console.error('Ride offers failed:', e.message); }
+      try { if (offerSweep().length) { ridesChanged(); live.soon('rides', 300); } } catch (e) { console.error('Ride offers failed:', e.message); }
     }, 1000);
     if (sweepTimer.unref) sweepTimer.unref();
   }
@@ -690,8 +726,8 @@ function createApp(db, opts = {}) {
     }
     return made;
   }
-  app.locals.offerSweep = (...a) => { const made = offerSweep(...a); if (made.length) live.soon('rides', 300); return made; };
-  if (!opts.noTimers) setInterval(() => { try { if (offerSweep().length) live.soon('rides', 300); } catch (e) { console.error('Ride offers failed:', e.message); } }, 15000).unref();
+  app.locals.offerSweep = (...a) => { const made = offerSweep(...a); if (made.length) { ridesChanged(); live.soon('rides', 300); } return made; };
+  if (!opts.noTimers) setInterval(() => { try { if (offerSweep().length) { ridesChanged(); live.soon('rides', 300); } } catch (e) { console.error('Ride offers failed:', e.message); } }, 15000).unref();
 
   app.get('/api/offers/mine', requireRole('driver'), (req, res) => {
     const o = q(`SELECT o.*, r.customer_name, r.type, r.address, r.lat, r.lng, r.scheduled_at, r.passengers, r.priority, r.notes
@@ -809,7 +845,15 @@ function createApp(db, opts = {}) {
     res.json({ ok: true });
   });
 
-  app.get('/api/drivers', requireRole(), (req, res) => {
+  app.get('/api/drivers', requireRole(), (req, res, next) => {
+    const admin = req.user.role === 'admin';
+    const key = `drivers|${admin}|${ridesVersion}`;
+    const hit = brief.get(key);
+    if (hit && Date.now() - hit.at < 2000) return res.type('json').send(hit.body);
+    const send = res.json.bind(res);
+    res.json = (data) => { brief.set(key, { at: Date.now(), body: JSON.stringify(data) }); if (brief.size > 200) brief.delete(brief.keys().next().value); return send(data); };
+    next();
+  }, (req, res) => {
     const rows = q(`SELECT u.*, v.name AS vehicle_name,
                       (SELECT COUNT(*) FROM rides r WHERE r.driver_id = u.id AND r.status IN ('assigned','en_route','onboard')) AS open_rides
                     FROM users u LEFT JOIN vehicles v ON v.id = u.vehicle_id
@@ -818,6 +862,7 @@ function createApp(db, opts = {}) {
     const admin = req.user.role === 'admin';
     res.json({ drivers: rows.map((u) => { const d = { ...publicUser(u), vehicle_name: u.vehicle_name, open_rides: u.open_rides }; if (!admin) delete d.email; return d; }) });
   });
+
 
   // ---------- rides ----------
   // byAdmin: admins may book outside the service area.
@@ -897,6 +942,26 @@ function createApp(db, opts = {}) {
     return q(`${RIDE_SELECT} WHERE r.id = ?`).get(res.lastInsertRowid);
   }
 
+  // Many screens ask for the same ride list. Build it once per change and share it:
+  // anything that changes rides bumps ridesVersion (see the update middleware), and a
+  // copy is never more than 5 seconds old.
+  const shared = new Map();
+  function sharedRows(key, build) {
+    const hit = shared.get(key);
+    if (hit && hit.version === ridesVersion && Date.now() - hit.at < 5000) return hit.rows;
+    const rows = build();
+    shared.set(key, { version: ridesVersion, at: Date.now(), rows });
+    if (shared.size > 50) shared.delete(shared.keys().next().value);
+    return rows;
+  }
+  // Queue positions for customers' tracking pages, from the shared open list.
+  function queuePositions() {
+    return sharedRows('positions', () => {
+      const open = q(`${RIDE_SELECT} WHERE r.status IN ('requested','assigned','en_route','onboard') ORDER BY r.scheduled_at LIMIT 500`).all();
+      return new Map(rankRides(open, dealerOrigin()).map((r) => [r.id, r.rank]));
+    });
+  }
+
   app.get('/api/rides', requireRole(), (req, res) => {
     const where = []; const args = [];
     const scope = req.query.scope || 'open';
@@ -909,16 +974,20 @@ function createApp(db, opts = {}) {
     if (req.query.mine === '1' && req.user.role === 'advisor') { where.push('r.advisor_id = ?'); args.push(req.user.id); }
     if (req.query.mine === '1' && req.user.role === 'driver') { where.push('r.driver_id = ?'); args.push(req.user.id); }
     const sql = `${RIDE_SELECT} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY r.scheduled_at LIMIT 500`;
-    const rides = q(sql).all(...args).map((r) => withLinks(req, r));
+    const key = `${sql}|${args.join('|')}`;
+    const base = baseUrl(req);
     // Rank from the driver's live position if we have it, else from the dealership.
-    let origin = dealerOrigin();
+    let origin = null;
     if (req.user.role === 'driver' && req.user.last_lat != null) origin = { lat: req.user.last_lat, lng: req.user.last_lng };
-    const ranked = rankRides(rides, origin);
-    const rankById = new Map(ranked.map((r) => [r.id, r]));
-    res.json({
-      rides: rides.map((r) => rankById.get(r.id) || r),
-      queue: ranked.map((r) => r.id),
-    });
+    const build = () => {
+      const rides = sharedRows(key, () => q(sql).all(...args)).map((r) => ({ ...r, track_url: `${base}/t/${r.track_token}` }));
+      const ranked = rankRides(rides, origin || dealerOrigin());
+      const rankById = new Map(ranked.map((r) => [r.id, r]));
+      return JSON.stringify({ rides: rides.map((r) => rankById.get(r.id) || r), queue: ranked.map((r) => r.id) });
+    };
+    // Everyone ranked from the dealership gets the very same answer: send one finished copy.
+    const body = origin ? build() : sharedRows(`json|${base}|${key}`, build);
+    res.type('json').send(body);
   });
 
   app.get('/api/rides/:id', requireRole(), (req, res) => {
@@ -1050,8 +1119,8 @@ function createApp(db, opts = {}) {
   const LOGO_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
   const setSetting = (k, v) => q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
   app.get('/brand/logo', (req, res) => {
-    const s = getSettings();
-    const m = /^data:([a-z/+]+);base64,(.+)$/.exec(s.brand_logo || '');
+    const logo = q("SELECT value FROM settings WHERE key = 'brand_logo'").get()?.value || '';
+    const m = /^data:([a-z/+]+);base64,(.+)$/.exec(logo);
     if (!m || !LOGO_TYPES[m[1]]) return res.status(404).end();
     res.set({ 'Content-Type': m[1], 'Cache-Control': 'public, max-age=31536000, immutable',
       'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox", 'X-Content-Type-Options': 'nosniff' });
@@ -1109,11 +1178,7 @@ function createApp(db, opts = {}) {
       if (stop && new Date(stop.eta) > Date.now() - 15 * 60000) eta = stop.eta;
     }
     let position = null;
-    if (ride.status === 'requested' || ride.status === 'assigned') {
-      const rk = rankRides(q(`${RIDE_SELECT} WHERE r.status IN ('requested','assigned','en_route','onboard')`).all(), dealerOrigin());
-      const me = rk.find((x) => x.id === ride.id);
-      position = me ? me.rank : null;
-    }
+    if (ride.status === 'requested' || ride.status === 'assigned') position = queuePositions().get(ride.id) ?? null;
     const s = getSettings();
     res.json({
       ride: {
@@ -1202,6 +1267,7 @@ function createApp(db, opts = {}) {
     const label = new Date(2000, 0, 1, h, m).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     quietly(push.notifyUsers(drivers, { title: '🌙 Shift ended', body: `Your shift was ended automatically at ${label}. Start a new shift in the app if you're still driving.`, tag: 'shift-ended' }));
     console.log(new Date().toLocaleString(), `[shifts] Ended ${drivers.length} driver shift(s) automatically at ${label}.`);
+    ridesChanged();
     live.soon('drivers', 300);
     return drivers.length;
   }
@@ -1247,6 +1313,7 @@ function createApp(db, opts = {}) {
   // Rides that are still open keep their details until they're done.
   const CLEARED_NAME = 'Customer (info cleared)';
   function clearCustomerInfo() {
+    ridesChanged();
     const ids = q(`SELECT id FROM rides WHERE status IN ('completed','cancelled') AND cleared_at IS NULL`).all().map((r) => r.id);
     const wipe = q(`UPDATE rides SET customer_name = ?, customer_phone = NULL, customer_email = NULL,
                       address = '(cleared)', lat = NULL, lng = NULL, notes = NULL, ro_number = NULL,
@@ -1447,6 +1514,12 @@ function createApp(db, opts = {}) {
     if (!dataDir || !fs.statfsSync) return null;
     try { const s = fs.statfsSync(dataDir); return { free_mb: Math.round((s.bavail * s.bsize) / 1048576), total_mb: Math.round((s.blocks * s.bsize) / 1048576) }; } catch { return null; }
   }
+  // Version and "What's new", for admins.
+  app.get('/api/about', requireRole('admin'), (req, res) => {
+    const u = opts.updater?.state || {};
+    res.json({ version: APP_VERSION, build: { hash: u.version || null, date: u.versionDate || null }, changelog: CHANGELOG });
+  });
+
   app.get('/api/server/status', requireRole('admin'), (req, res) => {
     const u = opts.updater?.state || {};
     const b = opts.backups;
@@ -1455,7 +1528,7 @@ function createApp(db, opts = {}) {
       ...stats.snapshot(),
       supervised: !!opts.supervised,
       can_restart: !!opts.restart,
-      version: { version: u.version || null, version_date: u.versionDate || null, auto_update: !!u.enabled, reason: u.reason || null, last_check: u.lastCheck || null, last_error: u.lastError || null, checking: !!u.checking },
+      version: { app: APP_VERSION, version: u.version || null, version_date: u.versionDate || null, auto_update: !!u.enabled, reason: u.reason || null, last_check: u.lastCheck || null, last_error: u.lastError || null, checking: !!u.checking },
       database: { size_mb: Math.round(((fileSize(opts.dbFile) + fileSize(`${opts.dbFile}-wal`)) / 1048576) * 10) / 10, file: opts.dbFile || null },
       disk: diskFree(),
       shuttle: {

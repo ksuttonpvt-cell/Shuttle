@@ -102,7 +102,9 @@ function readVersion() {
   execFile('git', ['log', '-1', '--format=%h|%cI|%s'], { cwd: root, windowsHide: true, timeout: 10000 }, (err, out) => {
     if (err) return;
     const [hash, date, ...subject] = String(out).trim().split('|');
-    version = { hash, date, subject: subject.join('|') };
+    let app = null;
+    try { app = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version || null; } catch { /* unknown */ }
+    version = { app, hash, date, subject: subject.join('|') };
   });
 }
 async function siteHealthy() {

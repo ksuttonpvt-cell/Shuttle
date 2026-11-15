@@ -513,3 +513,17 @@ html[data-look="corwin"] .choice span:last-child { font-weight: 400; }
   html[data-look="corwin"] .hero::before { right: -6%; }
   html[data-look="corwin"] .hero::after { right: calc(-6% + 38px); }
 }
+
+/* Version badge (admins) and "What's new" */
+.ver-pill { background: transparent; color: inherit; border: 1px solid rgba(255,255,255,.35); border-radius: 99px; padding: .15rem .55rem; font-size: .75rem; font-weight: 600; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: .35rem; }
+.ver-pill:hover { background: rgba(255,255,255,.12); }
+.ver-new { background: var(--brand, #eb0a1e); color: #fff; border-radius: 99px; padding: 0 .4rem; font-size: .62rem; letter-spacing: .05em; }
+.ver-list { max-height: 60vh; overflow-y: auto; margin: .5rem 0; }
+.ver-entry { padding: .6rem 0; border-top: 1px solid rgba(127,127,127,.25); }
+.ver-entry:first-child { border-top: 0; }
+.ver-entry h3 { margin: 0 0 .15rem; font-size: 1rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.ver-entry ul { margin: .35rem 0 0; padding-left: 1.2rem; }
+.ver-entry li { margin: .15rem 0; }
+.ver-tag { font-size: .75rem; border-radius: 99px; padding: .05rem .5rem; background: rgba(127,127,127,.18); }
+.ver-tag-now { background: var(--brand, #eb0a1e); color: #fff; }
+.linkish { background: none; border: 0; padding: 0; color: var(--brand, #eb0a1e); text-decoration: underline; cursor: pointer; font: inherit; }

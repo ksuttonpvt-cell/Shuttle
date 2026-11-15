@@ -49,8 +49,8 @@ const App = (() => {
 
   // Ensures the visitor is signed in with one of the given roles (admin always allowed).
   async function requireUser(...roles) {
-    const { user, settings, base_url } = await api('/api/me');
-    App.baseUrl = base_url;
+    const { user, settings, base_url, version } = await api('/api/me');
+    App.baseUrl = base_url; App.version = version || null;
     if (!user) { location.href = '/login?next=' + encodeURIComponent(location.pathname); throw new Error('redirect'); }
     if (roles.length && !roles.includes(user.role) && user.role !== 'admin') { location.href = '/' + user.role; throw new Error('redirect'); }
     App.user = user; App.settings = settings;
@@ -68,7 +68,9 @@ const App = (() => {
       <a class="brand brand-classic" href="/"><span class="logo">🚐</span><span>Shuttle<small>${esc(settings.dealer_name)}</small></span></a>
       <a class="brand brand-corwin" href="/">${brandMark(settings.dealer_name, 'Shuttle')}</a>
       <nav>${nav}<button id="helpBtn" title="Ask for help or suggest an idea">💬 Help</button><button id="themeBtn" title="Light or dark screen"></button><button id="pwBtn" title="Change password">Password</button><button id="logoutBtn">Sign out</button></nav>
-      <span class="who">${esc(user.name)} · ${esc(user.role)}</span>`;
+      <span class="who">${esc(user.name)} · ${esc(user.role)}</span>
+      ${App.version ? `<button type="button" id="verBtn" class="ver-pill" title="Version — see what's new">v${esc(App.version)}${seenVersion() !== App.version ? '<span class="ver-new">NEW</span>' : ''}</button>` : ''}`;
+    if ($('#verBtn')) $('#verBtn').onclick = () => whatsNew();
     $('#logoutBtn').onclick = async () => { await api('/api/logout', { body: {} }); location.href = '/login'; };
     applyBrand(settings.dealer_name);
     $('#pwBtn').onclick = changePassword;
@@ -168,9 +170,39 @@ const App = (() => {
     const back = document.createElement('div');
     back.className = 'modal-back';
     back.innerHTML = `<div class="modal">${html}</div>`;
-    back.addEventListener('click', (e) => { if (e.target === back || e.target.closest('[data-close]')) back.remove(); });
+    back.setAttribute('role', 'dialog'); back.setAttribute('aria-modal', 'true');
+    const close = () => { back.remove(); document.removeEventListener('keydown', onKey); if (opener && opener.isConnected) opener.focus(); };
+    // Escape closes the top-most window.
+    const onKey = (e) => { if (e.key === 'Escape' && back.isConnected && back === [...document.querySelectorAll('.modal-back')].pop()) close(); };
+    const opener = document.activeElement;
+    back.addEventListener('click', (e) => { if (e.target === back || e.target.closest('[data-close]')) close(); });
+    document.addEventListener('keydown', onKey);
     document.body.appendChild(back);
+    // Put the keyboard focus inside the window.
+    setTimeout(() => { const f = back.querySelector('input:not([type=hidden]), textarea, select, button'); if (f && !back.contains(document.activeElement)) f.focus({ preventScroll: true }); }, 30);
     return back;
+  }
+
+  // ---------- Version and "What's new" (admins) ----------
+  const SEEN_KEY = 'shuttle.seenVersion';
+  function seenVersion() { try { return localStorage.getItem(SEEN_KEY); } catch { return null; } }
+  function markSeen(v) { try { localStorage.setItem(SEEN_KEY, v); } catch { /* private window */ } }
+  async function whatsNew() {
+    let about;
+    try { about = await api('/api/about'); } catch (e) { return alert(e.message); }
+    const fmt = (d) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+    const entries = about.changelog.map((e, i) => `
+      <section class="ver-entry">
+        <h3><span class="ver-tag${e.version === about.version ? ' ver-tag-now' : ''}">v${esc(e.version)}</span> ${esc(e.title)}</h3>
+        <div class="small muted">${fmt(e.date)}${e.version === about.version ? ' · <b>running now</b>' : ''}</div>
+        <ul>${e.changes.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>
+      </section>`).join('');
+    modal(`<h2>What's new</h2>
+      <p class="small muted">This site is running <b>v${esc(about.version)}</b>${about.build.hash ? ` (build ${esc(about.build.hash.slice(0, 7))})` : ''}.</p>
+      <div class="ver-list">${entries || '<p class="muted">No notes yet.</p>'}</div>
+      <div class="actions"><button type="button" class="btn" data-close>Got it</button></div>`);
+    markSeen(about.version);
+    const dot = document.querySelector('#verBtn .ver-new'); if (dot) dot.remove();
   }
 
   function flash(el, msg, ok = false) {
@@ -443,7 +475,9 @@ const App = (() => {
   // Keeps on-duty drivers (and their planned routes) up to date on a map, every few seconds.
   function liveDrivers(map, { exclude = null, routes = true, every = 5000, onUpdate = null } = {}) {
     const markers = new Map(); const lines = new Map(); let latest = [];
+    let lastTick = 0;
     async function tick() {
+      lastTick = Date.now();
       const { drivers } = await api('/api/drivers/live');
       latest = drivers;
       const seen = new Set();
@@ -469,7 +503,9 @@ const App = (() => {
       for (const [id, l] of lines) if (!drivers.some((d) => d.id === id && d.route)) { l.remove(); lines.delete(id); }
       if (onUpdate) onUpdate(drivers);
     }
-    poll(tick, every);
+    // While instant updates are on, vans move when the server says so; the regular check is
+    // only a backup (every 15 s), which keeps traffic low with many people on the site.
+    poll(() => (liveState.connected && Date.now() - lastTick < 15000 ? null : tick()), every);
     return { get drivers() { return latest; }, refresh: () => tick().catch(() => {}), points: () => [...markers.values()].map((m) => m.getLatLng()) };
   }
 
@@ -581,8 +617,13 @@ const App = (() => {
     if (!('EventSource' in window)) return liveState;
     const es = new EventSource('/api/events');
     const timers = {};
-    es.onopen = () => { liveState.connected = true; };
-    es.onerror = () => { liveState.connected = false; };
+    // Anything that changed while the connection was down (Cloudflare blip, site restart,
+    // phone asleep) would be missed, so refresh everything when it comes back.
+    let wasDown = false;
+    const catchUp = () => { for (const fn of Object.values(handlers)) Promise.resolve().then(() => fn({ catchUp: true })).catch(() => {}); };
+    es.onopen = () => { liveState.connected = true; if (wasDown) { wasDown = false; catchUp(); } };
+    es.onerror = () => { liveState.connected = false; wasDown = true; };
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - (liveState.hiddenAt || 0) > 30000) catchUp(); if (document.hidden) liveState.hiddenAt = Date.now(); });
     for (const [event, fn] of Object.entries(handlers)) {
       es.addEventListener(event, (e) => {
         liveState.last = Date.now();
@@ -608,7 +649,7 @@ const App = (() => {
   }
 
   return {
-    esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
+    whatsNew, esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
     brandMark, applyBrand, stepper, tacoRain, live, liveState, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };

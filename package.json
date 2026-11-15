@@ -1,6 +1,6 @@
 {
   "name": "corwin-shuttle",
-  "version": "1.0.0",
+  "version": "2.4.0",
   "description": "Shuttle dispatch website: advisors, drivers, admin, maps, QR codes",
   "main": "src/server.js",
   "scripts": {

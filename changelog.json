@@ -1,0 +1,69 @@
+[
+  {
+    "version": "2.4.0",
+    "date": "2026-11-15",
+    "title": "Corwin look for everyone, faster and steadier",
+    "changes": [
+      "The Corwin look is now the site's look for everyone (you can switch back in Settings → Look).",
+      "Version numbers: admins see the version in the top bar and what changed in each update.",
+      "Much faster with many people on the site: ride lists, van maps and tracking pages are built once and shared.",
+      "Screens catch up by themselves after the connection drops or the site restarts.",
+      "Moving vans no longer make every screen reload the ride lists; less traffic over Cloudflare.",
+      "Driver phones check for offers less often (offers still pop up instantly).",
+      "Escape closes pop-up windows."
+    ]
+  },
+  {
+    "version": "2.3.0",
+    "date": "2026-11-15",
+    "title": "Vehicles: fuel, shuttle or loaner, and the fleet list",
+    "changes": [
+      "Each vehicle has a fuel type (gas, hybrid, plug-in, electric) and is a Shuttle or a Loaner.",
+      "Drivers can only start a shift in a shuttle.",
+      "Import the dealership's vehicle list (.xlsx or .csv) with a preview; active vehicles stay active."
+    ]
+  },
+  {
+    "version": "2.2.0",
+    "date": "2026-11-15",
+    "title": "Staff privacy, super admins, QR page, Discord help",
+    "changes": [
+      "Staff list shows names only; email, phone and access are under Edit.",
+      "The Server page is for super admins only.",
+      "Links and QR codes use https; new QR page with a printable sign.",
+      "💬 Help button for help requests and ideas, sent to Discord."
+    ]
+  },
+  {
+    "version": "2.1.0",
+    "date": "2026-11-15",
+    "title": "Instant updates and Cloudflare tools",
+    "changes": [
+      "Changes show up on every screen right away.",
+      "Shuttle Control shows the Cloudflare connection and can run it.",
+      "Speed test in Admin → Server."
+    ]
+  },
+  {
+    "version": "2.0.0",
+    "date": "2026-11-15",
+    "title": "Server tools, reports, step-by-step booking",
+    "changes": [
+      "Admin → Server: health, live numbers, log, backups and restart; Shuttle Control window on the server PC.",
+      "Reports: miles, time driving, cities, advisor scheduling.",
+      "Booking in five short steps; drop offs wait 30 minutes unless urgent (with a reason).",
+      "Corwin look (preview), and Taco Tuesday. 🌮"
+    ]
+  },
+  {
+    "version": "1.0.0",
+    "date": "2026-11-13",
+    "title": "The shuttle website",
+    "changes": [
+      "Advisor, driver and admin pages with maps, pick up / drop off and what to do first.",
+      "Customer request and tracking pages, QR codes and links.",
+      "Sign-ins with password reset, phone notifications, route planner, ride offers and the seat limit.",
+      "Automatic updates, nightly sign-out and customer-info clearing."
+    ]
+  }
+]

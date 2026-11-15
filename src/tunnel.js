@@ -13,8 +13,24 @@ const OWN_METRICS = '127.0.0.1:20241';
 const PLACES = { den: 'Denver', ord: 'Chicago', dfw: 'Dallas', lax: 'Los Angeles', sjc: 'San Jose', sea: 'Seattle', slc: 'Salt Lake City', phx: 'Phoenix', mci: 'Kansas City', iad: 'Ashburn', atl: 'Atlanta', ewr: 'Newark', msp: 'Minneapolis' };
 const placeOf = (code) => { const c = String(code || '').toLowerCase().replace(/\d+$/, ''); return PLACES[c] ? `${PLACES[c]} (${c.toUpperCase()})` : c.toUpperCase(); };
 
-async function probe({ ports = METRICS_PORTS, timeoutMs = 800, fetchImpl = fetch } = {}) {
-  for (const port of ports) {
+// Asks all the status ports at once (Windows can take a second to refuse a closed port) and
+// remembers the answer for a few seconds, so frequent status checks stay quick.
+let probeCache = null;
+async function probe(opts = {}) {
+  const { cacheMs = opts.fetchImpl ? 0 : 4000 } = opts;
+  if (cacheMs && probeCache && Date.now() - probeCache.at < cacheMs) return probeCache.value;
+  const pending = probeCache?.pending || probeOnce(opts);
+  probeCache = { ...(probeCache || {}), pending };
+  const value = await pending;
+  probeCache = { at: Date.now(), value };
+  return value;
+}
+async function probeOnce({ ports = METRICS_PORTS, timeoutMs = 800, fetchImpl = fetch } = {}) {
+  const results = await Promise.all(ports.map((port) => probePort(port, timeoutMs, fetchImpl)));
+  return results.find((r) => r && r.ready) || results.find(Boolean) || { running: false, ready: false, connections: 0, locations: [] };
+}
+async function probePort(port, timeoutMs, fetchImpl) {
+  {
     try {
       const r = await fetchImpl(`http://127.0.0.1:${port}/ready`, { signal: AbortSignal.timeout(timeoutMs) });
       const body = await r.json().catch(() => ({}));
@@ -27,7 +43,7 @@ async function probe({ ports = METRICS_PORTS, timeoutMs = 800, fetchImpl = fetch
       return out;
     } catch { /* nothing on this port */ }
   }
-  return { running: false, ready: false, connections: 0, locations: [] };
+  return null;
 }
 
 // Where cloudflared might be on this PC.

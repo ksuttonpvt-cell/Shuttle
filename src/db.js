@@ -102,6 +102,15 @@ function openDb(file) {
   addColumn('vehicles', 'use', "TEXT NOT NULL DEFAULT 'shuttle'"); // shuttle, or loaner (not for the shuttle)
   addColumn('vehicles', 'fleet_id', 'TEXT');                     // ID from the dealership's vehicle list
   addColumn('vehicles', 'fleet_status', 'TEXT');                 // status on that list (Loaned, Body Shop, ...)
+  // Indexes for the busiest lookups (ride lists, "ride back booked?", a driver's rides, sign-ins).
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS rides_return_of ON rides(return_of);
+    CREATE INDEX IF NOT EXISTS rides_scheduled ON rides(scheduled_at);
+    CREATE INDEX IF NOT EXISTS rides_driver_status ON rides(driver_id, status);
+    CREATE INDEX IF NOT EXISTS rides_advisor ON rides(advisor_id);
+    CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS users_role_duty ON users(role, on_duty);
+  `);
   addColumn('users', 'super_admin', 'INTEGER NOT NULL DEFAULT 0'); // can use the Server page
   addColumn('users', 'last_heading', 'REAL');  // direction of travel, degrees (from the phone's GPS)
   addColumn('users', 'last_speed', 'REAL');    // metres per second
