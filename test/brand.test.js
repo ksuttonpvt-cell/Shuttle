@@ -34,13 +34,19 @@ test('Corwin look: setting, page markup, preview script, and a safe logo upload'
 
   // Pages carry the look and colors before anything draws.
   let html = await (await fetch(`${base}/login`)).text();
-  assert.match(html, /<html lang="en" data-look="classic" data-site-look="classic" data-logo="" data-brand-name="Corwin Toyota of Boulder" style="--brand:#eb0a1e;--brand-dark:#0d0f12">/);
+  assert.match(html, /<html lang="en" data-look="classic" data-site-look="classic" data-logo="" data-brand-name="Corwin Toyota of Boulder" data-egg="1" data-tz="America\/Denver" style="--brand:#eb0a1e;--brand-dark:#0d0f12">/);
   assert.match(html, /localStorage\.setItem\("shuttle\.look",q\)/, 'preview with ?look=corwin');
   assert.equal((await admin('/api/settings', { method: 'PATCH', body: { look: 'neon' } })).status, 400);
   assert.equal((await admin('/api/settings', { method: 'PATCH', body: { brand_color: 'red' } })).status, 400);
   await admin('/api/settings', { method: 'PATCH', body: { look: 'corwin', brand_color: '#c8102e' } });
   html = await (await fetch(`${base}/request`)).text();
-  assert.match(html, /data-look="corwin" data-site-look="corwin" data-logo="" data-brand-name="Corwin Toyota of Boulder" style="--brand:#c8102e;/);
+  assert.match(html, /data-look="corwin" data-site-look="corwin" data-logo="" data-brand-name="Corwin Toyota of Boulder" data-egg="1" data-tz="America\/Denver" style="--brand:#c8102e;/);
+
+  // Easter egg switch (on by default).
+  await admin('/api/settings', { method: 'PATCH', body: { easter_egg: '0' } });
+  assert.match(await (await fetch(`${base}/login`)).text(), /data-egg="0"/);
+  await admin('/api/settings', { method: 'PATCH', body: { easter_egg: '1' } });
+  assert.match(await (await fetch(`${base}/login`)).text(), /data-egg="1"/);
 
   // A custom header name is used, and can't break out of the page markup.
   await admin('/api/settings', { method: 'PATCH', body: { brand_name: 'Corwin "Toyota" <b>Boulder' } });

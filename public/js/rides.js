@@ -26,7 +26,8 @@ const Rides = (() => {
         <div><label>Passengers</label><input name="passengers" type="number" min="1" max="15" value="${r.passengers || 1}"></div>
       </div>
       <label>Notes for the driver</label><textarea name="notes" placeholder="Gate code, which door, wheelchair, car seat…">${esc(r.notes)}</textarea>
-      <label class="check"><input type="checkbox" name="priority" value="urgent" ${r.priority === 'urgent' ? 'checked' : ''}> Urgent — move to the front of the line</label>`;
+      <label class="check"><input type="checkbox" name="priority" value="urgent" ${r.priority === 'urgent' ? 'checked' : ''}> Urgent — move to the front of the line</label>
+      <div data-urgent-wrap ${r.priority === 'urgent' ? '' : 'hidden'}><label>Why is it urgent? *</label><input name="urgent_reason" maxlength="300" value="${esc(r.urgent_reason)}" placeholder="e.g. Customer has a flight at 2 PM"></div>`;
   }
 
   // Wires up map + address search inside a form. Returns a reset function.
@@ -48,8 +49,17 @@ const Rides = (() => {
       form.elements.lat.value = ''; form.elements.lng.value = '';
       $('[data-pinmsg]', form).textContent = 'Pick a search result or tap the map to set the exact spot.';
     });
+    // Urgent needs a reason: show the box and make it required only when urgent is picked.
+    const syncUrgent = () => {
+      const pr = form.elements.priority;
+      const urgent = pr instanceof RadioNodeList ? pr.value === 'urgent' : pr.checked;
+      const wrap = $('[data-urgent-wrap]', form);
+      wrap.hidden = !urgent; form.elements.urgent_reason.required = urgent;
+      if (urgent && !form.elements.urgent_reason.value) setTimeout(() => form.elements.urgent_reason.focus(), 30);
+    };
+    form.addEventListener('change', (e) => { if (e.target.name === 'priority') syncUrgent(); });
     setTimeout(() => map.invalidateSize(), 200);
-    return { map, reset() { picker.reset(); $('[data-pinmsg]', form).textContent = 'Tip: tap the map to drop an exact pin.'; } };
+    return { map, syncUrgent, reset() { picker.reset(); $('[data-pinmsg]', form).textContent = 'Tip: tap the map to drop an exact pin.'; } };
   }
 
   // New-ride form for advisors, one question at a time:
@@ -83,9 +93,8 @@ const Rides = (() => {
         <div class="map map-sm" data-map style="margin-top:.5rem"></div>
         <div class="small muted" data-pinmsg>Tip: tap the map to drop an exact pin.</div>
       </section>
-      <section data-step="when" data-title="Time" hidden>
-        <h3 class="step-q" data-when-label>When, and how many people?</h3>
-        <div class="chips" style="margin:.2rem 0 .3rem">
+      <section data-step="when" data-title="Time &amp; people" hidden>
+        <div class="chips" style="margin:0 0 .3rem">
           <button type="button" data-in="0">Now</button><button type="button" data-in="15">In 15 min</button>
           <button type="button" data-in="30">In 30 min</button><button type="button" data-in="60">In 1 hour</button>
         </div>
@@ -93,6 +102,7 @@ const Rides = (() => {
           <div><label>Date &amp; time *</label><input name="scheduled_at" type="datetime-local" required value="${toLocalInput(when)}"></div>
           <div><label>People riding</label><input name="passengers" type="number" min="1" max="15" value="1" inputmode="numeric"></div>
         </div>
+        <div class="alert alert-warn small" data-wait-note hidden></div>
       </section>
       <section data-step="priority" data-title="Urgent?" hidden>
         <h3 class="step-q">Is it urgent, or do they just need a ride?</h3>
@@ -100,6 +110,7 @@ const Rides = (() => {
           <label class="choice choice-radio"><input type="radio" name="priority" value="normal" checked><span class="choice-icon">🙂</span><b>Just needs a ride</b><span>Goes in line by time</span></label>
           <label class="choice choice-radio"><input type="radio" name="priority" value="urgent"><span class="choice-icon">🚨</span><b>Urgent</b><span>Move to the front of the line</span></label>
         </div>
+        <div data-urgent-wrap hidden><label>Why is it urgent? *</label><input name="urgent_reason" maxlength="300" placeholder="e.g. Customer has a flight at 2 PM"></div>
         <label>Notes for the driver</label><textarea name="notes" placeholder="Gate code, which door, wheelchair, car seat…"></textarea>
         <div class="review" data-summary></div>
       </section>`;
@@ -131,6 +142,7 @@ const Rides = (() => {
           <div>🕒 ${fmtTime(r.scheduled_at)} ${open ? '· ' + relTime(r.scheduled_at) : ''} · ${r.passengers} pax</div>
           <div>📍 ${esc(r.address)}${r.distance_mi != null ? ` · ${r.distance_mi} mi` : ''}${r.lat == null ? ' <span class="late">(no map pin)</span>' : ''}</div>
           ${r.customer_phone ? `<div>📞 <a href="${App.telLink(r.customer_phone)}">${esc(r.customer_phone)}</a></div>` : ''}
+          ${r.priority === 'urgent' && r.urgent_reason ? `<div class="urgent-why">🚨 Urgent: ${esc(r.urgent_reason)}</div>` : ''}
           ${r.notes ? `<div>📝 ${esc(r.notes)}</div>` : ''}
           <div>👤 Advisor: ${esc(r.advisor_name || (r.source === 'customer' ? 'Customer request' : '—'))}
             ${r.driver_name ? ` · 🚐 ${esc(r.driver_name)}${r.vehicle_name ? ' in ' + esc(r.vehicle_name) : ''}` : ''}${!r.driver_id && r.offered_to ? ` · ⏳ Offered to ${esc(r.offered_to)}, waiting for an answer` : ''}</div>

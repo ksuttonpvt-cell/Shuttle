@@ -156,6 +156,9 @@
       <label>Shuttle service area (miles from the dealership)</label>
       <input name="service_radius_mi" type="number" min="0" max="500" step="0.1">
       <p class="small muted" style="margin:.25rem 0 0">Rides farther than this are refused, and maps show it as a dashed circle. Use 0 for no limit.</p>
+      <label>Drop-off waiting time (minutes)</label>
+      <input name="dropoff_wait_min" type="number" min="0" max="240" step="1" style="max-width:200px">
+      <p class="small muted" style="margin:.25rem 0 0">Drop offs leave at least this long after they're booked, unless an advisor marks them urgent (with a reason). Use 0 for no wait.</p>
       <label>End all driver shifts automatically at</label>
       <input name="auto_end_shift" type="time" style="max-width:200px">
       <p class="small muted" style="margin:.25rem 0 0">Every evening at this time, drivers still on duty are taken off shift (they stop getting new-ride alerts and their vehicle is freed). Rides they're finishing stay with them. Clear the time to turn this off.</p>
@@ -224,6 +227,11 @@
       <div id="lookMsg"></div>
       <button class="btn-block" style="margin-top:.6rem">Save look</button>
     </form>
+    <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
+    <h2>Easter egg</h2>
+    <label class="check"><input type="checkbox" id="eggOn"> 🌮 Taco rain every Tuesday at noon (for 10 seconds, on every open page)</label>
+    <div class="actions" style="margin-top:.4rem"><button type="button" class="btn-ghost btn-sm" id="eggTry">Try it now</button></div>
+    <div id="eggMsg"></div>
     <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
     <p class="small muted">Software updates, backups, the server log and restart are on the <b>Server</b> tab.</p>
   </section>
@@ -615,7 +623,7 @@
   const sf = $('#setForm'); let setMap = null; let setPin = null;
   async function loadSettings() {
     const { settings } = await api('/api/me');
-    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi', 'auto_end_shift', 'auto_sign_out', 'clear_customer_info']) sf.elements[k].value = settings[k] || '';
+    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi', 'dropoff_wait_min', 'auto_end_shift', 'auto_sign_out', 'clear_customer_info']) sf.elements[k].value = settings[k] ?? '';
     if (sf.elements.service_radius_mi.value === '') sf.elements.service_radius_mi.value = '0';
     if (!sf.elements.timezone.value) sf.elements.timezone.value = 'America/Denver';
     sf.elements.public_requests.checked = settings.public_requests === '1';
@@ -852,7 +860,16 @@
       setTimeout(() => location.reload(), 900);
     } catch (err) { App.flash($('#lookMsg'), err.message); }
   };
-  loaders.settings = () => { loadSms(); loadLook(); return loadSettings(); };
+  // ---------- easter egg ----------
+  async function loadEgg() { const { settings } = await api('/api/me'); $('#eggOn').checked = settings.easter_egg !== '0'; }
+  $('#eggOn').onchange = async (e) => {
+    try {
+      await api('/api/settings', { method: 'PATCH', body: { easter_egg: e.target.checked ? '1' : '0' } });
+      App.flash($('#eggMsg'), e.target.checked ? 'Easter egg is on. See you Tuesday at noon. 🌮' : 'Easter egg is off.', true);
+    } catch (err) { App.flash($('#eggMsg'), err.message); e.target.checked = !e.target.checked; }
+  };
+  $('#eggTry').onclick = () => App.tacoRain(10);
+  loaders.settings = () => { loadSms(); loadLook(); loadEgg(); return loadSettings(); };
   sf.onsubmit = async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(sf));

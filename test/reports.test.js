@@ -30,6 +30,7 @@ function client() {
 test('reports: miles, miles per driver, cities, time driving, advisor scheduling', async () => {
   const admin = client();
   await admin('/api/login', { body: { email: 'admin@test.local', password: 'adminpass1' } });
+  await admin('/api/settings', { method: 'PATCH', body: { dropoff_wait_min: '0' } }); // this test is about reports, not the drop-off wait
   await admin('/api/users', { body: { name: 'Dana Driver', email: 'dana@t.l', role: 'driver', password: 'driverpw1' } });
   await admin('/api/users', { body: { name: 'Avery Advisor', email: 'av@t.l', role: 'advisor', password: 'advisorpw1' } });
   const van = (await admin('/api/vehicles', { body: { name: 'Van' } })).data.vehicle;

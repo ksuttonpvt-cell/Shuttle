@@ -25,9 +25,11 @@ const DEFAULT_SETTINGS = {
   public_requests: '1',
   timezone: 'America/Denver',
   service_radius_mi: '15.5',
+  dropoff_wait_min: '30',   // drop offs leave at least this many minutes after booking, unless urgent
   auto_end_shift: '20:00', // every driver is taken off shift at this local time each day ('' = off)
   auto_sign_out: '00:00',  // everyone is signed out at this local time each day ('' = off)
   ride_offers: '1',
+  easter_egg: '1',          // Easter egg: tacos rain for 10 seconds every Tuesday at noon
   look: 'classic',          // 'classic' or 'corwin' (dealership branding) for everyone
   brand_color: '#eb0a1e',   // Corwin look: accent (buttons, stripes)
   brand_dark: '#0d0f12',    // Corwin look: header and banner background
@@ -39,7 +41,7 @@ const DEFAULT_SETTINGS = {
   sms_en_route: '1',
   sms_cancelled: '1',
 };
-const YES_NO_SETTINGS = ['public_requests', 'ride_offers', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
+const YES_NO_SETTINGS = ['public_requests', 'ride_offers', 'easter_egg', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
 
 function createApp(db, opts = {}) {
   const app = express();
@@ -94,6 +96,8 @@ function createApp(db, opts = {}) {
     out.logo_v = s.brand_logo ? (s.brand_logo_v || '1') : ''; // the logo itself is served from /brand/logo
     return out;
   }
+  // Minutes a drop off waits after booking before the shuttle leaves (0 = none).
+  const dropoffWait = () => { const n = Number(getSettings().dropoff_wait_min); return Number.isFinite(n) && n > 0 ? n : 0; };
   // How far from the dealership the shuttle will go, in miles (0 = no limit).
   const serviceRadius = () => Math.max(0, Number(getSettings().service_radius_mi) || 0);
   const milesFromDealer = (lat, lng) => distanceKm(dealerOrigin(), { lat, lng }) * 0.621371;
@@ -713,6 +717,7 @@ function createApp(db, opts = {}) {
     set('ro_number', str(b.ro_number, 40));
     set('customer_vehicle', str(b.customer_vehicle, 120));
     set('notes', str(b.notes, 1000));
+    set('urgent_reason', str(b.urgent_reason, 300));
     if (b.scheduled_at !== undefined) {
       const d = new Date(b.scheduled_at);
       if (Number.isNaN(d.getTime())) return { error: 'Pick a valid date and time.' };
@@ -723,7 +728,22 @@ function createApp(db, opts = {}) {
     if (!r.address) return { error: 'Address is required.' };
     if (!r.scheduled_at) return { error: 'Pick a date and time.' };
     r.priority = r.priority === 'urgent' ? 'urgent' : 'normal';
+    // Urgent needs a reason, so everyone knows why it jumped the line.
+    if (r.priority === 'urgent' && !r.urgent_reason) return { error: 'Give a reason for making this ride urgent.' };
+    if (r.priority !== 'urgent') r.urgent_reason = null;
     r.passengers = Math.min(Math.max(r.passengers || 1, 1), 15);
+    // Drop offs wait a set time after booking (unless urgent). Only checked when the time,
+    // type or urgency is being set, so editing notes on an older ride doesn't move it.
+    let adjusted = null;
+    const wait = dropoffWait();
+    const timing = !existing.id || r.scheduled_at !== existing.scheduled_at || r.type !== existing.type || r.priority !== existing.priority;
+    if (timing && wait > 0 && r.type === 'dropoff' && r.priority !== 'urgent') {
+      const earliest = new Date(Date.now() + wait * 60000);
+      if (new Date(r.scheduled_at) < new Date(earliest.getTime() - 60000)) {
+        earliest.setSeconds(0, 0);
+        r.scheduled_at = earliest.toISOString(); adjusted = r.scheduled_at;
+      }
+    }
     // Service area: refuse a new or moved location that's too far from the dealership.
     const moved = r.lat != null && r.lng != null && (r.lat !== existing.lat || r.lng !== existing.lng);
     const radius = serviceRadius();
@@ -735,11 +755,11 @@ function createApp(db, opts = {}) {
           forCustomer ? `Please call the service department${phone ? ` at ${phone}` : ''} and we'll help you make other arrangements.` : '(An admin can book it if needed.)'}` };
       }
     }
-    return { r };
+    return { r, adjusted };
   }
 
   const RIDE_FIELDS = ['type', 'customer_name', 'customer_phone', 'customer_email', 'address', 'lat', 'lng',
-    'scheduled_at', 'priority', 'passengers', 'ro_number', 'customer_vehicle', 'notes'];
+    'scheduled_at', 'priority', 'urgent_reason', 'passengers', 'ro_number', 'customer_vehicle', 'notes'];
 
   // City and estimated miles for reports (kept when customer details are cleared).
   function stampPlace(id) {
@@ -789,7 +809,7 @@ function createApp(db, opts = {}) {
   });
 
   app.post('/api/rides', requireRole('advisor'), (req, res) => {
-    const { r, error } = cleanRide(req.body, {}, { byAdmin: req.user.role === 'admin' });
+    const { r, error, adjusted } = cleanRide(req.body, {}, { byAdmin: req.user.role === 'admin' });
     if (error) return bad(res, error);
     // "Customer ready": a drop off booked from a pick up remembers which one.
     let returnOf = null;
@@ -803,7 +823,7 @@ function createApp(db, opts = {}) {
     const ride = insertRide(r, { source: 'advisor', advisor_id: req.user.id, return_of: returnOf });
     notifyCustomer(ride.id, 'booked', baseUrl(req));
     pushNewRide(ride.id);
-    res.status(201).json({ ride: withLinks(req, ride) });
+    res.status(201).json({ ride: withLinks(req, ride), adjusted_to: adjusted, wait_min: adjusted ? dropoffWait() : 0 });
   });
 
   app.patch('/api/rides/:id', requireRole(), (req, res) => {
@@ -901,7 +921,7 @@ function createApp(db, opts = {}) {
     res.json({
       dealer_name: s.dealer_name, dealer_address: s.dealer_address, dealer_phone: s.dealer_phone,
       dealer_lat: Number(s.dealer_lat), dealer_lng: Number(s.dealer_lng), public_requests: s.public_requests === '1',
-      service_radius_mi: serviceRadius(),
+      service_radius_mi: serviceRadius(), dropoff_wait_min: dropoffWait(),
     });
   });
 
@@ -941,7 +961,7 @@ function createApp(db, opts = {}) {
     if (hits.length >= 10) return bad(res, 'Too many requests. Please call the dealership.', 429);
     hits.push(t); publicHits.set(key, hits);
     if (!str(req.body.customer_phone)) return bad(res, 'A phone number is required so the driver can reach you.');
-    const body = { ...req.body, priority: 'normal' };
+    const body = { ...req.body, priority: 'normal', urgent_reason: null };
     const { r, error } = cleanRide(body, {}, { forCustomer: true });
     if (error) return bad(res, error);
     if (serviceRadius() > 0 && (r.lat == null || r.lng == null)) {
@@ -1004,6 +1024,11 @@ function createApp(db, opts = {}) {
       if (k === 'auto_end_shift' || k === 'auto_sign_out' || k === 'clear_customer_info' || k === 'backup_time') {
         v = v.trim();
         if (v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) return bad(res, 'Pick a time, like 8:00 PM, or leave it empty to turn it off.');
+      }
+      if (k === 'dropoff_wait_min') {
+        const n = Number(v);
+        if (v === '' || !Number.isInteger(n) || n < 0 || n > 240) return bad(res, 'The drop-off waiting time must be 0 to 240 minutes.');
+        v = String(n);
       }
       if (k === 'service_radius_mi') {
         const n = Number(v);
@@ -1516,7 +1541,7 @@ function createApp(db, opts = {}) {
     const logo = s.brand_logo ? (s.brand_logo_v || '1') : '';
     const name = String(s.brand_name || s.dealer_name || '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
     res.set('Cache-Control', 'no-store').type('html')
-      .send(html.replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-brand-name="${name}" style="--brand:${color};--brand-dark:${dark}">`));
+      .send(html.replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-brand-name="${name}" data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" style="--brand:${color};--brand-dark:${dark}">`));
   };
   app.get('/', (req, res) => {
     if (!req.user) return res.redirect('/login');
@@ -1538,6 +1563,9 @@ function createApp(db, opts = {}) {
     index: false, maxAge: '30d',
     setHeaders: (res, file) => { if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-store'); },
   }));
+  // Brand fonts for the Corwin look (bundled, so pages don't depend on an outside font site).
+  app.use('/vendor/fonts/barlow', express.static(path.join(path.dirname(require.resolve('@fontsource/barlow/package.json')), 'files'), { maxAge: '30d' }));
+  app.use('/vendor/fonts/barlow-sc', express.static(path.join(path.dirname(require.resolve('@fontsource/barlow-semi-condensed/package.json')), 'files'), { maxAge: '30d' }));
   app.use('/vendor/leaflet', express.static(path.join(path.dirname(require.resolve('leaflet/package.json')), 'dist'), { maxAge: '30d' }));
 
   app.use('/api', (req, res) => bad(res, 'Not found.', 404));

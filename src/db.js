@@ -95,6 +95,7 @@ function openDb(file) {
   addColumn('rides', 'return_of', 'INTEGER');  // a drop off booked from this pick up ("Customer ready")
   addColumn('rides', 'no_return', 'INTEGER NOT NULL DEFAULT 0'); // pick up whose customer doesn't need a ride back
   addColumn('rides', 'cleared_at', 'TEXT');    // when the customer's details were wiped overnight
+  addColumn('rides', 'urgent_reason', 'TEXT'); // why an advisor made the ride urgent
   addColumn('rides', 'city', 'TEXT');          // for reports; kept after the nightly customer-info clear
   addColumn('rides', 'est_miles', 'REAL');     // estimated round trip dealership <-> customer
   addColumn('users', 'last_heading', 'REAL');  // direction of travel, degrees (from the phone's GPS)

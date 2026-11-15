@@ -42,12 +42,12 @@
       <div class="small muted" id="pinmsg">Pick your address from the list, or tap the map to mark the spot.</div>
       <div class="small muted" id="areaNote"></div>
     </section>
-    <section data-step="when" data-title="Time" hidden>
-      <h2 class="step-q" id="whenLabel">What time, and how many people?</h2>
+    <section data-step="when" data-title="Time &amp; people" hidden>
       <div class="row">
         <div><label>Date &amp; time *</label><input name="scheduled_at" type="datetime-local" required></div>
         <div><label>People riding</label><input name="passengers" type="number" min="1" max="7" value="1" inputmode="numeric"></div>
       </div>
+      <div class="small muted" id="waitNote" hidden></div>
     </section>
     <section data-step="review" data-title="Review" hidden>
       <h2 class="step-q">Anything the driver should know?</h2>
@@ -63,6 +63,7 @@
     <p class="small muted">A service team member will confirm your ride. You'll get a link to track your driver.</p>
   </form>
 </main>
+<footer class="site-foot" data-foot></footer>
 <script src="/vendor/leaflet/leaflet.js"></script>
 <script src="/js/common.js"></script>
 <script>
@@ -92,7 +93,11 @@
     onShow: (step) => {
       const w = WORDING[f.elements.type.value];
       if (step === 'where') { $('#addrLabel').textContent = w.address; setTimeout(() => map.invalidateSize(), 50); }
-      if (step === 'when') $('#whenLabel').textContent = w.when;
+      if (step === 'when') {
+        const wait = Number(info.dropoff_wait_min) || 0;
+        $('#waitNote').hidden = !(f.elements.type.value === 'dropoff' && wait > 0);
+        $('#waitNote').textContent = `⏳ Drop offs leave the dealership at least ${wait} minutes after you ask, so the shuttle can line up rides.`;
+      }
       if (step === 'review') {
         const v = Object.fromEntries(new FormData(f));
         $('#summary').innerHTML = `<b>Your ride</b>

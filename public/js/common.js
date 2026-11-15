@@ -92,6 +92,8 @@ const App = (() => {
   // Fills [data-brand] spots and shows a note while previewing a look on this device.
   function applyBrand(dealerName) {
     $$('[data-brand]').forEach((el) => { el.innerHTML = brandMark(dealerName, el.dataset.brand || ''); });
+    const name = document.documentElement.dataset.brandName || dealerName;
+    $$('[data-foot]').forEach((el) => { el.innerHTML = `<b>${esc(name)}</b> · Service shuttle`; });
     let preview = null;
     try { preview = localStorage.getItem('shuttle.look'); } catch { /* storage blocked */ }
     const site = document.documentElement.dataset.siteLook;
@@ -495,6 +497,50 @@ const App = (() => {
     return { go, next: forward, reset() { reached = 0; go(0); }, get step() { return steps[at].dataset.step; }, valid };
   }
 
+  // ---------- Easter egg ----------
+  // Every Tuesday at noon (dealership time) it rains tacos for 10 seconds on every open page.
+  // Admins can turn it off in Settings → Easter egg.
+  let raining = false;
+  function tacoRain(seconds = 10) {
+    if (raining) return; raining = true;
+    const calm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const sky = document.createElement('div');
+    sky.className = 'taco-sky'; sky.setAttribute('aria-hidden', 'true');
+    const toast = document.createElement('div');
+    toast.className = 'taco-toast'; toast.setAttribute('role', 'status');
+    toast.textContent = '🌮 It\'s Taco Tuesday! 🌮';
+    document.body.append(sky, toast);
+    const until = Date.now() + seconds * 1000;
+    const drop = () => {
+      const t = document.createElement('span');
+      t.className = 'taco'; t.textContent = '🌮';
+      const size = 22 + Math.random() * 34; const fall = 2.4 + Math.random() * 2.6;
+      t.style.cssText = `left:${Math.random() * 100}vw;font-size:${size}px;animation-duration:${fall}s;--spin:${(Math.random() < 0.5 ? -1 : 1) * (180 + Math.random() * 540)}deg;--drift:${(Math.random() - 0.5) * 120}px`;
+      sky.appendChild(t);
+      setTimeout(() => t.remove(), fall * 1000 + 100);
+    };
+    const timer = calm ? null : setInterval(() => { if (Date.now() < until) { drop(); if (Math.random() < 0.6) drop(); } }, 110);
+    setTimeout(() => {
+      clearInterval(timer); toast.classList.add('bye');
+      setTimeout(() => { sky.remove(); toast.remove(); raining = false; }, 5200);
+    }, seconds * 1000);
+  }
+  (function watchForTuesdayNoon() {
+    const root = document.documentElement;
+    if (root.dataset.egg !== '1') return;
+    let fmt;
+    try { fmt = new Intl.DateTimeFormat('en-US', { timeZone: root.dataset.tz || undefined, weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }); }
+    catch { fmt = new Intl.DateTimeFormat('en-US', { weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }); }
+    let done = '';
+    setInterval(() => {
+      const p = Object.fromEntries(fmt.formatToParts(new Date()).map((x) => [x.type, x.value]));
+      const today = new Date().toDateString();
+      if (p.weekday === 'Tue' && p.hour === '12' && p.minute === '00' && Number(p.second) < 10 && done !== today) {
+        done = today; tacoRain(10 - Number(p.second));
+      }
+    }, 1000);
+  })();
+
   // Runs fn now and every ms. Pauses while the page is hidden unless background is true.
   function poll(fn, ms, { background = false } = {}) {
     const run = () => Promise.resolve().then(fn).catch(() => { /* try again next time */ });
@@ -509,7 +555,7 @@ const App = (() => {
 
   return {
     esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
-    brandMark, applyBrand, stepper, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
+    brandMark, applyBrand, stepper, tacoRain, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
 })();

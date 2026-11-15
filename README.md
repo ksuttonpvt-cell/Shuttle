@@ -29,6 +29,14 @@ Every open ride gets a queue number. Ride in progress (on board or en route) com
 
 Advisors (and customers on the request page) book in five short steps with a progress bar, Back and Next: **pick up or drop off → customer name and phone → location → time and number of people → urgent or just needs a ride** (customers get notes and a review instead of "urgent"). Required answers are checked before moving on, Enter goes to the next step, and the last step shows a review before booking.
 
+### Drop-off waiting time and urgent rides
+
+Drop offs leave at least **30 minutes** after they're booked (change it in Admin → Settings → *Drop-off waiting time*; 0 turns it off), so the shuttle can line up rides. A drop off booked sooner is moved to the earliest time, and the advisor is told. **Urgent** rides skip the wait and go to the front of the line, but an advisor must give a reason (when booking or when switching a ride to urgent later). Drivers and advisors see the reason on the ride. Customers can't mark their own requests urgent.
+
+### Easter egg 🌮
+
+Every **Tuesday at noon** (dealership time) it rains tacos for 10 seconds on every open page. Turn it on or off in Admin → Settings → **Easter egg** (there's a *Try it now* button too).
+
 ### Corwin look (dealership branding)
 
 - **Admin → Settings → Look:** try the **Corwin** look on one device first (*Preview Corwin look on this device*, or add `?look=corwin` to any page address; `?look=off` stops it). When it's right, choose **Corwin** and **Save look** to switch everyone: staff pages, sign-in, and the customer request and tracking pages.
