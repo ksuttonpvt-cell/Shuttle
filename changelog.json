@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.5.0",
+    "date": "2026-11-15",
+    "title": "Uses every processor core; memory and bandwidth limits; traffic by kind",
+    "changes": [
+      "The site now runs one copy of itself per processor core, so it stays fast when lots of people use it at once.",
+      "Super admins choose the number of cores, a memory limit and a bandwidth limit in Admin → Server → Cores, memory & bandwidth.",
+      "If the site goes over the memory limit, the copy using the most memory restarts by itself, and screens reconnect in seconds.",
+      "Traffic chart: see each kind of traffic (pages, files, ride lists, van maps, driver GPS, customer tracking, sign-ins, admin) and turn each on or off. Switch between requests and data sent.",
+      "Sign-in and request limits are counted across every copy of the site."
+    ]
+  },
+  {
     "version": "2.4.0",
     "date": "2026-11-15",
     "title": "Corwin look for everyone, faster and steadier",
