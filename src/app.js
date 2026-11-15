@@ -35,7 +35,7 @@ const DEFAULT_SETTINGS = {
   ride_offers: '1',
   discord_invite: '',       // optional "Join our Discord" link shown in the Help window
   easter_egg: '1',          // Easter egg: tacos rain for 10 seconds every Tuesday at noon
-  look: 'classic',          // 'classic' or 'corwin' (dealership branding) for everyone
+  look: 'corwin',           // 'corwin' (dealership branding) or 'classic', for everyone
   brand_color: '#eb0a1e',   // Corwin look: accent (buttons, stripes)
   brand_dark: '#0d0f12',    // Corwin look: header and banner background
   brand_name: '',           // Corwin look: name shown in the header (blank = dealership name); first word is big        // offer waiting rides to the closest free driver, who can accept or pass
@@ -90,7 +90,7 @@ function createApp(db, opts = {}) {
         if (res.statusCode >= 400) return;
         const p = req.path;
         if (/^\/api\/(rides|public\/rides|offers|route)/.test(p)) live.soon('rides', 300);
-        if (/^\/api\/driver\/location/.test(p)) live.soon('drivers', 1500);
+        if (/^\/api\/driver\/location/.test(p)) live.soon('moved', 2000); // vans move: maps only
         else if (/^\/api\/(driver\/shift|route|users|vehicles)/.test(p)) live.soon('drivers', 300);
       });
     }
@@ -118,6 +118,12 @@ function createApp(db, opts = {}) {
 
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) {
     q('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(k, v);
+  }
+  // The Corwin look became the site's look (Nov 2026). Switch existing sites over once;
+  // a later choice in Admin → Settings → Look sticks.
+  if (!q("SELECT 1 FROM settings WHERE key = 'look_corwin_switched'").get()) {
+    q("UPDATE settings SET value = 'corwin' WHERE key = 'look'").run();
+    q("INSERT INTO settings (key, value) VALUES ('look_corwin_switched', '1')").run();
   }
   function getSettings() {
     const s = {};

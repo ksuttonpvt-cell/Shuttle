@@ -34,7 +34,7 @@ test('Corwin look: setting, page markup, preview script, and a safe logo upload'
 
   // Pages carry the look and colors before anything draws.
   let html = await (await fetch(`${base}/login`)).text();
-  assert.match(html, /<html lang="en" data-look="classic" data-site-look="classic" data-logo="" data-brand-name="Corwin Toyota of Boulder" data-egg="1" data-tz="America\/Denver" style="--brand:#eb0a1e;--brand-dark:#0d0f12">/);
+  assert.match(html, /<html lang="en" data-look="corwin" data-site-look="corwin" data-logo="" data-brand-name="Corwin Toyota of Boulder" data-egg="1" data-tz="America\/Denver" style="--brand:#eb0a1e;--brand-dark:#0d0f12">/);
   assert.match(html, /localStorage\.setItem\("shuttle\.look",q\)/, 'preview with ?look=corwin');
   assert.equal((await admin('/api/settings', { method: 'PATCH', body: { look: 'neon' } })).status, 400);
   assert.equal((await admin('/api/settings', { method: 'PATCH', body: { brand_color: 'red' } })).status, 400);
@@ -99,4 +99,15 @@ test('links and QR codes use https when visitors come through Cloudflare', async
   const plain = await (await fetch(`${base}/api/links`, { headers: { Cookie: cookie } })).json();
   assert.match(plain.links[0].url, /^http:\/\/127\.0\.0\.1/);
   void admin;
+});
+
+test('existing sites switch to the Corwin look once; a later choice sticks', () => {
+  const db = openDb(':memory:');
+  db.prepare("INSERT INTO settings (key, value) VALUES ('look', 'classic')").run(); // a site from before the switch
+  createApp(db, { noTimers: true });
+  const look = () => db.prepare("SELECT value FROM settings WHERE key = 'look'").get().value;
+  assert.equal(look(), 'corwin');
+  db.prepare("UPDATE settings SET value = 'classic' WHERE key = 'look'").run(); // an admin picks Classic later
+  createApp(db, { noTimers: true }); // restart
+  assert.equal(look(), 'classic');
 });

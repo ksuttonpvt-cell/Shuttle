@@ -581,8 +581,13 @@ const App = (() => {
     if (!('EventSource' in window)) return liveState;
     const es = new EventSource('/api/events');
     const timers = {};
-    es.onopen = () => { liveState.connected = true; };
-    es.onerror = () => { liveState.connected = false; };
+    // Anything that changed while the connection was down (Cloudflare blip, site restart,
+    // phone asleep) would be missed, so refresh everything when it comes back.
+    let wasDown = false;
+    const catchUp = () => { for (const fn of Object.values(handlers)) Promise.resolve().then(() => fn({ catchUp: true })).catch(() => {}); };
+    es.onopen = () => { liveState.connected = true; if (wasDown) { wasDown = false; catchUp(); } };
+    es.onerror = () => { liveState.connected = false; wasDown = true; };
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - (liveState.hiddenAt || 0) > 30000) catchUp(); if (document.hidden) liveState.hiddenAt = Date.now(); });
     for (const [event, fn] of Object.entries(handlers)) {
       es.addEventListener(event, (e) => {
         liveState.last = Date.now();
