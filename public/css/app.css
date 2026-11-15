@@ -174,6 +174,10 @@ button:disabled { opacity: .55; cursor: default; }
 .chart-legend { display: flex; gap: 1rem; flex-wrap: wrap; color: var(--muted); margin-top: .3rem; }
 .chart-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: .35rem; vertical-align: -1px; }
 .sw-req { background: var(--blue); } .sw-err { background: var(--red); }
+.sw-up { background: var(--blue); } .sw-down { background: var(--amber); }
+.mini-bar { display: flex; gap: 2px; height: 6px; margin-top: .3rem; min-width: 80px; }
+.mini-bar i { display: block; height: 100%; border-radius: 3px; }
+.mini-bar .mb-up { background: var(--blue); } .mini-bar .mb-down { background: var(--amber); }
 .log-tools { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
 .logview { font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; background: #0f1115; color: #d7dae0; border-radius: 8px; padding: .6rem .7rem; height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
 .logview time { color: #8a909c; }

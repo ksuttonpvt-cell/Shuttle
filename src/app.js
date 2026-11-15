@@ -10,6 +10,7 @@ const { planRoute, KM_TO_MI, STOP_MINUTES } = require('./routing');
 const fs = require('node:fs');
 const { createStats } = require('./serverstats');
 const { createLogbook } = require('./logbook');
+const { cityOf, estimatedRideMiles } = require('./places');
 
 const SESSION_DAYS = 14;
 const RIDE_STATUSES = ['requested', 'assigned', 'en_route', 'onboard', 'completed', 'cancelled'];
@@ -454,6 +455,19 @@ function createApp(db, opts = {}) {
     const lat = num(req.body.lat); const lng = num(req.body.lng);
     if (lat == null || lng == null || Math.abs(lat) > 90 || Math.abs(lng) > 180) return bad(res, 'Bad location.');
     const heading = num(req.body.heading); const speed = num(req.body.speed);
+    // Odometer: add the distance since the last report (on shift, gaps up to 5 minutes,
+    // ignoring GPS jitter under 20 m and impossible jumps).
+    const u = req.user;
+    if (u.on_duty && u.last_lat != null && u.last_loc_at) {
+      const dt = (Date.now() - new Date(u.last_loc_at)) / 1000;
+      const meters = distanceKm({ lat: u.last_lat, lng: u.last_lng }, { lat, lng }) * 1000;
+      const mph = dt > 0 ? (meters / dt) * 2.237 : 0;
+      if (dt > 0 && dt <= 300 && mph <= 95 && meters >= 20) {
+        q(`INSERT INTO driver_days (driver_id, day, miles, moving_s) VALUES (?, ?, ?, ?)
+           ON CONFLICT(driver_id, day) DO UPDATE SET miles = miles + excluded.miles, moving_s = moving_s + excluded.moving_s`)
+          .run(u.id, localDate(now()), meters / 1609.344, mph >= 3 ? Math.round(dt) : 0);
+      }
+    }
     q('UPDATE users SET last_lat = ?, last_lng = ?, last_loc_at = ?, last_heading = ?, last_speed = ? WHERE id = ?')
       .run(lat, lng, now(), heading != null && heading >= 0 && heading <= 360 ? heading : null, speed != null && speed >= 0 && speed < 100 ? speed : null, req.user.id);
     scheduleOfferSweep();
@@ -722,10 +736,20 @@ function createApp(db, opts = {}) {
   const RIDE_FIELDS = ['type', 'customer_name', 'customer_phone', 'customer_email', 'address', 'lat', 'lng',
     'scheduled_at', 'priority', 'passengers', 'ro_number', 'customer_vehicle', 'notes'];
 
+  // City and estimated miles for reports (kept when customer details are cleared).
+  function stampPlace(id) {
+    const r = q('SELECT id, address, lat, lng FROM rides WHERE id = ?').get(id);
+    if (!r || r.address === '(cleared)') return;
+    q('UPDATE rides SET city = ?, est_miles = ? WHERE id = ?').run(cityOf(r.address, r.lat, r.lng), estimatedRideMiles(dealerOrigin(), r.lat, r.lng), r.id);
+  }
+  // Rides from before this update get theirs now.
+  for (const r of q("SELECT id FROM rides WHERE city IS NULL AND est_miles IS NULL AND address <> '(cleared)'").all()) stampPlace(r.id);
+
   function insertRide(r, extra) {
     const cols = [...RIDE_FIELDS, 'status', 'source', 'advisor_id', 'track_token', 'return_of'];
     const vals = [...RIDE_FIELDS.map((f) => r[f] ?? null), extra.status || 'requested', extra.source, extra.advisor_id ?? null, randomToken(12), extra.return_of ?? null];
     const res = q(`INSERT INTO rides (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
+    stampPlace(res.lastInsertRowid);
     return q(`${RIDE_SELECT} WHERE r.id = ?`).get(res.lastInsertRowid);
   }
 
@@ -857,6 +881,7 @@ function createApp(db, opts = {}) {
       quietly(push.notifyUsers([ride.driver_id], { title: '❌ Ride cancelled', body: `${rideLine(after)}${after.cancel_reason ? ` — ${after.cancel_reason}` : ''}`, tag: `ride-${after.id}` }));
     }
     scheduleOfferSweep(); // a driver may be free now, or a ride may need someone again
+    stampPlace(ride.id);
     res.json({ ride: withLinks(req, q(`${RIDE_SELECT} WHERE r.id = ?`).get(ride.id)) });
   });
 
@@ -1148,6 +1173,11 @@ function createApp(db, opts = {}) {
         avg_wait_min: avg(waits),
         on_time_pct: timed.length ? Math.round((waits.filter((w) => w <= 10).length / timed.length) * 100) : null,
         avg_ride_min: avg(timed.filter((r) => r.completed_at).map((r) => mins(r.onboard_at, r.completed_at))),
+        // Estimated miles (dealership <-> customer round trip) for completed rides.
+        est_miles: Math.round(done.reduce((n, r) => n + (r.est_miles || 0), 0) * 10) / 10,
+        // Time on rides: from "on my way" (or customer in) until the ride was complete.
+        ride_time_min: Math.round(done.filter((r) => r.completed_at && (r.en_route_at || r.onboard_at))
+          .reduce((n, r) => n + Math.max(0, mins(r.en_route_at || r.onboard_at, r.completed_at)), 0)),
       };
     }
     const days = [];
@@ -1160,6 +1190,27 @@ function createApp(db, opts = {}) {
       for (const r of rides) { const k = keyFn(r); if (k) m.set(k, [...(m.get(k) || []), r]); }
       return [...m.entries()].map(([name, list]) => ({ name, ...summarize(list) })).sort((a, b) => b.rides - a.rides);
     };
+    // GPS miles and moving time per driver per day (from the drivers' phones while on shift).
+    const gps = q(`SELECT g.*, u.name FROM driver_days g JOIN users u ON u.id = g.driver_id WHERE g.day >= ? AND g.day <= ?`).all(from, to);
+    const gpsBy = (key) => { const m = new Map(); for (const g of gps) { const k = key(g); const o = m.get(k) || { miles: 0, moving_s: 0 }; o.miles += g.miles; o.moving_s += g.moving_s; m.set(k, o); } return m; };
+    const gpsDriver = gpsBy((g) => g.name); const gpsDay = gpsBy((g) => g.day);
+    const r1 = (n) => Math.round(n * 10) / 10;
+    for (const d of days) { const g = gpsDay.get(d.day); d.gps_miles = g ? r1(g.miles) : 0; d.moving_min = g ? Math.round(g.moving_s / 60) : 0; }
+    const drivers = group((r) => r.driver_name);
+    for (const [name] of gpsDriver) if (!drivers.some((d) => d.name === name)) drivers.push({ name, ...summarize([]) });
+    for (const d of drivers) { const g = gpsDriver.get(d.name); d.gps_miles = g ? r1(g.miles) : 0; d.moving_min = g ? Math.round(g.moving_s / 60) : 0; }
+    // Cities.
+    const cities = group((r) => r.city || 'Unknown');
+    // Advisor scheduling: what each advisor booked and how much notice they gave.
+    const advisors = group((r) => r.advisor_name || (r.source === 'customer' ? 'Customer (online request)' : null));
+    for (const a of advisors) {
+      const mine = rides.filter((r) => (r.advisor_name || (r.source === 'customer' ? 'Customer (online request)' : null)) === a.name);
+      const notice = mine.map((r) => Math.max(0, mins(r.created_at.replace(' ', 'T') + (r.created_at.includes('T') ? '' : 'Z'), r.scheduled_at)));
+      a.avg_notice_min = notice.length ? Math.round(notice.reduce((n, x) => n + x, 0) / notice.length) : null;
+      a.ahead_pct = notice.length ? Math.round((notice.filter((x) => x >= 30).length / notice.length) * 100) : null;
+      a.customer_ready = mine.filter((r) => r.return_of).length;
+    }
+    const allGps = [...gpsDriver.values()].reduce((t, g) => ({ miles: t.miles + g.miles, s: t.s + g.moving_s }), { miles: 0, s: 0 });
     const reasons = new Map();
     for (const r of rides.filter((x) => x.status === 'cancelled')) {
       const k = (r.cancel_reason || 'No reason given').split(':')[0].trim();
@@ -1167,10 +1218,11 @@ function createApp(db, opts = {}) {
     }
     res.json({
       from, to, timezone: tz(), type, type_counts: typeCounts,
-      totals: summarize(rides),
+      totals: { ...summarize(rides), gps_miles: r1(allGps.miles), moving_min: Math.round(allGps.s / 60) },
       days,
-      drivers: group((r) => r.driver_name),
-      advisors: group((r) => r.advisor_name || (r.source === 'customer' ? 'Customer (online request)' : null)),
+      drivers: drivers.sort((a, b) => b.rides - a.rides || b.gps_miles - a.gps_miles),
+      advisors,
+      cities: cities.sort((a, b) => b.rides - a.rides),
       cancel_reasons: [...reasons.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
     });
   });

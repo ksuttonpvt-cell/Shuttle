@@ -125,13 +125,17 @@
         <button type="button" class="btn-ghost" id="repCsv">Download CSV</button>
       </form>
       <div id="repChips" style="margin-top:.75rem"></div>
-      <p class="small muted" style="margin-bottom:0"><b>Wait</b> is how long after the scheduled time the customer got in the shuttle. <b>On time</b> means within 10 minutes. Wait and ride times only count rides from this update onward.</p>
+      <p class="small muted" style="margin-bottom:0"><b>Wait</b> is how long after the scheduled time the customer got in the shuttle. <b>On time</b> means within 10 minutes.
+        <b>GPS miles</b> and <b>time driving</b> come from drivers' phones while on shift (location sharing on). <b>Ride miles</b> are estimated: the dealership ↔ customer round trip for each completed ride.
+        <b>Time on rides</b> runs from “on my way” to “complete”.</p>
     </div>
     <div class="stats" id="repStats"></div>
     <div class="card"><h2>By day</h2><div class="table-wrap" id="repDays"></div></div>
+    <div class="card"><h2>Drivers: rides, miles and time</h2><div class="table-wrap" id="repDrivers"></div></div>
     <div class="grid cols-even">
-      <div class="card"><h2>Drivers</h2><div class="table-wrap" id="repDrivers"></div></div>
-      <div class="card"><h2>Booked by</h2><div class="table-wrap" id="repAdvisors"></div></div>
+      <div class="card"><h2>Cities: pick ups and drop offs</h2><div class="table-wrap" id="repCities"></div></div>
+      <div class="card"><h2>Advisor scheduling</h2><div class="table-wrap" id="repAdvisors"></div>
+        <p class="small muted" style="margin-bottom:0"><b>Notice</b> is the time from booking to the scheduled pick up or drop off. <b>Customer ready</b> counts drop offs booked from a finished pick up.</p></div>
     </div>
     <div class="card"><h2>Why rides were cancelled</h2><div id="repReasons"></div></div>
   </section>
@@ -487,10 +491,22 @@
   }
   const dash = (v, unit = '') => (v == null ? '—' : `${v}${unit}`);
   const dayName = (d) => new Date(d + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const hm = (m) => (m == null ? '—' : m >= 60 ? `${Math.floor(m / 60)}h ${String(Math.round(m % 60)).padStart(2, '0')}m` : `${Math.round(m)}m`);
+  const mi = (n) => (n == null ? '—' : `${(Math.round(n * 10) / 10).toLocaleString()} mi`);
+  // [key, heading, formatter]
   const statCols = [['rides', 'Rides'], ['pickups', 'Pick ups'], ['dropoffs', 'Drop offs'], ['completed', 'Completed'], ['cancelled', 'Cancelled'],
-    ['no_shows', 'No-shows'], ['avg_wait_min', 'Avg wait', ' min'], ['on_time_pct', 'On time', '%'], ['avg_ride_min', 'Avg ride', ' min']];
-  const statTable = (rows, first, label) => rows.length ? `<table><tr><th>${label}</th>${statCols.map(([, l]) => `<th>${l}</th>`).join('')}</tr>
-    ${rows.map((r) => `<tr><td><b>${esc(first(r))}</b></td>${statCols.map(([k, , u]) => `<td>${dash(r[k], u)}</td>`).join('')}</tr>`).join('')}</table>`
+    ['no_shows', 'No-shows'], ['avg_wait_min', 'Avg wait', (v) => dash(v, ' min')], ['on_time_pct', 'On time', (v) => dash(v, '%')],
+    ['avg_ride_min', 'Avg ride', (v) => dash(v, ' min')], ['est_miles', 'Ride miles (est.)', mi]];
+  const dayCols = [...statCols, ['gps_miles', 'GPS miles', mi], ['moving_min', 'Time driving', hm], ['ride_time_min', 'Time on rides', hm]];
+  const driverCols = [['rides', 'Rides'], ['pickups', 'Pick ups'], ['dropoffs', 'Drop offs'], ['completed', 'Completed'],
+    ['gps_miles', 'GPS miles', mi], ['est_miles', 'Ride miles (est.)', mi], ['moving_min', 'Time driving', hm], ['ride_time_min', 'Time on rides', hm],
+    ['avg_wait_min', 'Avg wait', (v) => dash(v, ' min')], ['on_time_pct', 'On time', (v) => dash(v, '%')]];
+  const cityCols = [['pickups', 'Pick ups'], ['dropoffs', 'Drop offs'], ['rides', 'Total'], ['completed', 'Completed'], ['est_miles', 'Ride miles (est.)', mi]];
+  const advisorCols = [['pickups', 'Pick ups'], ['dropoffs', 'Drop offs'], ['rides', 'Total'], ['customer_ready', 'Customer ready'],
+    ['avg_notice_min', 'Avg notice', hm], ['ahead_pct', 'Booked 30+ min ahead', (v) => dash(v, '%')], ['cancelled', 'Cancelled'], ['no_shows', 'No-shows']];
+  const fmtCell = (r, [k, , f]) => (f ? f(r[k]) : dash(r[k]));
+  const statTable = (rows, first, label, cols = statCols, bar = null) => rows.length ? `<table><tr><th>${label}</th>${cols.map(([, l]) => `<th>${l}</th>`).join('')}</tr>
+    ${rows.map((r) => `<tr><td><b>${esc(first(r))}</b>${bar ? bar(r) : ''}</td>${cols.map((c) => `<td>${fmtCell(r, c)}</td>`).join('')}</tr>`).join('')}</table>`
     : '<div class="empty">No rides in this range.</div>';
   const repChips = App.typeChips($('#repChips'), 'shuttle.reportType', () => loadReport());
   async function loadReport() {
@@ -500,11 +516,16 @@
     for (const [k, n] of Object.entries(report.type_counts)) $(`#repChips [data-count="${k}"]`).textContent = `(${n})`;
     const t = report.totals;
     $('#repStats').innerHTML = [[t.rides, 'Rides'], [`${t.pickups} / ${t.dropoffs}`, 'Pick ups / drop offs'], [t.completed, 'Completed'],
-      [t.cancelled, 'Cancelled'], [t.no_shows, 'No-shows'], [dash(t.avg_wait_min, ' min'), 'Average wait'], [dash(t.on_time_pct, '%'), 'On time']]
+      [t.cancelled, 'Cancelled'], [t.no_shows, 'No-shows'], [dash(t.avg_wait_min, ' min'), 'Average wait'], [dash(t.on_time_pct, '%'), 'On time'],
+      [mi(t.gps_miles), 'GPS miles driven'], [mi(t.est_miles), 'Ride miles (estimated)'], [hm(t.moving_min), 'Time driving'], [hm(t.ride_time_min), 'Time on rides']]
       .map(([n, l]) => `<div class="stat"><b>${n}</b><span>${l}</span></div>`).join('');
-    $('#repDays').innerHTML = statTable([...report.days].reverse(), (r) => dayName(r.day), 'Day');
-    $('#repDrivers').innerHTML = statTable(report.drivers, (r) => r.name, 'Driver');
-    $('#repAdvisors').innerHTML = statTable(report.advisors, (r) => r.name, 'Booked by');
+    $('#repDays').innerHTML = statTable([...report.days].reverse(), (r) => dayName(r.day), 'Day', dayCols);
+    $('#repDrivers').innerHTML = statTable(report.drivers, (r) => r.name, 'Driver', driverCols);
+    const topCity = Math.max(1, ...report.cities.map((c) => c.rides));
+    $('#repCities').innerHTML = statTable(report.cities, (r) => r.name, 'City', cityCols,
+      (r) => `<div class="mini-bar" aria-hidden="true"><i class="mb-up" style="width:${(r.pickups / topCity) * 100}%"></i><i class="mb-down" style="width:${(r.dropoffs / topCity) * 100}%"></i></div>`)
+      + (report.cities.length ? '<div class="chart-legend small"><span><i class="sw sw-up"></i>Pick ups</span><span><i class="sw sw-down"></i>Drop offs</span></div>' : '');
+    $('#repAdvisors').innerHTML = statTable(report.advisors, (r) => r.name, 'Booked by', advisorCols);
     const max = Math.max(1, ...report.cancel_reasons.map((r) => r.count));
     $('#repReasons').innerHTML = report.cancel_reasons.length ? report.cancel_reasons.map((r) => `
       <div style="display:grid;grid-template-columns:minmax(140px,240px) 1fr auto;gap:.6rem;align-items:center;margin:.35rem 0">
@@ -516,8 +537,16 @@
   $$('[data-range]').forEach((b) => b.onclick = () => { setRange(Number(b.dataset.range)); loadReport(); });
   $('#repCsv').onclick = () => {
     if (!report) return;
-    const cols = ['day', ...statCols.map(([k]) => k)];
-    const csv = [cols.join(',')].concat(report.days.map((d) => cols.map((c) => d[c] ?? '').join(','))).join('\n');
+    // One file with a section per table (opens in Excel or Google Sheets).
+    const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const section = (title, first, rows, cols) => [cell(title), [cell(first), ...cols.map(([, l]) => cell(l))].join(','),
+      ...rows.map((r) => [cell(r.day || r.name), ...cols.map(([k]) => cell(r[k]))].join(',')), ''];
+    const csv = [
+      ...section('By day', 'Day', report.days, dayCols),
+      ...section('Drivers', 'Driver', report.drivers, driverCols),
+      ...section('Cities', 'City', report.cities, cityCols),
+      ...section('Advisor scheduling', 'Booked by', report.advisors, advisorCols),
+    ].join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     const kind = { all: '', pickup: '-pick-ups', dropoff: '-drop-offs' }[report.type] || '';
