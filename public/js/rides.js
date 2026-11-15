@@ -50,14 +50,15 @@ const Rides = (() => {
       $('[data-pinmsg]', form).textContent = 'Pick a search result or tap the map to set the exact spot.';
     });
     // Urgent needs a reason: show the box and make it required only when urgent is picked.
-    const syncUrgent = () => {
+    const syncUrgent = (focus = true) => {
       const pr = form.elements.priority;
       const urgent = pr instanceof RadioNodeList ? pr.value === 'urgent' : pr.checked;
       const wrap = $('[data-urgent-wrap]', form);
       wrap.hidden = !urgent; form.elements.urgent_reason.required = urgent;
-      if (urgent && !form.elements.urgent_reason.value) setTimeout(() => form.elements.urgent_reason.focus(), 30);
+      if (focus && urgent && !form.elements.urgent_reason.value) setTimeout(() => form.elements.urgent_reason.focus(), 30);
     };
     form.addEventListener('change', (e) => { if (e.target.name === 'priority') syncUrgent(); });
+    syncUrgent(false); // a ride that's already urgent needs its reason kept
     setTimeout(() => map.invalidateSize(), 200);
     return { map, syncUrgent, reset() { picker.reset(); $('[data-pinmsg]', form).textContent = 'Tip: tap the map to drop an exact pin.'; } };
   }
@@ -189,7 +190,7 @@ const Rides = (() => {
     wireForm(form);
     form.onsubmit = async (e) => {
       e.preventDefault();
-      try { await api(`/api/rides/${ride.id}`, { method: 'PATCH', body: formData(form) }); m.remove(); refresh(); }
+      try { await api(`/api/rides/${ride.id}`, { method: 'PATCH', body: formData(form) }); m.close(); refresh(); }
       catch (err) { App.flash($('.msg', m), err.message); }
     };
   }

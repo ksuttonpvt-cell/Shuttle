@@ -194,7 +194,7 @@
       ev.preventDefault();
       try {
         const { ride } = await api('/api/rides', { body: { ...Rides.formData(f), return_of: p.id } });
-        m.remove(); refresh();
+        m.close(); refresh();
         App.share({ title: `Shuttle tracking for ${ride.customer_name}`, url: ride.track_url, phone: ride.customer_phone, email: ride.customer_email, message: App.rideMessage(ride) });
       } catch (err) { App.flash($('.msg', m), err.message); }
     };

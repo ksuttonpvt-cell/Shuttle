@@ -489,20 +489,20 @@
       const body = Object.fromEntries(new FormData(f));
       if (u.id === me.id) delete body.role;
       if (f.elements.super_admin && !f.elements.super_admin.disabled) body.super_admin = f.elements.super_admin.checked; else delete body.super_admin;
-      try { await api(`/api/users/${u.id}`, { method: 'PATCH', body }); m.remove(); loadUsers(); }
+      try { await api(`/api/users/${u.id}`, { method: 'PATCH', body }); m.close(); loadUsers(); }
       catch (err) { App.flash($('.msg', m), err.message); }
     };
     m.addEventListener('click', async (ev) => {
       const b = ev.target.closest('[data-act]'); if (!b) return;
       try {
-        if (b.dataset.act === 'link') { m.remove(); await sendResetLink(u); }
+        if (b.dataset.act === 'link') { m.close(); await sendResetLink(u); }
         if (b.dataset.act === 'pw') {
           const pw = prompt(`New password for ${u.name} (8+ characters):`, genPw());
           if (pw) { await api(`/api/users/${u.id}`, { method: 'PATCH', body: { password: pw } }); App.flash($('.msg', m), `Password updated. ${u.name} signs in with their email and: ${pw}`, true); }
         }
         if (b.dataset.act === 'toggle') {
           if (u.active && !confirm(`Disable ${u.name}? They're signed out everywhere and can't sign in until you enable them again.`)) return;
-          await api(`/api/users/${u.id}`, { method: 'PATCH', body: { active: !u.active } }); m.remove(); loadUsers();
+          await api(`/api/users/${u.id}`, { method: 'PATCH', body: { active: !u.active } }); m.close(); loadUsers();
         }
       } catch (err) { App.flash($('.msg', m), err.message); }
     });
@@ -622,7 +622,7 @@
       $('.modal', m).style.maxWidth = '640px';
       $('[data-go]', m).onclick = async (ev) => {
         ev.target.disabled = true;
-        try { const r = await send(false); m.remove(); vehUse = 'all'; await loadVehicles(); alert(`Imported: ${r.summary.add} added, ${r.summary.update} updated.`); }
+        try { const r = await send(false); m.close(); vehUse = 'all'; await loadVehicles(); alert(`Imported: ${r.summary.add} added, ${r.summary.update} updated.`); }
         catch (err) { App.flash($('.msg', m), err.message); ev.target.disabled = false; }
       };
     };
