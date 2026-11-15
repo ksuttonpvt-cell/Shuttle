@@ -26,11 +26,13 @@ function createLive({ maxClients = 10000, perUser = 6, heartbeatMs = 25000 } = {
     req.on('close', () => { clearInterval(beat); clients.delete(c); });
   }
 
-  // Send an event to everyone (or only those `to` returns true for).
+  // Send an event to everyone, or only to some: `to` is a function of the user, or
+  // { userId } (which can be passed between the copies of the site on other cores).
   function send(event, data = {}, to = null) {
     const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    const match = typeof to === 'function' ? to : to && to.userId != null ? (u) => !!u && u.id === to.userId : null;
     for (const c of clients) {
-      if (to && !to(c.user)) continue;
+      if (match && !match(c.user)) continue;
       try { c.res.write(msg); } catch { clients.delete(c); }
     }
   }

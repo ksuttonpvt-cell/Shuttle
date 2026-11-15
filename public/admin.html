@@ -273,10 +273,35 @@
         <ul class="checks" id="srvChecks"><li class="muted small">Checking…</li></ul>
         <div class="small muted" id="srvMachine" style="margin-top:.6rem"></div>
       </div>
-      <div class="card" style="align-self:start">
+      <div class="card" style="grid-column:1/-1">
         <div class="card-head"><h2>Traffic, last hour</h2><span class="small muted" id="srvTrafficSum"></span></div>
+        <div class="traffic-bar">
+          <div class="mini-seg" role="group" aria-label="Show">
+            <button type="button" data-measure="requests" aria-pressed="true">Requests</button><button type="button" data-measure="bytes" aria-pressed="false">Data sent</button>
+          </div>
+          <span class="small muted">Tap a kind of traffic to show or hide it.</span>
+          <span class="small"><button type="button" class="linkish" id="trAll">Show all</button> · <button type="button" class="linkish" id="trNone">Hide all</button></span>
+        </div>
         <div id="srvChart"></div>
-        <div class="chart-legend small"><span><i class="sw sw-req"></i>Requests per minute</span><span><i class="sw sw-err"></i>Minutes with server errors</span></div>
+        <div class="traffic-types" id="srvTypes" role="group" aria-label="Kinds of traffic"></div>
+        <div class="small muted" style="margin-top:.4rem"><span class="err-pip"></span> Minute with server errors · Instant-update connections aren't counted (they stay open).</div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Cores, memory &amp; bandwidth</h2></div>
+        <div id="resNow" class="small muted">Loading…</div>
+        <form id="resForm">
+          <label for="resCores">Processor cores</label>
+          <select id="resCores" name="cores"></select>
+          <div class="small muted">The site runs one copy of itself per core. <b>Auto</b> uses every core.</div>
+          <label for="resRam">Memory limit</label>
+          <select id="resRam" name="ram_mb"></select>
+          <div class="small muted">For all copies together. If the site goes over it, the copy using the most memory restarts (its screens reconnect in seconds).</div>
+          <label for="resBw">Bandwidth limit (megabits per second)</label>
+          <input id="resBw" name="bandwidth_mbps" type="number" min="0" max="10000" step="1" placeholder="No limit" style="max-width:180px">
+          <div class="small muted">Top upload speed for the site, so it leaves room for everything else on your internet. Blank or 0 = no limit. Works right away. Instant updates are never slowed.</div>
+          <div class="actions" style="margin-top:.6rem"><button>Save</button></div>
+        </form>
+        <div id="resMsg"></div>
       </div>
       <div class="card">
         <div class="card-head"><h2>Connection speed</h2><button class="btn-blue btn-sm" id="srvSpeed">Test speed</button></div>
@@ -843,23 +868,99 @@
   const mb = (n) => (n >= 1024 ? `${(n / 1024).toFixed(1)} GB` : `${Math.round(n)} MB`);
   const light = (ok) => (ok === true ? '<span class="dot dot-ok" aria-label="OK">●</span>' : ok === false ? '<span class="dot dot-bad" aria-label="Problem">●</span>' : '<span class="dot dot-off" aria-label="Not checked">●</span>');
   let srvStatus = null;
-  function trafficChart(per) {
-    const W = 600; const H = 120; const pad = 18; const n = per.length;
-    const max = Math.max(5, ...per.map((m) => m.requests));
+  // ---------- traffic by kind (on/off switches) ----------
+  const TR_KEY = 'shuttle.trafficHidden';
+  let trHidden = new Set(); try { trHidden = new Set(JSON.parse(localStorage.getItem(TR_KEY) || '[]')); } catch { /* none */ }
+  let trMeasure = 'requests'; try { trMeasure = localStorage.getItem('shuttle.trafficMeasure') === 'bytes' ? 'bytes' : 'requests'; } catch { /* default */ }
+  const saveTr = () => { try { localStorage.setItem(TR_KEY, JSON.stringify([...trHidden])); localStorage.setItem('shuttle.trafficMeasure', trMeasure); } catch { /* private window */ } };
+  const bytesText = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : b >= 1024 ? `${Math.round(b / 1024)} KB` : `${b} B`);
+  const valOf = (m, t) => { const x = m.by && m.by[t]; return x ? (trMeasure === 'bytes' ? x[1] : x[0]) : 0; };
+  function stackedChart(per, types) {
+    const W = 600; const H = 140; const pad = 18; const n = per.length;
+    const shown = types.filter(([t]) => !trHidden.has(t));
+    const totals = per.map((m) => shown.reduce((s, [t]) => s + valOf(m, t), 0));
+    const max = Math.max(trMeasure === 'bytes' ? 1024 : 5, ...totals);
     const bw = (W - 8) / n; const gap = 2;
+    const fmt = (v) => (trMeasure === 'bytes' ? bytesText(v) : `${v} request${v === 1 ? '' : 's'}`);
     const bars = per.map((m, i) => {
-      const h = m.requests ? Math.max(2, ((H - pad) * m.requests) / max) : 0;
-      const x = 4 + i * bw; const y = H - pad - h;
+      const x = 4 + i * bw; let y = H - pad;
       const t = new Date(m.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-      const tip = `${t}: ${m.requests} request${m.requests === 1 ? '' : 's'}${m.requests ? `, average ${m.avg_ms} ms` : ''}${m.errors ? `, ${m.errors} server error${m.errors === 1 ? '' : 's'}` : ''}`;
-      return `<g class="bar"><title>${tip}</title><rect class="hit" x="${x}" y="0" width="${bw}" height="${H - pad}"></rect>
-        ${h ? `<rect class="${m.errors ? 'b-err' : 'b-req'}" x="${x + gap / 2}" y="${y}" width="${Math.max(1, bw - gap)}" height="${h}" rx="1.5"></rect>` : ''}</g>`;
+      const lines = shown.filter(([k]) => valOf(m, k)).map(([k, label]) => `${label}: ${fmt(valOf(m, k))}`);
+      const tip = `${t}: ${fmt(totals[i])}${totals[i] && m.requests ? ` (average ${m.avg_ms} ms)` : ''}${m.errors ? `, ${m.errors} server error${m.errors === 1 ? '' : 's'}` : ''}${lines.length ? `\n${lines.join('\n')}` : ''}`;
+      const segs = shown.map(([k]) => {
+        const v = valOf(m, k); if (!v) return '';
+        const h = Math.max(1.5, ((H - pad - 8) * v) / max); y -= h;
+        return `<rect class="tseg" style="fill:var(--tr-${k})" x="${x + gap / 2}" y="${y}" width="${Math.max(1, bw - gap)}" height="${h}"></rect>`;
+      }).join('');
+      const err = m.errors ? `<circle class="b-errdot" cx="${x + bw / 2}" cy="${Math.max(4, y - 5)}" r="2.6"></circle>` : '';
+      return `<g class="bar"><title>${esc(tip)}</title><rect class="hit" x="${x}" y="0" width="${bw}" height="${H - pad}"></rect>${segs}${err}</g>`;
     }).join('');
-    return `<svg viewBox="0 0 ${W} ${H}" class="spark" role="img" aria-label="Requests per minute over the last hour, highest ${max}">
+    const top = trMeasure === 'bytes' ? `${bytesText(max)}/min` : `${max}/min`;
+    return `<svg viewBox="0 0 ${W} ${H}" class="spark" role="img" aria-label="${trMeasure === 'bytes' ? 'Data sent' : 'Requests'} per minute over the last hour by kind of traffic, highest ${esc(top)}">
       <line class="base" x1="0" x2="${W}" y1="${H - pad}" y2="${H - pad}"></line>${bars}
       <text x="4" y="${H - 4}" class="axis">60 min ago</text><text x="${W - 4}" y="${H - 4}" class="axis" text-anchor="end">now</text>
-      <text x="4" y="10" class="axis">${max}/min</text></svg>`;
+      <text x="4" y="10" class="axis">${esc(top)}</text></svg>`;
   }
+  function drawTraffic() {
+    const s = srvStatus; if (!s) return;
+    const types = s.traffic_types || [];
+    const per = s.requests.per_minute;
+    $('#srvChart').innerHTML = stackedChart(per, types);
+    $('#srvTypes').innerHTML = types.map(([k, label]) => {
+      const reqs = per.reduce((n, m) => n + ((m.by && m.by[k]) ? m.by[k][0] : 0), 0);
+      const bytes = per.reduce((n, m) => n + ((m.by && m.by[k]) ? m.by[k][1] : 0), 0);
+      const on = !trHidden.has(k);
+      return `<button type="button" class="tchip${on ? '' : ' off'}" data-type="${k}" aria-pressed="${on}" title="${on ? 'Hide' : 'Show'} ${esc(label)}">
+        <i class="sw" style="background:var(--tr-${k})"></i><span class="tl">${esc(label)}</span>
+        <span class="tn">${reqs.toLocaleString()} · ${bytesText(bytes)}</span></button>`;
+    }).join('');
+    $$('#srvTypes .tchip').forEach((b) => { b.onclick = () => { const k = b.dataset.type; if (trHidden.has(k)) trHidden.delete(k); else trHidden.add(k); saveTr(); drawTraffic(); }; });
+    $$('.mini-seg [data-measure]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.measure === trMeasure)));
+    const total = per.reduce((n, m) => n + (m.bytes || 0), 0);
+    $('#srvTrafficSum').textContent = `${s.requests.last_hour.toLocaleString()} requests · ${bytesText(total)} sent · ${s.requests.errors_last_hour} server errors`;
+  }
+  $$('.mini-seg [data-measure]').forEach((b) => { b.onclick = () => { trMeasure = b.dataset.measure; saveTr(); drawTraffic(); }; });
+  $('#trAll').onclick = () => { trHidden.clear(); saveTr(); drawTraffic(); };
+  $('#trNone').onclick = () => { trHidden = new Set((srvStatus?.traffic_types || []).map(([k]) => k)); saveTr(); drawTraffic(); };
+
+  // ---------- cores, memory, bandwidth ----------
+  let resFilled = false;
+  function showResources(c) {
+    if (!c) return;
+    const copies = c.copies || [];
+    const env = c.fixed_by_env || {};
+    const fixed = [env.cores ? `cores (CORES=${esc(env.cores)})` : '', env.ram_mb ? `memory (RAM_MB=${esc(env.ram_mb)})` : ''].filter(Boolean);
+    const used = c.rss_mb != null ? c.rss_mb : copies.reduce((n, x) => n + x.site_mb, 0);
+    $('#resNow').innerHTML = `Running <b>${c.running} cop${c.running === 1 ? 'y' : 'ies'}</b> on a PC with ${c.available} core${c.available === 1 ? '' : 's'}. ` +
+      `Memory in use: <b>${mb(used)}</b>${c.ram_mb ? ` of ${mb(c.ram_mb)} allowed` : ''}${c.ram_restarts ? ` · restarted ${c.ram_restarts}× to stay under the limit` : ''}. ` +
+      `Bandwidth: <b>${c.bandwidth_mbps ? `${c.bandwidth_mbps} Mbps max` : 'no limit'}</b>.` +
+      (copies.length > 1 ? `<ul class="copies">${copies.map((x) => `<li>Copy ${x.worker}${x.worker === 1 ? ' <span class="muted">(background jobs)</span>' : ''}: ${mb(x.site_mb)} · ${x.cpu}% CPU · ${x.live} open screen${x.live === 1 ? '' : 's'}</li>`).join('')}</ul>` : '') +
+      (c.wanted !== c.running && !c.ram_mb ? `<div class="alert alert-warn" style="margin-top:.4rem">Set to ${c.wanted} core${c.wanted === 1 ? '' : 's'}: <b>restart the site</b> to use it.</div>` : '') +
+      (fixed.length ? `<div class="small" style="margin-top:.3rem">ℹ️ Set in the .env file on the server PC, which wins over this page: ${fixed.join(', ')}.</div>` : '');
+    if (resFilled) return; // don't undo what someone is choosing
+    resFilled = true;
+    const f = $('#resForm').elements;
+    f.cores.innerHTML = `<option value="auto">Auto (all ${c.available})</option>` + Array.from({ length: c.available }, (_, i) => `<option value="${i + 1}">${i + 1} core${i ? 's' : ''}</option>`).join('');
+    f.cores.value = c.setting;
+    const sizes = [512, 1024, 1536, 2048, 3072, 4096, 6144, 8192, 12288, 16384, 24576, 32768].filter((n) => n < c.pc_total_mb);
+    if (c.ram_mb && !sizes.includes(c.ram_mb)) sizes.push(c.ram_mb);
+    f.ram_mb.innerHTML = '<option value="0">No limit</option>' + sizes.sort((a, b) => a - b).map((n) => `<option value="${n}">${mb(n)}</option>`).join('');
+    f.ram_mb.value = String(c.ram_mb || 0);
+    f.bandwidth_mbps.value = c.bandwidth_mbps || '';
+  }
+  $('#resForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target.elements;
+    try {
+      const r = await api('/api/server/resources', { method: 'PUT', body: { cores: f.cores.value, ram_mb: Number(f.ram_mb.value), bandwidth_mbps: Number(f.bandwidth_mbps.value) || 0 } });
+      showResources(r.cores);
+      $('#resMsg').innerHTML = r.restart_needed
+        ? '<div class="alert alert-ok">Saved. The new cores and memory limit start when the site restarts. <button type="button" class="btn-dark btn-sm" id="resRestart">Restart now</button></div>'
+        : '<div class="alert alert-ok">Saved.</div>';
+      if ($('#resRestart')) $('#resRestart').onclick = () => $('#srvRestart').click();
+    } catch (err) { App.flash($('#resMsg'), err.message); }
+  };
+
   async function loadServer() {
     const s = srvStatus = await api('/api/server/status');
     const online = s.online.admin + s.online.advisor + s.online.driver;
@@ -872,8 +973,8 @@
       [mb(s.memory.site_mb), 'Memory (site)', `PC: ${mb(s.memory.pc_total_mb - s.memory.pc_free_mb)} of ${mb(s.memory.pc_total_mb)} in use`],
       [s.log_counts.error, 'Errors in the last hour', s.log_counts.warn ? `${s.log_counts.warn} warnings` : 'No warnings'],
     ].map(([n, l, d]) => `<div class="stat"><b>${n}</b><span>${l}</span>${d ? `<span class="stat-note">${d}</span>` : ''}</div>`).join('');
-    $('#srvChart').innerHTML = trafficChart(s.requests.per_minute);
-    $('#srvTrafficSum').textContent = `${s.requests.last_hour} requests · ${s.requests.errors_last_hour} server errors`;
+    drawTraffic();
+    showResources(s.cores);
     const m = s.machine;
     $('#srvMachine').innerHTML = `PC <b>${esc(m.name)}</b> · ${esc(m.platform)} · Node ${esc(m.node)} · PC on for ${fmtDur(m.pc_uptime_s)}<br>
       Database ${s.database.size_mb} MB${s.disk ? ` · ${mb(s.disk.free_mb)} free on the disk` : ''} · ${s.shuttle.open_rides} open rides · ${s.shuttle.drivers_on_duty} drivers on duty · ${s.shuttle.signed_in_devices} signed-in devices

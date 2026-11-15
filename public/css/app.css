@@ -479,7 +479,7 @@ html[data-look="corwin"] .ride-name { font-size: 1.12rem; font-weight: 800; lett
 html[data-look="corwin"] .badge { letter-spacing: .05em; }
 /* Buttons and tabs */
 html[data-look="corwin"] button, html[data-look="corwin"] .btn { border-radius: 10px; font-weight: 700; letter-spacing: .02em; }
-html[data-look="corwin"] button:not(.btn-ghost):not(.pstep):not(.choice):not([data-goto]):not(.linklike):not(.tabs button):not(.chips button),
+html[data-look="corwin"] button:not(.btn-ghost):not(.pstep):not(.choice):not([data-goto]):not(.linklike):not(.tabs button):not(.chips button):not(.tchip):not(.linkish):not(.mini-seg button),
 html[data-look="corwin"] .btn:not(.btn-ghost) { box-shadow: 0 1px 0 rgba(255,255,255,.18) inset, 0 4px 12px color-mix(in srgb, var(--brand) 22%, transparent); }
 html[data-look="corwin"] .btn-lg { text-transform: uppercase; letter-spacing: .08em; font-size: 1rem; padding: 1rem 1.2rem; }
 html[data-look="corwin"] .tabs { background: var(--card); padding: .3rem; border-radius: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.05); gap: .2rem; }
@@ -526,4 +526,27 @@ html[data-look="corwin"] .choice span:last-child { font-weight: 400; }
 .ver-entry li { margin: .15rem 0; }
 .ver-tag { font-size: .75rem; border-radius: 99px; padding: .05rem .5rem; background: rgba(127,127,127,.18); }
 .ver-tag-now { background: var(--brand, #eb0a1e); color: #fff; }
-.linkish { background: none; border: 0; padding: 0; color: var(--brand, #eb0a1e); text-decoration: underline; cursor: pointer; font: inherit; }
+.linkish { display: inline; box-shadow: none; background: none; border: 0; padding: 0; color: var(--brand, #eb0a1e); text-decoration: underline; cursor: pointer; font: inherit; }
+
+/* Traffic by kind (Admin → Server). Fixed color per kind; checked for color-blind separation in light and dark. */
+:root { --tr-pages:#2a78d6; --tr-files:#eb6834; --tr-rides:#1baf7a; --tr-vans:#eda100; --tr-gps:#e87ba4; --tr-tracking:#008300; --tr-signin:#6250d6; --tr-other:#8b9098; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --tr-pages:#3987e5; --tr-files:#d95926; --tr-rides:#199e70; --tr-vans:#c98500; --tr-gps:#d55181; --tr-tracking:#0ca30c; --tr-signin:#9085e9; --tr-other:#7d838c; } }
+:root[data-theme="dark"] { --tr-pages:#3987e5; --tr-files:#d95926; --tr-rides:#199e70; --tr-vans:#c98500; --tr-gps:#d55181; --tr-tracking:#0ca30c; --tr-signin:#9085e9; --tr-other:#7d838c; }
+.spark .tseg { stroke: var(--card); stroke-width: 1; }
+.spark .bar:hover .tseg { opacity: .8; }
+.spark .b-errdot { fill: var(--red); stroke: var(--card); stroke-width: 1; }
+.err-pip { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--red); vertical-align: 1px; }
+.traffic-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .8rem; margin: 0 0 .5rem; }
+.mini-seg { display: inline-flex; border: 1px solid var(--input-border); border-radius: 99px; overflow: hidden; }
+.mini-seg button { background: transparent; color: var(--ink); border: 0; padding: .3rem .8rem; font-size: .8rem; font-weight: 600; cursor: pointer; border-radius: 0; box-shadow: none; }
+.mini-seg button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
+.traffic-types { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: .35rem; margin-top: .5rem; }
+.tchip { display: flex; justify-content: flex-start; min-width: 0; overflow: hidden; white-space: nowrap; align-items: center; gap: .45rem; text-align: left; background: var(--subtle); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: .4rem .6rem; cursor: pointer; font-size: .8rem; box-shadow: none; }
+.tchip .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.tchip .tl { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.tchip .tn { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tchip.off { background: transparent; opacity: .55; }
+.tchip.off .sw { background: transparent !important; outline: 1.5px solid var(--muted); outline-offset: -1.5px; }
+.tchip.off .tl { text-decoration: line-through; }
+ul.copies { margin: .4rem 0 0; padding-left: 1.1rem; }
+#resForm select, #resForm input { max-width: 260px; }

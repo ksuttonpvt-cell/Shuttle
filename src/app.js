@@ -15,6 +15,10 @@ const { readSheet } = require('./sheets');
 const { parseFleet, FUELS } = require('./fleet');
 const { createLogbook } = require('./logbook');
 const { cityOf, estimatedRideMiles } = require('./places');
+const { createLimits } = require('./limits');
+const { createBus, coresAvailable, coresWanted } = require('./cluster');
+const { createThrottle } = require('./throttle');
+const { mergeSnapshots, TRAFFIC_TYPES } = require('./serverstats');
 
 // The site's version (package.json) and the "What's new" list (changelog.json).
 // Both change only with an update, which restarts the site, so they're read once.
@@ -90,11 +94,37 @@ function createApp(db, opts = {}) {
   const logbook = opts.logbook || createLogbook();
   let publicBase = opts.publicUrl || process.env.PUBLIC_URL || null; // learned from tunnel visits if not set
   app.use(stats.middleware);
+  // Bandwidth limit (Admin → Server, super admins): shared out between the copies of the site.
+  const throttle = createThrottle(() => {
+    const mbps = Number(getSettings().server_bandwidth_mbps);
+    if (!(mbps > 0)) return 0;
+    return (mbps * 125000) / (Number(process.env.SHUTTLE_WORKERS) || 1); // megabits/s -> bytes/s per copy
+  });
+  app.use(throttle.middleware);
   // Instant updates: after any change to rides, offers, routes or drivers, tell open pages
   // right away (they still check now and then in case a message is missed).
-  const live = opts.live || createLive();
+  // With one copy of the site per processor core, changes made on one copy reach the
+  // others through the bus (see cluster.js). Background jobs run in one copy only.
+  const bus = opts.bus || createBus();
+  const jobsHere = !opts.noTimers && bus.jobs;
+  const rawLive = opts.live || createLive();
+  const livePending = new Map();
+  const live = {
+    handler: rawLive.handler,
+    get count() { return rawLive.count; },
+    send(event, data = {}, to = null) { rawLive.send(event, data, to); bus.publish('live', { event, data, to }); },
+    // Many changes close together become one message (e.g. a driver's location every few seconds).
+    soon(event, ms = 600, data = {}, to = null) {
+      const key = event + (to ? `?${to.userId}` : '');
+      if (livePending.has(key)) return;
+      const t = setTimeout(() => { livePending.delete(key); live.send(event, data, to); }, ms);
+      t.unref?.(); livePending.set(key, t);
+    },
+  };
+  bus.on('live', (m) => rawLive.send(m.event, m.data, m.to));
   let ridesVersion = 0;
-  const ridesChanged = () => { ridesVersion++; };
+  const ridesChanged = () => { ridesVersion++; bus.publish('changed'); };
+  bus.on('changed', () => { ridesVersion++; });
   app.use((req, res, next) => {
     if (req.method !== 'GET') {
       res.on('finish', () => {
@@ -141,7 +171,8 @@ function createApp(db, opts = {}) {
   // The uploaded logo image isn't loaded here (only whether there is one).
   let settingsCache = null; let settingsAt = -1;
   function getSettings() {
-    const changes = q('SELECT total_changes() AS n').get().n;
+    // total_changes: this copy's writes; data_version: writes by the copies on other cores.
+    const changes = `${q('SELECT total_changes() AS n').get().n}|${q('PRAGMA data_version').get().data_version}`;
     if (settingsCache && changes === settingsAt) return { ...settingsCache };
     const s = {};
     for (const row of q("SELECT key, CASE WHEN key = 'brand_logo' THEN (CASE WHEN value <> '' THEN 'set' END) ELSE value END AS value FROM settings").all()) s[row.key] = row.value;
@@ -280,17 +311,11 @@ function createApp(db, opts = {}) {
 
   // Sign-in throttle: 10 wrong passwords per 15 min from one address for one email, and
   // 30 per 15 min for one email from anywhere (stops guessing spread over many addresses).
-  const failures = new Map();
-  function throttled(key, limit = 10) {
-    const f = failures.get(key);
-    if (!f) return false;
-    if (Date.now() - f.first > 15 * 60000) { failures.delete(key); return false; }
-    return f.count >= limit;
-  }
-  function recordFailure(key) {
-    const f = failures.get(key) || { count: 0, first: Date.now() };
-    f.count += 1; failures.set(key, f);
-  }
+  // Counted in the database, so the limits hold across every copy of the site.
+  const limits = createLimits(db);
+  const LOGIN_WINDOW = 15 * 60000;
+  const throttled = (key, limit = 10) => limits.count(`login|${key}`, LOGIN_WINDOW) >= limit;
+  const recordFailure = (key) => limits.hit(`login|${key}`, LOGIN_WINDOW);
 
   function setSessionCookie(req, res, token, maxAgeSec) {
     const secure = req.secure ? '; Secure' : '';
@@ -311,7 +336,7 @@ function createApp(db, opts = {}) {
       recordFailure(key); recordFailure(emailKey);
       return bad(res, 'Email or password is incorrect.', 401);
     }
-    failures.delete(key);
+    limits.clear(`login|${key}`);
     const token = randomToken(32);
     const expires = new Date(Date.now() + SESSION_DAYS * 86400000).toISOString();
     q('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, user.id, expires);
@@ -560,7 +585,7 @@ function createApp(db, opts = {}) {
     if (req.body.preview) return res.json({ summary, rows });
     const add = q(`INSERT INTO vehicles (name, make_model, year, plate, vin, seats, mileage, status, fuel, use, fleet_id, fleet_status, color)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    db.exec('BEGIN');
+    db.exec('BEGIN IMMEDIATE');
     try {
       for (const p of plan) {
         if (p.action === 'add') add.run(p.v.name, p.v.make_model, p.v.year, p.v.plate, p.v.vin, p.v.seats, p.v.mileage, p.v.status, p.v.fuel, p.v.use, p.v.fleet_id, p.v.fleet_status, p.v.color);
@@ -673,6 +698,7 @@ function createApp(db, opts = {}) {
   let sweepTimer = null;
   function scheduleOfferSweep() {
     if (opts.noTimers || sweepTimer) return; // tests run app.locals.offerSweep themselves
+    if (!bus.jobs) { bus.ask('jobs', 'sweep').catch(() => {}); return; } // one copy hands out offers
     sweepTimer = setTimeout(() => {
       sweepTimer = null;
       try { if (offerSweep().length) { ridesChanged(); live.soon('rides', 300); } } catch (e) { console.error('Ride offers failed:', e.message); }
@@ -722,12 +748,13 @@ function createApp(db, opts = {}) {
         tag: `offer-${id}`, url: '/driver', offer_id: id,
       }));
       made.push({ id, ride_id: r.id, driver_id: best.d.id, miles, minutes });
-      live.send('offer', { id }, (u) => u && u.id === best.d.id); // pops up right away on that driver's phone
+      live.send('offer', { id }, { userId: best.d.id }); // pops up right away on that driver's phone
     }
     return made;
   }
+  bus.answer('sweep', () => { scheduleOfferSweep(); return true; });
   app.locals.offerSweep = (...a) => { const made = offerSweep(...a); if (made.length) { ridesChanged(); live.soon('rides', 300); } return made; };
-  if (!opts.noTimers) setInterval(() => { try { if (offerSweep().length) { ridesChanged(); live.soon('rides', 300); } } catch (e) { console.error('Ride offers failed:', e.message); } }, 15000).unref();
+  if (jobsHere) setInterval(() => { try { if (offerSweep().length) { ridesChanged(); live.soon('rides', 300); } } catch (e) { console.error('Ride offers failed:', e.message); } }, 15000).unref();
 
   app.get('/api/offers/mine', requireRole('driver'), (req, res) => {
     const o = q(`SELECT o.*, r.customer_name, r.type, r.address, r.lat, r.lng, r.scheduled_at, r.passengers, r.priority, r.notes
@@ -1141,13 +1168,11 @@ function createApp(db, opts = {}) {
     res.json({ settings: shareableSettings() });
   });
 
-  const publicHits = new Map();
   app.post('/api/public/rides', (req, res) => {
     if (getSettings().public_requests !== '1') return bad(res, 'Online ride requests are turned off. Please call the dealership.', 403);
-    const key = clientIp(req); const t = Date.now();
-    const hits = (publicHits.get(key) || []).filter((x) => t - x < 3600000);
-    if (hits.length >= 10) return bad(res, 'Too many requests. Please call the dealership.', 429);
-    hits.push(t); publicHits.set(key, hits);
+    const key = `public|${clientIp(req)}`;
+    if (limits.count(key, 3600000) >= 10) return bad(res, 'Too many requests. Please call the dealership.', 429);
+    limits.hit(key, 3600000);
     if (!str(req.body.customer_phone)) return bad(res, 'A phone number is required so the driver can reach you.');
     const body = { ...req.body, priority: 'normal', urgent_reason: null };
     const { r, error } = cleanRide(body, {}, { forCustomer: true });
@@ -1377,7 +1402,7 @@ function createApp(db, opts = {}) {
   })();
   app.locals.nightlyBackup = nightlyBackup.tick;
   app.locals.resetClearSchedule = customerWipe.reset;
-  if (!opts.noTimers) {
+  if (jobsHere) {
     setInterval(() => {
       try { autoEndShifts(); } catch (e) { console.error('Auto end of shift failed:', e.message); }
       try { autoSignOut(); } catch (e) { console.error('Auto sign-out failed:', e.message); }
@@ -1493,17 +1518,50 @@ function createApp(db, opts = {}) {
   });
 
   // ---------- version + updates ----------
-  app.get('/api/version', requireRole('admin'), (req, res) => {
-    const u = opts.updater?.state || {};
+  // The copy running background jobs also runs the automatic updates: ask it.
+  async function updaterState() {
+    if (!opts.updater) return {};
+    if (bus.jobs) return opts.updater.state;
+    try { return await bus.ask('jobs', 'updater-state', null, 3000); } catch { return opts.updater.state; }
+  }
+  bus.answer('updater-state', () => (opts.updater ? opts.updater.state : {}));
+  bus.answer('update-check', async () => ({ result: await opts.updater.check(), state: opts.updater.state }));
+  // Each copy's live numbers (Admin → Server adds them up).
+  bus.answer('stats', () => ({ snapshot: stats.snapshot(), active: stats.active(), live: rawLive.count, worker: bus.worker, pid: process.pid }));
+  async function allStats() {
+    try { return await bus.gather('stats'); } catch { return [{ snapshot: stats.snapshot(), active: stats.active(), live: rawLive.count, worker: bus.worker, pid: process.pid }]; }
+  }
+  // With several cores the main process keeps the log: ask it.
+  const fromPrimary = async (kind, data, fallback) => {
+    if (!bus.clustered) return fallback();
+    try { return await bus.ask('primary', kind, data, 3000); } catch { return fallback(); }
+  };
+  const serverSetting = (k) => q('SELECT value FROM settings WHERE key = ?').get(k)?.value || '';
+  async function coresInfo(parts) {
+    const setting = serverSetting('server_cores') || 'auto';
+    const ram = Number(serverSetting('server_ram_mb')) || 0;
+    const primary = bus.clustered ? await fromPrimary('info', null, () => null) : null;
+    return {
+      setting, available: coresAvailable(), wanted: coresWanted(setting), running: parts.length,
+      ram_mb: ram, bandwidth_mbps: Number(serverSetting('server_bandwidth_mbps')) || 0,
+      fixed_by_env: { cores: process.env.CORES || null, ram_mb: process.env.RAM_MB || null }, // .env wins over these settings
+      rss_mb: primary ? primary.rss_mb : null, pc_total_mb: Math.round(require('node:os').totalmem() / 1048576),
+      used_by_ram: primary ? primary.count : parts.length, ram_restarts: primary ? primary.ram_restarts : 0,
+      copies: parts.map((p) => ({ worker: p.worker, pid: p.pid, site_mb: p.snapshot.memory.site_mb, cpu: p.snapshot.cpu.process, live: p.live })).sort((a, b) => a.worker - b.worker),
+    };
+  }
+
+  app.get('/api/version', requireRole('admin'), async (req, res) => {
+    const u = await updaterState();
     res.json({ version: u.version || null, version_date: u.versionDate || null, auto_update: !!u.enabled,
       reason: u.reason || null, last_check: u.lastCheck || null, last_error: u.lastError || null });
   });
   app.post('/api/updates/check', requireRole('admin'), async (req, res) => {
     if (!opts.updater) return bad(res, 'Updates are not available here.');
-    const result = await opts.updater.check();
+    const { result, state } = bus.jobs ? { result: await opts.updater.check(), state: opts.updater.state } : await bus.ask('jobs', 'update-check', null, 600000);
     const msg = { 'up-to-date': 'You already have the latest version.', updated: 'Update installed. The site is restarting — reload in a few seconds.',
-      busy: 'Already checking — try again in a moment.', skipped: opts.updater.state.reason || 'Automatic updates are off.',
-      error: opts.updater.state.lastError || 'The update check failed.' }[result];
+      busy: 'Already checking — try again in a moment.', skipped: state.reason || 'Automatic updates are off.',
+      error: state.lastError || 'The update check failed.' }[result];
     res.status(result === 'error' ? 502 : 200).json({ result, message: msg });
   });
 
@@ -1520,12 +1578,15 @@ function createApp(db, opts = {}) {
     res.json({ version: APP_VERSION, build: { hash: u.version || null, date: u.versionDate || null }, changelog: CHANGELOG });
   });
 
-  app.get('/api/server/status', requireRole('admin'), (req, res) => {
-    const u = opts.updater?.state || {};
+  app.get('/api/server/status', requireRole('admin'), async (req, res) => {
+    const u = await updaterState();
     const b = opts.backups;
     const backups = b ? b.list() : [];
+    const parts = await allStats();
     res.json({
-      ...stats.snapshot(),
+      ...mergeSnapshots(parts),
+      traffic_types: TRAFFIC_TYPES,
+      cores: await coresInfo(parts),
       supervised: !!opts.supervised,
       can_restart: !!opts.restart,
       version: { app: APP_VERSION, version: u.version || null, version_date: u.versionDate || null, auto_update: !!u.enabled, reason: u.reason || null, last_check: u.lastCheck || null, last_error: u.lastError || null, checking: !!u.checking },
@@ -1536,7 +1597,7 @@ function createApp(db, opts = {}) {
         drivers_on_duty: q("SELECT COUNT(*) AS n FROM users WHERE role = 'driver' AND on_duty = 1").get().n,
         signed_in_devices: q('SELECT COUNT(*) AS n FROM sessions WHERE expires_at > ?').get(now()).n,
       },
-      log_counts: logbook.counts(),
+      log_counts: await fromPrimary('logcounts', null, () => logbook.counts()),
       backups: b ? {
         count: backups.length, total_mb: Math.round((b.totalSize() / 1048576) * 10) / 10,
         last_daily: backups.find((x) => x.kind === 'daily')?.made_at || null, time: getSettings().backup_time || '', pending_restore: b.pendingRestore(),
@@ -1574,13 +1635,14 @@ function createApp(db, opts = {}) {
       if (v !== 'ok') throw new Error(String(v));
       return 'No problems found';
     });
-    const data = { at: now(), public_site: publicSite, routing, database, tunnel, live_clients: live.count };
+    const data = { at: now(), public_site: publicSite, routing, database, tunnel, live_clients: (await allStats()).reduce((n, p) => n + p.live, 0) };
     checksCache = { at: Date.now(), data };
     res.json(data);
   });
 
-  app.get('/api/server/logs', requireRole('admin'), (req, res) => {
-    res.json({ lines: logbook.recent({ after: Number(req.query.after) || 0, level: req.query.level, q: req.query.q, limit: req.query.limit }),
+  app.get('/api/server/logs', requireRole('admin'), async (req, res) => {
+    const want = { after: Number(req.query.after) || 0, level: req.query.level, q: req.query.q, limit: req.query.limit };
+    res.json({ lines: await fromPrimary('logs', want, () => logbook.recent(want)),
       files: (opts.logsDir ? createLogbook({ dir: opts.logsDir }).files() : []) });
   });
   app.get('/api/server/logs/file/:day', requireRole('admin'), (req, res) => {
@@ -1604,6 +1666,34 @@ function createApp(db, opts = {}) {
     console.log(new Date().toLocaleString(), `[server] Restart requested by ${req.user.name}.`);
     res.json({ ok: true, message: 'Restarting. The site will be back in about 10 seconds.' });
     setTimeout(opts.restart, 300);
+  });
+
+  // Processor cores, memory and bandwidth (super admins). Cores and memory are used from the
+  // next restart; the bandwidth limit right away.
+  app.put('/api/server/resources', requireRole('admin'), async (req, res) => {
+    const b = req.body || {};
+    const avail = coresAvailable();
+    const set = (k, v) => q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
+    const before = { cores: serverSetting('server_cores') || 'auto', ram: Number(serverSetting('server_ram_mb')) || 0 };
+    if (b.cores != null) {
+      const v = String(b.cores).trim().toLowerCase();
+      const n = Number(v);
+      if (v !== 'auto' && !(Number.isInteger(n) && n >= 1 && n <= avail)) return bad(res, `Pick Auto or 1 to ${avail} cores.`);
+      set('server_cores', v);
+    }
+    if (b.ram_mb != null) {
+      const n = Number(b.ram_mb);
+      if (!(Number.isInteger(n) && (n === 0 || (n >= 512 && n <= 1048576)))) return bad(res, 'Pick no limit, or at least 512 MB.');
+      set('server_ram_mb', String(n));
+    }
+    if (b.bandwidth_mbps != null) {
+      const n = Number(b.bandwidth_mbps);
+      if (!(Number.isFinite(n) && (n === 0 || (n >= 1 && n <= 10000)))) return bad(res, 'Pick no limit, or 1 to 10000 Mbps.');
+      set('server_bandwidth_mbps', String(n));
+    }
+    const after = { cores: serverSetting('server_cores') || 'auto', ram: Number(serverSetting('server_ram_mb')) || 0 };
+    console.log(new Date().toLocaleString(), `[server] ${req.user.name} set cores ${after.cores}, memory ${after.ram ? `${after.ram} MB` : 'no limit'}, bandwidth ${Number(serverSetting('server_bandwidth_mbps')) ? `${serverSetting('server_bandwidth_mbps')} Mbps` : 'no limit'}.`);
+    res.json({ cores: await coresInfo(await allStats()), restart_needed: before.cores !== after.cores || before.ram !== after.ram });
   });
 
   // Backups
@@ -1646,7 +1736,6 @@ function createApp(db, opts = {}) {
   // address is a secret: it's never sent to browsers.
   const KINDS = { help: ['🙋 Help request', 0x1a73e8], idea: ['💡 Suggestion', 0x0f8a3c], problem: ['🐞 Problem', 0xeb0a1e] };
   const WEBHOOK_RE = /^https:\/\/((ptb|canary)\.)?discord(app)?\.com\/api\/webhooks\/\d+\/[\w-]+$/;
-  const feedbackHits = new Map();
   async function postToDiscord({ kind, message, from, page }) {
     const hook = getSettings().discord_webhook;
     if (!hook) return { sent: false, error: null };
@@ -1667,9 +1756,8 @@ function createApp(db, opts = {}) {
     const kind = KINDS[req.body.kind] ? req.body.kind : 'help';
     const message = str(req.body.message, 2000);
     if (!message || message.length < 3) return bad(res, 'Type a message first.');
-    const hits = (feedbackHits.get(req.user.id) || []).filter((t) => Date.now() - t < 3600000);
-    if (hits.length >= 10) return bad(res, 'That’s a lot of messages in an hour. Try again a bit later.', 429);
-    hits.push(Date.now()); feedbackHits.set(req.user.id, hits);
+    if (limits.count(`feedback|${req.user.id}`, 3600000) >= 10) return bad(res, 'That’s a lot of messages in an hour. Try again a bit later.', 429);
+    limits.hit(`feedback|${req.user.id}`, 3600000);
     const page = str(req.body.page, 200);
     const from = `${req.user.name} (${req.user.role})`;
     const out = await postToDiscord({ kind, message, from, page });
@@ -1736,21 +1824,19 @@ function createApp(db, opts = {}) {
   // Address search uses OpenStreetMap's free Nominatim service, which allows about one
   // lookup a second and blocks sites that go over. Lookups are cached, shared when two
   // people type the same thing, paced to one at a time, and time out after 8 seconds.
-  const geoCache = new Map(); const geoInFlight = new Map(); let geoNextSlot = 0;
-  const geoHits = new Map(); // customer page: lookups per address per hour
+  const geoCache = new Map(); const geoInFlight = new Map();
   app.get('/api/geocode', requireRole(), async (req, res) => geocode(req, res));
   app.get('/api/public/geocode', async (req, res) => {
     if (getSettings().public_requests !== '1') return bad(res, 'Disabled.', 403);
-    const ip = clientIp(req); const t = Date.now();
-    const hits = (geoHits.get(ip) || []).filter((x) => t - x < 3600000);
-    if (hits.length >= 60) return res.json({ results: [], error: 'Too many searches. Tap the map to drop a pin instead.' });
-    hits.push(t); geoHits.set(ip, hits);
+    const key = `geo|${clientIp(req)}`; // customer page: lookups per address per hour
+    if (limits.count(key, 3600000) >= 60) return res.json({ results: [], error: 'Too many searches. Tap the map to drop a pin instead.' });
+    limits.hit(key, 3600000);
     return geocode(req, res);
   });
   async function lookupAddress(text) {
-    const wait = Math.max(0, geoNextSlot - Date.now());
-    if (wait > 5000) throw new Error('busy'); // too many people searching at once
-    geoNextSlot = Math.max(Date.now(), geoNextSlot) + 1100;
+    // The free address service allows about one lookup a second, from all copies together.
+    const wait = limits.turn('geocoder', 1100, 5000);
+    if (wait === null) throw new Error('busy'); // too many people searching at once
     if (wait) await new Promise((r) => setTimeout(r, wait));
     const o = dealerOrigin();
     const url = new URL('https://nominatim.openstreetmap.org/search');
@@ -1841,13 +1927,7 @@ function createApp(db, opts = {}) {
   });
 
   // Forget old sign-in failures and request counts so these lists can't grow forever.
-  if (!opts.noTimers) {
-    setInterval(() => {
-      const t = Date.now();
-      for (const [k, f] of failures) if (t - f.first > 15 * 60000) failures.delete(k);
-      for (const m of [publicHits, geoHits]) for (const [k, v] of m) if (!v.some((x) => t - x < 3600000)) m.delete(k);
-    }, 10 * 60000).unref();
-  }
+  if (jobsHere) setInterval(() => { try { limits.prune(); } catch (e) { console.error('Clearing old limits failed:', e.message); } }, 10 * 60000).unref();
 
   return app;
 }

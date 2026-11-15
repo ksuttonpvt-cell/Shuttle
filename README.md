@@ -152,6 +152,12 @@ Then right-click the task and choose **Run**. Also go to **Settings → System �
 - If Settings shows an update problem mentioning sign-in or authentication, open PowerShell in the app folder and run `git pull` once. Git will ask you to sign in to GitHub and remember it.
 - To turn automatic updates off, add `AUTO_UPDATE=0` to `.env`. To change how often it checks, set `UPDATE_CHECK_MINUTES`.
 
+**Processor cores, memory and bandwidth:** the site runs one copy of itself per processor core, so it uses the whole PC when it's busy. Super admins can change this in **Admin → Server → Cores, memory & bandwidth**:
+- **Processor cores:** Auto (every core) or a set number. Takes effect when the site restarts.
+- **Memory limit:** a cap for all copies together. If the site goes over it, the copy using the most memory restarts, and its screens reconnect within seconds. Takes effect when the site restarts.
+- **Bandwidth limit:** the most upload speed the site may use, in megabits per second. Takes effect right away. Instant updates are never slowed.
+- `CORES=` and `RAM_MB=` in `.env` win over the page, for example `CORES=1` to run a single copy like before.
+
 **Backups:** everything (rides, logins, vehicles) is stored in `C:\Shuttle\data`. Copy that folder somewhere safe regularly, such as a USB drive or OneDrive. The most reliable copy is one made while the task is stopped.
 
 **Other hosts:** a `Dockerfile` is included. Mount a volume at `/data`, serve it over HTTPS, and set `PUBLIC_URL`.

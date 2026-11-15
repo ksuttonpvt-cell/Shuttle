@@ -7,6 +7,7 @@ function openDb(file) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec(`
+    PRAGMA busy_timeout = 8000; -- with one copy of the site per core, wait for another copy's write instead of failing
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
     PRAGMA secure_delete = ON; -- wiped customer info is overwritten on disk, not just marked free
