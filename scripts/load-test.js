@@ -36,7 +36,7 @@ function client() {
       const data = await res.json().catch(() => null);
       record(name, performance.now() - t, res.status < 500 && res.status !== 429, `${res.status} ${data && data.error}`);
       return { status: res.status, data };
-    } catch (e) { record(name, performance.now() - t, false, e.name + ' ' + e.message); return { status: 0, data: null }; }
+    } catch (e) { record(name, performance.now() - t, false, e.name + ' ' + e.message + (e.cause && e.cause.code ? ` (${e.cause.code})` : '')); return { status: 0, data: null }; }
   };
   // The instant-updates connection every staff page keeps open.
   call.live = async () => {
