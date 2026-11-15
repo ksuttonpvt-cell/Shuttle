@@ -438,7 +438,7 @@ const App = (() => {
       if (onUpdate) onUpdate(drivers);
     }
     poll(tick, every);
-    return { get drivers() { return latest; }, points: () => [...markers.values()].map((m) => m.getLatLng()) };
+    return { get drivers() { return latest; }, refresh: () => tick().catch(() => {}), points: () => [...markers.values()].map((m) => m.getLatLng()) };
   }
 
   // Google Maps directions through several stops (it takes up to 10 points from a phone).
@@ -541,6 +541,28 @@ const App = (() => {
     }, 1000);
   })();
 
+  // ---------- instant updates ----------
+  // One open connection per page; the server says "rides changed" or "drivers moved" and the
+  // page refreshes right away. Several messages close together cause one refresh.
+  const liveState = { connected: false, last: 0 };
+  function live(handlers) {
+    if (!('EventSource' in window)) return liveState;
+    const es = new EventSource('/api/events');
+    const timers = {};
+    es.onopen = () => { liveState.connected = true; };
+    es.onerror = () => { liveState.connected = false; };
+    for (const [event, fn] of Object.entries(handlers)) {
+      es.addEventListener(event, (e) => {
+        liveState.last = Date.now();
+        let data = {}; try { data = JSON.parse(e.data); } catch { /* empty */ }
+        clearTimeout(timers[event]);
+        timers[event] = setTimeout(() => Promise.resolve().then(() => fn(data)).catch(() => {}), 120);
+      });
+    }
+    addEventListener('pagehide', () => es.close());
+    return liveState;
+  }
+
   // Runs fn now and every ms. Pauses while the page is hidden unless background is true.
   function poll(fn, ms, { background = false } = {}) {
     const run = () => Promise.resolve().then(fn).catch(() => { /* try again next time */ });
@@ -555,7 +577,7 @@ const App = (() => {
 
   return {
     esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
-    brandMark, applyBrand, stepper, tacoRain, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
+    brandMark, applyBrand, stepper, tacoRain, live, liveState, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
 })();

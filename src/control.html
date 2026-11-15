@@ -41,6 +41,10 @@
   .tools { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: space-between; align-items: center; margin-bottom: .5rem; }
   .chips button { min-height: 32px; padding: .3rem .7rem; font-size: .85rem; }
   .chips button.on { background: var(--btn); color: var(--btn-ink); border-color: var(--btn); }
+  input[type=password], select { font: inherit; padding: .5rem .7rem; border-radius: 8px; border: 1px solid var(--line); background: var(--ghost); color: var(--ink); }
+  input[type=password] { width: 100%; }
+  ol.steps { margin: .4rem 0 .8rem; padding-left: 1.2rem; } ol.steps li { margin: .2rem 0; }
+  details summary { cursor: pointer; font-weight: 600; margin-top: .6rem; }
   input[type=search] { font: inherit; padding: .45rem .7rem; border-radius: 8px; border: 1px solid var(--line); background: var(--ghost); color: var(--ink); min-width: 220px; }
   .log { font: 12px/1.45 ui-monospace, Consolas, monospace; background: #0f1115; color: #d7dae0; border-radius: 8px; padding: .6rem .7rem; height: 52vh; min-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
   .log time { color: #8a909c; } .log .lvl { font-weight: 700; }
@@ -73,6 +77,16 @@
     <div class="msg" id="msg" role="status"></div>
   </section>
 
+  <section class="card" id="cf">
+    <div class="status">
+      <div class="big" id="cfBig"><span class="light"></span><div><h1 id="cfText" style="font-size:1.2rem">Cloudflare connection</h1><div class="small muted" id="cfNote"></div></div></div>
+      <div class="actions" id="cfButtons"></div>
+    </div>
+    <div class="facts" id="cfFacts"></div>
+    <div id="cfSetup"></div>
+    <div class="msg" id="cfMsg" role="status"></div>
+  </section>
+
   <section class="card">
     <div class="tools">
       <h2>Live log</h2>
@@ -90,8 +104,8 @@
   const ago = (iso) => { const s = Math.max(0, Math.round((Date.now() - new Date(iso)) / 1000)); const d = Math.floor(s / 86400); const h = Math.floor((s % 86400) / 3600); const m = Math.floor((s % 3600) / 60);
     return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : m ? `${m}m` : `${s}s`; };
   const when = (iso) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  async function post(action) {
-    const r = await fetch(`/api/${action}`, { method: 'POST', headers: { 'X-Shuttle-Control': '1' } });
+  async function post(action, body) {
+    const r = await fetch(`/api/${action}`, { method: 'POST', headers: { 'X-Shuttle-Control': '1', 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'That did not work.');
   }
   const LABEL = {
@@ -123,8 +137,69 @@
       ['Problems in the last hour', `${s.log_counts.error} error${s.log_counts.error === 1 ? '' : 's'}`, `${s.log_counts.warn} warning${s.log_counts.warn === 1 ? '' : 's'}`],
       ['Shuttle Control running for', ago(s.control_started), `Process ${s.pid || '—'}`],
     ].map(([k, b, n]) => `<div><span class="small muted">${k}</span><b>${b}</b><span class="small muted">${n}</span></div>`).join('');
+    cloudflare(s.tunnel);
     $('#files').innerHTML = s.log_files.length ? `Log files are in ${esc(s.logs_dir)} (kept 14 days): ${s.log_files.map((f) => esc(f.day)).join(' · ')}` : '';
   }
+  // ---------- Cloudflare connection ----------
+  let cfDrawn = '';
+  function cloudflare(t) {
+    let cls = 'bad'; let text = 'Not connected to Cloudflare'; let note = 'People outside this PC can\'t reach the website.';
+    if (t.ready) { cls = 'ok'; text = 'Connected to Cloudflare'; note = `${t.connections} connection${t.connections === 1 ? '' : 's'}${t.locations.length ? ` · through ${t.locations.join(', ')}` : ''}${t.running ? ' · run by Shuttle Control' : ' · run by cloudflared on this PC (for example a Windows service)'}`; }
+    else if (t.running) { cls = 'busy'; text = 'Connecting to Cloudflare…'; note = 'This usually takes a few seconds.'; }
+    else if (t.managed) { cls = 'busy'; text = 'Reconnecting to Cloudflare…'; note = 'It stopped and will try again shortly. See the log below.'; }
+    $('#cfBig').className = `big ${cls}`; $('#cfText').textContent = text; $('#cfNote').textContent = note;
+    const own = t.has_token;
+    $('#cfButtons').innerHTML = own ? `
+      ${t.running ? '<button class="primary" data-cf="restart">⟳ Reconnect</button><button class="stop" data-cf="stop">■ Stop</button>' : '<button class="go" data-cf="start">▶ Connect</button>'}` : '';
+    $('#cfFacts').innerHTML = [
+      ['Run by', own ? 'Shuttle Control' : t.ready ? 'cloudflared on this PC' : 'Nothing yet', own && t.tunnel_id ? `Tunnel ${esc(t.tunnel_id.slice(0, 8))}…` : ''],
+      ['Connection type', { auto: 'Automatic', quic: 'QUIC (fast)', http2: 'HTTP/2 (steady)' }[t.protocol] || t.protocol, own ? '<select id="cfProto" aria-label="Connection type"><option value="auto">Automatic</option><option value="quic">QUIC (fast, uses UDP)</option><option value="http2">HTTP/2 (if the connection keeps dropping)</option></select>' : ''],
+      ['cloudflared', t.installed ? `Installed${t.version ? ` · ${esc(t.version)}` : ''}` : 'Not found on this PC', t.restarts ? `Reconnected ${t.restarts} time${t.restarts === 1 ? '' : 's'}` : ''],
+    ].map(([k, b, n]) => `<div><span class="small muted">${k}</span><b>${b}</b><span class="small muted">${n}</span></div>`).join('');
+    if ($('#cfProto')) { $('#cfProto').value = t.protocol; }
+    // Set-up steps only change when the situation does (so typing isn't interrupted).
+    const key = `${own}|${t.installed}|${t.ready && !t.running}`;
+    if (key === cfDrawn) return;
+    cfDrawn = key;
+    const download = t.installed ? '' : '<p class="small">First, get the Cloudflare program: <button data-cf="download">⬇ Download cloudflared</button></p>';
+    const form = `<form id="cfForm" style="margin-top:.6rem">
+        <label class="small" for="cfToken"><b>Tunnel token</b> (stays on this PC, in the .env file)</label>
+        <div class="actions" style="margin-top:.3rem"><input type="password" id="cfToken" autocomplete="off" placeholder="Paste the token (starts with eyJ…) or the whole install command" style="flex:1;min-width:240px"><button class="go">Save &amp; connect</button></div>
+      </form>`;
+    const how = `<ol class="steps small">
+        <li>Open <b>one.dash.cloudflare.com</b> → <b>Networks</b> → <b>Tunnels</b>, and pick your shuttle tunnel.</li>
+        <li>Choose <b>Configure</b> (or <b>Add a connector</b>) and copy the install command shown for Windows.</li>
+        <li>Paste it below. Only the long token part is kept.</li></ol>`;
+    if (own) {
+      $('#cfSetup').innerHTML = `${download}<details><summary>Change or remove the tunnel token</summary>${form}<p class="small"><button class="stop" data-cf="forget">Remove token</button> Stops Shuttle Control's connection.</p></details>`;
+    } else if (t.ready) {
+      $('#cfSetup').innerHTML = `<p class="small muted">The website is already connected by cloudflared running on this PC, so nothing needs to change. If it ever stops reconnecting by itself, you can let Shuttle Control run it instead:</p><details><summary>Let Shuttle Control run the Cloudflare connection</summary>${how}${download}${form}
+        <p class="small muted">After it connects, you can turn off the old cloudflared Windows service so only one runs.</p></details>`;
+    } else {
+      $('#cfSetup').innerHTML = `<p class="small"><b>Connect the website to Cloudflare</b>. Shuttle Control will keep the connection running and reconnect it if it drops.</p>${how}${download}${form}`;
+    }
+    const f = $('#cfForm');
+    if (f) f.onsubmit = async (e) => {
+      e.preventDefault();
+      try { await post('tunnel/token', { token: $('#cfToken').value }); $('#cfToken').value = ''; cfDrawn = ''; $('#cfMsg').textContent = '✅ Saved. Connecting…'; setTimeout(status, 800); }
+      catch (err) { $('#cfMsg').textContent = `⚠️ ${err.message}`; }
+    };
+  }
+  $('#cf').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-cf]'); if (!b) return;
+    if (b.dataset.cf === 'forget' && !confirm('Remove the tunnel token? Shuttle Control will stop the Cloudflare connection it runs.')) return;
+    if (b.dataset.cf === 'stop' && !confirm('Stop the Cloudflare connection? People outside this PC won\'t reach the website until you connect again.')) return;
+    b.disabled = true; $('#cfMsg').textContent = b.dataset.cf === 'download' ? 'Downloading… (about 40 MB)' : '';
+    try { await post(`tunnel/${b.dataset.cf}`); cfDrawn = ''; if (b.dataset.cf === 'download') $('#cfMsg').textContent = '✅ Downloaded.'; setTimeout(status, 600); }
+    catch (err) { $('#cfMsg').textContent = `⚠️ ${err.message}`; }
+    b.disabled = false;
+  });
+  $('#cf').addEventListener('change', async (e) => {
+    if (e.target.id !== 'cfProto') return;
+    try { await post('tunnel/protocol', { protocol: e.target.value }); $('#cfMsg').textContent = 'Connection type saved.'; setTimeout(status, 800); }
+    catch (err) { $('#cfMsg').textContent = `⚠️ ${err.message}`; }
+  });
+
   const act = (action, ask) => async () => {
     if (ask && !confirm(ask)) return;
     $('#msg').textContent = '';

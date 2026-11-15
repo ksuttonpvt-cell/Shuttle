@@ -9,6 +9,8 @@ const { createPush } = require('./push');
 const { planRoute, KM_TO_MI, STOP_MINUTES } = require('./routing');
 const fs = require('node:fs');
 const { createStats } = require('./serverstats');
+const { createLive } = require('./live');
+const tunnelKit = require('./tunnel');
 const { createLogbook } = require('./logbook');
 const { cityOf, estimatedRideMiles } = require('./places');
 
@@ -61,6 +63,21 @@ function createApp(db, opts = {}) {
   const logbook = opts.logbook || createLogbook();
   let publicBase = opts.publicUrl || process.env.PUBLIC_URL || null; // learned from tunnel visits if not set
   app.use(stats.middleware);
+  // Instant updates: after any change to rides, offers, routes or drivers, tell open pages
+  // right away (they still check now and then in case a message is missed).
+  const live = opts.live || createLive();
+  app.use((req, res, next) => {
+    if (req.method !== 'GET') {
+      res.on('finish', () => {
+        if (res.statusCode >= 400) return;
+        const p = req.path;
+        if (/^\/api\/(rides|public\/rides|offers|route)/.test(p)) live.soon('rides', 300);
+        if (/^\/api\/driver\/location/.test(p)) live.soon('drivers', 1500);
+        else if (/^\/api\/(driver\/shift|route|users|vehicles)/.test(p)) live.soon('drivers', 300);
+      });
+    }
+    next();
+  });
   app.use((req, _res, next) => {
     if (!publicBase && req.get('cf-connecting-ip') && req.get('host')) publicBase = `https://${req.get('host')}`;
     next();
@@ -249,6 +266,8 @@ function createApp(db, opts = {}) {
   });
 
   app.get('/healthz', (req, res) => { q('SELECT 1').get(); res.json({ ok: true }); });
+  app.get('/api/events', requireRole(), (req, res) => live.handler(req, res, req.user));
+  app.locals.live = live;
 
   app.get('/api/me', (req, res) => {
     res.json({ user: publicUser(req.user) || null, settings: shareableSettings(), base_url: baseUrl(req) });
@@ -523,7 +542,7 @@ function createApp(db, opts = {}) {
     if (opts.noTimers || sweepTimer) return; // tests run app.locals.offerSweep themselves
     sweepTimer = setTimeout(() => {
       sweepTimer = null;
-      try { offerSweep(); } catch (e) { console.error('Ride offers failed:', e.message); }
+      try { if (offerSweep().length) live.soon('rides', 300); } catch (e) { console.error('Ride offers failed:', e.message); }
     }, 1000);
     if (sweepTimer.unref) sweepTimer.unref();
   }
@@ -570,11 +589,12 @@ function createApp(db, opts = {}) {
         tag: `offer-${id}`, url: '/driver', offer_id: id,
       }));
       made.push({ id, ride_id: r.id, driver_id: best.d.id, miles, minutes });
+      live.send('offer', { id }, (u) => u && u.id === best.d.id); // pops up right away on that driver's phone
     }
     return made;
   }
-  app.locals.offerSweep = offerSweep;
-  if (!opts.noTimers) setInterval(() => { try { offerSweep(); } catch (e) { console.error('Ride offers failed:', e.message); } }, 15000).unref();
+  app.locals.offerSweep = (...a) => { const made = offerSweep(...a); if (made.length) live.soon('rides', 300); return made; };
+  if (!opts.noTimers) setInterval(() => { try { if (offerSweep().length) live.soon('rides', 300); } catch (e) { console.error('Ride offers failed:', e.message); } }, 15000).unref();
 
   app.get('/api/offers/mine', requireRole('driver'), (req, res) => {
     const o = q(`SELECT o.*, r.customer_name, r.type, r.address, r.lat, r.lng, r.scheduled_at, r.passengers, r.priority, r.notes
@@ -1082,6 +1102,7 @@ function createApp(db, opts = {}) {
     const label = new Date(2000, 0, 1, h, m).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     quietly(push.notifyUsers(drivers, { title: '🌙 Shift ended', body: `Your shift was ended automatically at ${label}. Start a new shift in the app if you're still driving.`, tag: 'shift-ended' }));
     console.log(new Date().toLocaleString(), `[shifts] Ended ${drivers.length} driver shift(s) automatically at ${label}.`);
+    live.soon('drivers', 300);
     return drivers.length;
   }
   app.locals.autoEndShifts = autoEndShifts;
@@ -1111,6 +1132,7 @@ function createApp(db, opts = {}) {
     if (nowHM < cutoff || s.auto_signout_last === today) return 0;
     setLast();
     const signedOut = q('DELETE FROM sessions').run().changes;
+    live.soon('drivers', 300);
     q("UPDATE users SET on_duty = 0, vehicle_id = NULL, route_json = NULL WHERE role = 'driver' AND on_duty = 1").run();
     console.log(new Date().toLocaleString(), `[sign-out] Signed everyone out automatically (${signedOut} session(s)).`);
     return signedOut;
@@ -1368,13 +1390,18 @@ function createApp(db, opts = {}) {
       opts.router ? timed(async () => { await opts.router.path([dealer, { lat: dealer.lat + 0.01, lng: dealer.lng }]); return 'Real road times available'; })
         : Promise.resolve({ ok: null, note: 'Turned off (ROUTING=off). Routes use estimates.' }),
     ]);
+    // cloudflared on this PC (it serves its own status on 127.0.0.1).
+    const t = await (opts.tunnelProbe || tunnelKit.probe)();
+    const tunnel = t.running
+      ? { ok: t.ready, note: t.ready ? `${t.connections} connection${t.connections === 1 ? '' : 's'} to Cloudflare${t.locations.length ? ` through ${t.locations.join(', ')}` : ''}` : 'cloudflared is running but not connected yet', connections: t.connections, locations: t.locations }
+      : { ok: null, note: "cloudflared's status isn't visible on this PC (an older version, or it isn't running). Open Shuttle Control on the server PC to check or connect." };
     const database = await timed(async () => {
       const r = q('PRAGMA quick_check').get();
       const v = Object.values(r)[0];
       if (v !== 'ok') throw new Error(String(v));
       return 'No problems found';
     });
-    const data = { at: now(), public_site: publicSite, routing, database };
+    const data = { at: now(), public_site: publicSite, routing, database, tunnel, live_clients: live.count };
     checksCache = { at: Date.now(), data };
     res.json(data);
   });
@@ -1387,6 +1414,12 @@ function createApp(db, opts = {}) {
     const p = opts.logsDir && createLogbook({ dir: opts.logsDir }).filePath(req.params.day);
     if (!p) return bad(res, 'No log for that day.', 404);
     res.download(p);
+  });
+
+  // Speed test: the page times a few of these. Cloudflare's data center code comes from the CF-Ray header.
+  app.get('/api/server/ping', requireRole('admin'), (req, res) => {
+    const ray = String(req.get('cf-ray') || '');
+    res.set('Cache-Control', 'no-store').json({ t: Date.now(), colo: ray.includes('-') ? tunnelKit.placeOf(ray.split('-').pop()) : null, via_cloudflare: !!req.get('cf-connecting-ip') });
   });
 
   app.get('/api/server/updates', requireRole('admin'), async (req, res) => {

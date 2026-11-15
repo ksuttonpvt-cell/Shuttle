@@ -514,7 +514,9 @@
   })();
   App.poll(offers.check, 4000, { background: true });
 
-  App.liveDrivers(map, { exclude: me.id, routes: false });
+  const vans = App.liveDrivers(map, { exclude: me.id, routes: false });
+  // Changes (new rides, assignments, offers) show up right away instead of on the next check.
+  App.live({ rides: () => refresh(), offer: () => offers.check(), drivers: () => vans.refresh() });
 
   async function refresh() {
     // Notice if the shift was ended elsewhere (e.g. the automatic end of shift at night).

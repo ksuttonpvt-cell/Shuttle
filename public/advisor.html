@@ -132,7 +132,8 @@
   const map = App.makeMap($('#map'), { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng) });
   App.dealerMarker(map, App.settings);
   const draw = App.ridesLayer(map);
-  App.liveDrivers(map); // vans move every few seconds, with each driver's planned route
+  const vans = App.liveDrivers(map); // vans move every few seconds, with each driver's planned route
+  App.live({ rides: refresh, drivers: () => { vans.refresh(); refresh(); } }); // changes show up right away
   let rides = []; let drivers = []; let cancelledRides = []; let readyRides = [];
   const chips = App.typeChips($('#typeChips'), 'shuttle.advisorType', () => refresh());
   async function refresh() {

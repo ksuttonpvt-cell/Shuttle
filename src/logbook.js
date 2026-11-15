@@ -33,7 +33,8 @@ function createLogbook({ dir = null, max = 2000, echo = null } = {}) {
   function add(text, { level = null, fromStderr = false, source = 'site' } = {}) {
     const clean = String(text).replace(/\x1b\[[0-9;]*m/g, '').replace(/\s+$/, '')
       .replace(/^\d{1,2}\/\d{1,2}\/\d{4},? \d{1,2}:\d{2}:\d{2}(\s?[AP]M)?\s+/i, '') // the log adds its own time
-      .replace(/(password[^:=\n]{0,20}[:=]\s*)\S+/gi, '$1••••••••'); // never keep passwords in logs
+      .replace(/(password[^:=\n]{0,20}[:=]\s*)\S+/gi, '$1••••••••') // never keep passwords in logs
+      .replace(/eyJ[A-Za-z0-9+/_=-]{60,}/g, '••••(token hidden)••••');   // or Cloudflare tunnel tokens
     if (!clean.trim()) return null;
     const at = new Date();
     const entry = { seq: ++seq, at: at.toISOString(), level: level || levelOf(clean, fromStderr), source, text: clean };
