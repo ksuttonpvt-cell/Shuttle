@@ -31,6 +31,7 @@ const DEFAULT_SETTINGS = {
   auto_end_shift: '20:00', // every driver is taken off shift at this local time each day ('' = off)
   auto_sign_out: '00:00',  // everyone is signed out at this local time each day ('' = off)
   ride_offers: '1',
+  discord_invite: '',       // optional "Join our Discord" link shown in the Help window
   easter_egg: '1',          // Easter egg: tacos rain for 10 seconds every Tuesday at noon
   look: 'classic',          // 'classic' or 'corwin' (dealership branding) for everyone
   brand_color: '#eb0a1e',   // Corwin look: accent (buttons, stripes)
@@ -57,6 +58,21 @@ function createApp(db, opts = {}) {
     const fromTunnel = peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
     return (fromTunnel && req.get('cf-connecting-ip')) || req.ip || peer;
   };
+  // Visitors reach the site over https through Cloudflare, but the tunnel hands requests
+  // to this PC as plain http. Cloudflare says how the visitor connected (CF-Visitor), so
+  // links, QR codes and secure sign-in cookies use https when the visitor did.
+  app.use((req, res, next) => {
+    const peer = req.socket.remoteAddress || '';
+    if (peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1') {
+      const visitor = req.get('cf-visitor') || '';
+      const forwarded = (req.get('x-forwarded-proto') || '').split(',')[0].trim();
+      if (/"scheme"\s*:\s*"https"/.test(visitor) || forwarded === 'https') {
+        Object.defineProperty(req, 'protocol', { value: 'https' });
+        Object.defineProperty(req, 'secure', { value: true });
+      }
+    }
+    next();
+  });
   app.use((req, res, next) => (req.path === '/api/brand/logo' ? next() : express.json({ limit: '100kb' })(req, res, next)));
   // Live numbers for Admin → Server.
   const stats = opts.stats || createStats({ timers: !opts.noTimers });
@@ -129,6 +145,7 @@ function createApp(db, opts = {}) {
     id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, active: !!u.active,
     on_duty: !!u.on_duty, vehicle_id: u.vehicle_id, last_lat: u.last_lat, last_lng: u.last_lng,
     last_loc_at: u.last_loc_at, created_at: u.created_at, reset_requested_at: u.reset_requested_at || null,
+    super_admin: u.role === 'admin' && !!u.super_admin,
   });
   const str = (v, max = 500) => (v == null ? null : String(v).trim().slice(0, max) || null);
   const num = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Number(v));
@@ -216,6 +233,24 @@ function createApp(db, opts = {}) {
     if (roles.length && !roles.includes(req.user.role) && req.user.role !== 'admin') return bad(res, 'Not allowed.', 403);
     next();
   };
+
+  // ---------- super admins ----------
+  // The Server page (health, logs, updates, restart, backups) is for super admins only.
+  // The admin named in .env (ADMIN_EMAIL) is always one; if there are none, the first admin is.
+  (function ensureSuperAdmin() {
+    const email = opts.superEmail !== undefined ? opts.superEmail : process.env.ADMIN_EMAIL;
+    if (email) q("UPDATE users SET super_admin = 1 WHERE email = ? AND role = 'admin'").run(email);
+    if (!q("SELECT 1 FROM users WHERE super_admin = 1 AND role = 'admin' AND active = 1").get()) {
+      const first = q("SELECT id FROM users WHERE role = 'admin' AND active = 1 ORDER BY id LIMIT 1").get();
+      if (first) q('UPDATE users SET super_admin = 1 WHERE id = ?').run(first.id);
+    }
+  })();
+  const isSuper = (u) => !!u && u.role === 'admin' && !!u.super_admin;
+  app.use(['/api/server', '/api/version', '/api/updates'], (req, res, next) => {
+    if (!req.user) return bad(res, 'Please sign in.', 401);
+    if (!isSuper(req.user)) return bad(res, 'Only a super admin can use the Server page.', 403);
+    next();
+  });
 
   // Sign-in throttle: 10 wrong passwords per 15 min from one address for one email, and
   // 30 per 15 min for one email from anywhere (stops guessing spread over many addresses).
@@ -360,7 +395,8 @@ function createApp(db, opts = {}) {
   });
 
   // ---------- users (admin) ----------
-  app.get('/api/users', requireRole('admin', 'advisor'), (req, res) => {
+  // Staff list with emails and phone numbers: admins only.
+  app.get('/api/users', requireRole('admin'), (req, res) => {
     const rows = q('SELECT * FROM users ORDER BY role, name').all();
     res.json({ users: rows.map(publicUser) });
   });
@@ -382,6 +418,7 @@ function createApp(db, opts = {}) {
   app.patch('/api/users/:id', requireRole('admin'), async (req, res) => {
     const user = q('SELECT * FROM users WHERE id = ?').get(Number(req.params.id));
     if (!user) return bad(res, 'User not found.', 404);
+    const origEmail = String(user.email || '').toLowerCase();
     const b = req.body;
     if (b.email != null) {
       const email = str(b.email, 200);
@@ -395,14 +432,26 @@ function createApp(db, opts = {}) {
     if (b.role != null) {
       if (!['admin', 'advisor', 'driver'].includes(b.role)) return bad(res, 'Pick a role.');
       if (user.id === req.user.id && b.role !== 'admin') return bad(res, "You can't remove your own admin access.");
+      if (b.role !== 'admin' && user.super_admin && !isSuper(req.user)) return bad(res, 'Only a super admin can change a super admin.', 403);
       user.role = b.role;
+      if (user.role !== 'admin') user.super_admin = 0;
+    }
+    if (b.super_admin != null) {
+      if (!isSuper(req.user)) return bad(res, 'Only a super admin can give or remove super admin.', 403);
+      if (user.id === req.user.id && !b.super_admin) return bad(res, "You can't remove your own super admin access.");
+      if (b.super_admin && user.role !== 'admin') return bad(res, 'Only admins can be super admins.');
+      user.super_admin = b.super_admin ? 1 : 0;
+    }
+    const emailChanged = b.email != null && String(b.email).trim().toLowerCase() !== origEmail;
+    if ((b.active != null || b.password || emailChanged) && user.super_admin && user.id !== req.user.id && !isSuper(req.user)) {
+      return bad(res, "Only a super admin can change another super admin's sign-in.", 403);
     }
     if (b.active != null) {
       if (user.id === req.user.id && !b.active) return bad(res, "You can't deactivate yourself.");
       user.active = b.active ? 1 : 0;
     }
-    q('UPDATE users SET name=?, email=?, phone=?, role=?, active=? WHERE id=?')
-      .run(user.name, user.email, user.phone, user.role, user.active, user.id);
+    q('UPDATE users SET name=?, email=?, phone=?, role=?, active=?, super_admin=? WHERE id=?')
+      .run(user.name, user.email, user.phone, user.role, user.active, user.super_admin ? 1 : 0, user.id);
     if (b.password) {
       const err = validatePassword(b.password);
       if (err) return bad(res, err);
@@ -717,7 +766,9 @@ function createApp(db, opts = {}) {
                       (SELECT COUNT(*) FROM rides r WHERE r.driver_id = u.id AND r.status IN ('assigned','en_route','onboard')) AS open_rides
                     FROM users u LEFT JOIN vehicles v ON v.id = u.vehicle_id
                     WHERE u.role = 'driver' AND u.active = 1 ORDER BY u.on_duty DESC, u.name`).all();
-    res.json({ drivers: rows.map((u) => ({ ...publicUser(u), vehicle_name: u.vehicle_name, open_rides: u.open_rides })) });
+    // Advisors and drivers see a driver's name and phone (to call them), not their sign-in email.
+    const admin = req.user.role === 'admin';
+    res.json({ drivers: rows.map((u) => { const d = { ...publicUser(u), vehicle_name: u.vehicle_name, open_rides: u.open_rides }; if (!admin) delete d.email; return d; }) });
   });
 
   // ---------- rides ----------
@@ -1039,6 +1090,7 @@ function createApp(db, opts = {}) {
       if ((k === 'dealer_lat' || k === 'dealer_lng') && Number.isNaN(Number(v))) return bad(res, 'Latitude/longitude must be numbers.');
       if (YES_NO_SETTINGS.includes(k)) v = req.body[k] && req.body[k] !== '0' ? '1' : '0';
       if (k === 'look' && !['classic', 'corwin'].includes(v)) return bad(res, 'Pick Classic or Corwin.');
+      if (k === 'discord_invite' && v && !/^https:\/\/(discord\.gg|(www\.)?discord\.com\/invite)\/[\w-]+$/.test(v.trim())) return bad(res, 'Use a Discord invite link like https://discord.gg/abc123.');
       if ((k === 'brand_color' || k === 'brand_dark') && !/^#[0-9a-f]{6}$/i.test(v)) return bad(res, 'Colors must look like #eb0a1e.');
       if (k === 'timezone') { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); } catch { return bad(res, 'Unknown time zone.'); } }
       if (k === 'auto_end_shift' || k === 'auto_sign_out' || k === 'clear_customer_info' || k === 'backup_time') {
@@ -1465,6 +1517,65 @@ function createApp(db, opts = {}) {
   app.delete('/api/server/restore', requireRole('admin'), (req, res) => {
     if (!needBackups(res)) return;
     opts.backups.cancelRestore(); res.json({ ok: true });
+  });
+
+  // ---------- Help & suggestions (Discord) ----------
+  // Staff send help requests, ideas and problems from any page. They're saved here and, if a
+  // Discord webhook is set (Admin → Settings), posted to that Discord channel. The webhook
+  // address is a secret: it's never sent to browsers.
+  const KINDS = { help: ['🙋 Help request', 0x1a73e8], idea: ['💡 Suggestion', 0x0f8a3c], problem: ['🐞 Problem', 0xeb0a1e] };
+  const WEBHOOK_RE = /^https:\/\/((ptb|canary)\.)?discord(app)?\.com\/api\/webhooks\/\d+\/[\w-]+$/;
+  const feedbackHits = new Map();
+  async function postToDiscord({ kind, message, from, page }) {
+    const hook = getSettings().discord_webhook;
+    if (!hook) return { sent: false, error: null };
+    const [title, color] = KINDS[kind] || KINDS.help;
+    const body = {
+      username: 'Shuttle website', allowed_mentions: { parse: [] }, // never ping @everyone
+      embeds: [{ title, description: message.slice(0, 3900), color, timestamp: new Date().toISOString(),
+        fields: [{ name: 'From', value: from.slice(0, 200), inline: true }, ...(page ? [{ name: 'Page', value: page.slice(0, 200), inline: true }] : [])],
+        footer: { text: getSettings().dealer_name || 'Shuttle' } }],
+    };
+    try {
+      const r = await (opts.discordFetch || fetch)(hook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(8000) });
+      if (!r.ok) throw new Error(`Discord answered ${r.status}`);
+      return { sent: true, error: null };
+    } catch (e) { return { sent: false, error: e.message }; }
+  }
+  app.post('/api/feedback', requireRole(), async (req, res) => {
+    const kind = KINDS[req.body.kind] ? req.body.kind : 'help';
+    const message = str(req.body.message, 2000);
+    if (!message || message.length < 3) return bad(res, 'Type a message first.');
+    const hits = (feedbackHits.get(req.user.id) || []).filter((t) => Date.now() - t < 3600000);
+    if (hits.length >= 10) return bad(res, 'That’s a lot of messages in an hour. Try again a bit later.', 429);
+    hits.push(Date.now()); feedbackHits.set(req.user.id, hits);
+    const page = str(req.body.page, 200);
+    const from = `${req.user.name} (${req.user.role})`;
+    const out = await postToDiscord({ kind, message, from, page });
+    q('INSERT INTO feedback (user_id, kind, message, page, sent, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(req.user.id, kind, message, page, out.sent ? 1 : 0, out.error, now());
+    if (out.error) console.error(new Date().toLocaleString(), '[feedback] Could not post to Discord:', out.error);
+    res.status(201).json({ ok: true, sent_to_discord: out.sent });
+  });
+  app.get('/api/feedback', requireRole('admin'), (req, res) => {
+    const s = getSettings(); const hook = s.discord_webhook || '';
+    res.json({
+      webhook_set: !!hook, webhook_hint: hook ? `…/${hook.split('/').pop().slice(-4)}` : null, invite: s.discord_invite || '',
+      items: q(`SELECT f.*, u.name AS user_name, u.role AS user_role FROM feedback f LEFT JOIN users u ON u.id = f.user_id ORDER BY f.id DESC LIMIT 50`).all(),
+    });
+  });
+  app.put('/api/feedback/webhook', requireRole('admin'), (req, res) => {
+    const hook = String(req.body.webhook || '').trim();
+    if (hook && !WEBHOOK_RE.test(hook)) return bad(res, 'Paste a Discord webhook link (it starts with https://discord.com/api/webhooks/).');
+    if (hook) q("INSERT INTO settings (key, value) VALUES ('discord_webhook', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(hook);
+    else q("DELETE FROM settings WHERE key = 'discord_webhook'").run();
+    res.json({ ok: true, webhook_set: !!hook });
+  });
+  app.post('/api/feedback/test', requireRole('admin'), async (req, res) => {
+    if (!getSettings().discord_webhook) return bad(res, 'Add the Discord webhook link first.');
+    const out = await postToDiscord({ kind: 'help', message: 'Test message from the shuttle website. Help & suggestions are connected. ✅', from: `${req.user.name} (admin)`, page: 'Admin → Settings' });
+    if (!out.sent) return bad(res, `Discord didn't accept it: ${out.error}`, 502);
+    res.json({ ok: true });
   });
 
   // ---------- QR codes + share links ----------

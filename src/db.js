@@ -98,11 +98,22 @@ function openDb(file) {
   addColumn('rides', 'urgent_reason', 'TEXT'); // why an advisor made the ride urgent
   addColumn('rides', 'city', 'TEXT');          // for reports; kept after the nightly customer-info clear
   addColumn('rides', 'est_miles', 'REAL');     // estimated round trip dealership <-> customer
+  addColumn('users', 'super_admin', 'INTEGER NOT NULL DEFAULT 0'); // can use the Server page
   addColumn('users', 'last_heading', 'REAL');  // direction of travel, degrees (from the phone's GPS)
   addColumn('users', 'last_speed', 'REAL');    // metres per second
   addColumn('users', 'route_json', 'TEXT');    // the driver's planned route (stops in order + path)
   addColumn('users', 'reset_requested_at', 'TEXT'); // set when someone taps "Forgot password?"
   db.exec(`
+    CREATE TABLE IF NOT EXISTS feedback (      -- Help & suggestions from staff (also sent to Discord)
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      kind       TEXT NOT NULL,
+      message    TEXT NOT NULL,
+      page       TEXT,
+      sent       INTEGER NOT NULL DEFAULT 0,
+      error      TEXT,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS driver_days (   -- miles and moving time from drivers' GPS, per day
       driver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       day       TEXT NOT NULL,

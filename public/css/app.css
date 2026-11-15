@@ -272,6 +272,35 @@ th { font-size: .78rem; text-transform: uppercase; color: var(--muted); letter-s
 .taco-toast { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); z-index: 4001; background: #ffcc33; color: #3b2300;
   font-weight: 800; font-size: 1.15rem; padding: .6rem 1.1rem; border-radius: 99px; box-shadow: 0 8px 24px rgba(0,0,0,.25); pointer-events: none; transition: opacity .6s; }
 .taco-toast.bye { opacity: 0; }
+.b-super { background: #fff4cc; color: #6b4e00; }
+/* QR codes & links page */
+.qr-hero { display: grid; grid-template-columns: minmax(240px, 320px) 1fr; gap: 1.5rem; align-items: center; margin-bottom: 1.2rem; }
+@media (max-width: 760px) { .qr-hero { grid-template-columns: 1fr; } }
+.qr-sign { background: #fff; color: #111; border-radius: 16px; overflow: hidden; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.18); border: 1px solid #e5e7eb; }
+.qr-sign-top { background: var(--brand-dark, #111); color: #fff; padding: .7rem .6rem; border-bottom: 5px solid var(--brand, #eb0a1e); }
+.qr-sign-top b { display: block; letter-spacing: .14em; text-transform: uppercase; font-size: .9rem; }
+.qr-sign-top span { font-size: .68rem; letter-spacing: .14em; text-transform: uppercase; opacity: .8; }
+.qr-sign-q { font-size: 1.5rem; font-weight: 800; margin: .7rem 0 .2rem; }
+.qr-sign img { width: 72%; max-width: 230px; display: block; margin: 0 auto; image-rendering: pixelated; }
+.qr-sign-hint { font-size: .85rem; font-weight: 700; padding: .3rem 0 .9rem; color: #333; }
+.qr-section { margin: 1.4rem 0 .7rem; font-size: 1.1rem; }
+.qr-staff { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+.qr-card { display: flex; flex-direction: column; gap: .7rem; }
+.qr-card-head { display: flex; gap: .7rem; align-items: center; }
+.qr-card-head h3 { margin: 0; font-size: 1.05rem; }
+.qr-icon { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; font-size: 1.3rem; background: var(--subtle); flex: none; }
+.qr-frame { background: #fff; border-radius: 14px; padding: .8rem; border: 1px solid var(--line); display: grid; place-items: center; }
+.qr-frame img { width: 100%; max-width: 200px; image-rendering: pixelated; }
+.link-pill { display: flex; align-items: center; gap: .4rem; background: var(--subtle); border: 1px solid var(--line); border-radius: 10px; padding: .25rem .25rem .25rem .7rem; margin: .5rem 0; }
+.link-pill span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .88rem; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.qr-variants { margin-top: .9rem; }
+.qr-variant { display: flex; gap: .8rem; align-items: center; margin-top: .6rem; }
+.qr-variant img { width: 84px; height: 84px; background: #fff; border-radius: 8px; padding: 4px; border: 1px solid var(--line); image-rendering: pixelated; flex: none; }
+.qr-variant > div { flex: 1; min-width: 0; }
+.seg-3 { grid-template-columns: repeat(3, 1fr); }
+.fb-item { border-bottom: 1px solid var(--line); padding: .55rem 0; }
+.fb-item:last-child { border-bottom: 0; }
+.fb-item p { margin: .2rem 0 0; white-space: pre-wrap; }
 .urgent-why { color: var(--red-fg); font-weight: 600; }
 .review { margin-top: .9rem; padding: .7rem .8rem; border-radius: 10px; background: var(--subtle); display: grid; gap: .2rem; font-size: .95rem; }
 .chosen { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding: .7rem .8rem; border-radius: 10px; background: var(--subtle); }

@@ -18,7 +18,7 @@
     <button data-tab="vehicles">Vehicles</button>
     <button data-tab="links">QR codes &amp; links</button>
     <button data-tab="settings">Settings</button>
-    <button data-tab="server">Server</button>
+    <button data-tab="server" hidden>Server</button>
   </div>
   <div id="resetAlert" class="hidden"></div>
 
@@ -65,7 +65,10 @@
         <button class="btn-block" style="margin-top:1rem">Create account</button>
       </form>
     </div>
-    <div class="card"><h2>Everyone</h2><div class="table-wrap" id="users"></div></div>
+    <div class="card"><div class="card-head"><h2>Everyone</h2><span class="small muted" id="userCount"></span></div>
+      <input type="search" id="userSearch" placeholder="Find a person…" aria-label="Find a person" style="margin-bottom:.6rem">
+      <div class="table-wrap" id="users"></div>
+      <p class="small muted" style="margin-bottom:0">Email, phone, password and access are under <b>Edit</b>.</p></div>
   </section>
 
   <!-- Vehicles -->
@@ -100,12 +103,10 @@
 
   <!-- Links -->
   <section data-pane="links" class="hidden">
-    <div class="card" style="margin-bottom:1rem">
-      <h2>QR codes &amp; links to send out</h2>
-      <p class="muted small">Print these for the service drive or waiting room, or send them by text/email. Each ride also gets its own tracking link — use “Send link / QR” on the ride.</p>
-      <button class="btn-ghost btn-sm no-print" onclick="print()">🖨 Print this page</button>
-    </div>
-    <div class="qr-grid" id="links"></div>
+    <div id="qrFeature"></div>
+    <h2 class="qr-section">For staff</h2>
+    <div class="qr-staff" id="links"></div>
+    <p class="small muted">Each ride also gets its own tracking link for the customer: use <b>Send link / QR</b> on the ride.</p>
   </section>
 
   <!-- Reports -->
@@ -227,6 +228,20 @@
       <div id="lookMsg"></div>
       <button class="btn-block" style="margin-top:.6rem">Save look</button>
     </form>
+    <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
+    <h2>Help &amp; suggestions (Discord)</h2>
+    <p class="small muted" style="margin-top:0">Everyone on staff has a <b>💬 Help</b> button at the top. Messages show up here, and in a Discord channel if you add its webhook.</p>
+    <form id="fbForm">
+      <label>Discord webhook link <span class="small muted" id="fbHookState"></span></label>
+      <input name="webhook" type="password" autocomplete="off" placeholder="https://discord.com/api/webhooks/…">
+      <p class="small muted" style="margin:.25rem 0 0">In Discord: <b>channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL</b>. Kept on the server only; nobody else can see it.</p>
+      <label>Discord invite link (optional)</label>
+      <input name="invite" placeholder="https://discord.gg/…">
+      <p class="small muted" style="margin:.25rem 0 0">Shown as “Join our Discord” in the Help window.</p>
+      <div id="fbMsgBox"></div>
+      <div class="actions" style="margin-top:.5rem"><button>Save</button><button type="button" class="btn-ghost" id="fbTest">Send a test</button><button type="button" class="btn-ghost hidden" id="fbRemove">Remove webhook</button></div>
+    </form>
+    <details style="margin-top:.6rem"><summary class="small">Recent messages</summary><div id="fbList" class="small"></div></details>
     <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
     <h2>Easter egg</h2>
     <label class="check"><input type="checkbox" id="eggOn"> 🌮 Taco rain every Tuesday at noon (for 10 seconds, on every open page)</label>
@@ -392,14 +407,67 @@
   let users = [];
   const genPw = () => Array.from(crypto.getRandomValues(new Uint8Array(10)), (b) => 'abcdefghjkmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ23456789'[b % 54]).join('');
   $('#genPw').onclick = () => { $('#userForm').elements.password.value = genPw(); };
+  // The list shows only name, role and status; contact details and account actions are under Edit.
+  function paintUsers() {
+    const q = ($('#userSearch').value || '').trim().toLowerCase();
+    const shown = users.filter((u) => !q || [u.name, u.email, ROLE[u.role], u.phone].some((v) => String(v || '').toLowerCase().includes(q)));
+    $('#userCount').textContent = `${users.filter((u) => u.active).length} active · ${users.length} total`;
+    $('#users').innerHTML = shown.length ? `<table><tr><th>Name</th><th>Role</th><th>Status</th><th></th></tr>
+      ${shown.map((u) => `<tr data-id="${u.id}"><td><b>${esc(u.name)}</b>${u.id === me.id ? ' <span class="small muted">(you)</span>' : ''}</td><td>${ROLE[u.role]}${u.super_admin ? ' <span class="badge b-super">⭐ Super</span>' : ''}</td>
+        <td>${u.active ? '<span class="badge s-completed">Active</span>' : '<span class="badge s-cancelled">Disabled</span>'}${u.reset_requested_at ? ' <span class="badge s-en_route">🔑 Forgot password</span>' : ''}</td>
+        <td style="text-align:right"><button class="btn-ghost btn-sm" data-edit>Edit</button></td></tr>`).join('')}</table>`
+      : '<div class="empty">No one matches.</div>';
+  }
   async function loadUsers() {
     ({ users } = await api('/api/users'));
-    $('#users').innerHTML = `<table><tr><th>Name</th><th>Email (sign-in)</th><th>Role</th><th>Status</th><th></th></tr>
-      ${users.map((u) => `<tr data-id="${u.id}"><td>${esc(u.name)}<br><span class="small muted">${esc(u.phone || '')}</span></td><td>${esc(u.email)}</td>
-        <td>${ROLE[u.role]}</td><td>${u.active ? '<span class="badge s-completed">Active</span>' : '<span class="badge s-cancelled">Disabled</span>'}${u.reset_requested_at ? '<br><span class="badge s-en_route">🔑 Forgot password</span>' : ''}</td>
-        <td style="white-space:nowrap"><button class="btn-ghost btn-sm" data-edit>Edit</button> ${u.active ? `<button class="${u.reset_requested_at ? '' : 'btn-ghost '}btn-sm" data-link>Send reset link</button>` : ''} <button class="btn-ghost btn-sm" data-reset>Set password</button>
-        ${u.id !== me.id ? `<button class="btn-ghost btn-sm" data-toggle>${u.active ? 'Disable' : 'Enable'}</button>` : ''}</td></tr>`).join('')}</table>`;
+    paintUsers();
     showResetAlert();
+  }
+  $('#userSearch').oninput = paintUsers;
+  // Edit: details, sign-in help and access for one person.
+  function editUser(u) {
+    const m = App.modal(`<h2>${esc(u.name)}</h2>
+      <form data-details>
+        <label>Name</label><input name="name" value="${esc(u.name)}" required>
+        <label>Email (their sign-in)</label><input name="email" type="email" value="${esc(u.email)}" required>
+        <label>Mobile phone</label><input name="phone" type="tel" value="${esc(u.phone || '')}">
+        <label>Role</label><select name="role" ${u.id === me.id ? 'disabled' : ''}>${Object.entries(ROLE).map(([k, v]) => `<option value="${k}" ${k === u.role ? 'selected' : ''}>${v}</option>`).join('')}</select>
+        ${me.super_admin && u.role === 'admin' ? `<label class="check" style="margin-top:.6rem"><input type="checkbox" name="super_admin" ${u.super_admin ? 'checked' : ''} ${u.id === me.id ? 'disabled' : ''}> ⭐ Super admin: can open the Server page (updates, restart, backups, logs)</label>` : ''}
+        <div class="msg"></div>
+        <div class="actions"><button>Save</button><button type="button" class="btn-ghost" data-close>Close</button></div>
+      </form>
+      <hr style="border:0;border-top:1px solid var(--line);margin:1rem 0">
+      <h3 style="margin:0 0 .3rem;font-size:1rem">Sign-in &amp; access</h3>
+      ${u.reset_requested_at ? '<div class="alert alert-warn small">🔑 Asked for a password reset.</div>' : ''}
+      <div class="actions">
+        ${u.active ? '<button type="button" class="btn-blue btn-sm" data-act="link">Send reset link</button>' : ''}
+        <button type="button" class="btn-ghost btn-sm" data-act="pw">Set password</button>
+        ${u.id !== me.id ? `<button type="button" class="btn-ghost btn-sm" data-act="toggle">${u.active ? 'Disable account' : 'Enable account'}</button>` : ''}
+      </div>
+      <p class="small muted" style="margin:.4rem 0 0">${u.active ? 'Disabling signs them out everywhere and stops them signing in. Their past rides stay in reports.' : 'This account is disabled and can’t sign in.'}</p>`);
+    const f = $('[data-details]', m);
+    f.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const body = Object.fromEntries(new FormData(f));
+      if (u.id === me.id) delete body.role;
+      if (f.elements.super_admin && !f.elements.super_admin.disabled) body.super_admin = f.elements.super_admin.checked; else delete body.super_admin;
+      try { await api(`/api/users/${u.id}`, { method: 'PATCH', body }); m.remove(); loadUsers(); }
+      catch (err) { App.flash($('.msg', m), err.message); }
+    };
+    m.addEventListener('click', async (ev) => {
+      const b = ev.target.closest('[data-act]'); if (!b) return;
+      try {
+        if (b.dataset.act === 'link') { m.remove(); await sendResetLink(u); }
+        if (b.dataset.act === 'pw') {
+          const pw = prompt(`New password for ${u.name} (8+ characters):`, genPw());
+          if (pw) { await api(`/api/users/${u.id}`, { method: 'PATCH', body: { password: pw } }); App.flash($('.msg', m), `Password updated. ${u.name} signs in with their email and: ${pw}`, true); }
+        }
+        if (b.dataset.act === 'toggle') {
+          if (u.active && !confirm(`Disable ${u.name}? They're signed out everywhere and can't sign in until you enable them again.`)) return;
+          await api(`/api/users/${u.id}`, { method: 'PATCH', body: { active: !u.active } }); m.remove(); loadUsers();
+        }
+      } catch (err) { App.flash($('.msg', m), err.message); }
+    });
   }
 
   // ---------- forgot-password requests ----------
@@ -456,30 +524,9 @@
       e.target.reset(); loadUsers();
     } catch (err) { App.flash($('#userMsg'), err.message); }
   };
-  $('#users').addEventListener('click', async (e) => {
-    const tr = e.target.closest('[data-id]'); if (!tr) return;
-    const u = users.find((x) => x.id === Number(tr.dataset.id));
-    try {
-      if (e.target.closest('[data-toggle]')) { await api(`/api/users/${u.id}`, { method: 'PATCH', body: { active: !u.active } }); loadUsers(); }
-      if (e.target.closest('[data-link]')) await sendResetLink(u);
-      if (e.target.closest('[data-reset]')) {
-        const pw = prompt(`New password for ${u.name} (8+ characters):`, genPw());
-        if (pw) { await api(`/api/users/${u.id}`, { method: 'PATCH', body: { password: pw } }); alert(`Password updated. ${u.name} signs in with ${u.email} / ${pw}`); }
-      }
-      if (e.target.closest('[data-edit]')) {
-        const m = App.modal(`<h2>Edit ${esc(u.name)}</h2><form>
-          <label>Name</label><input name="name" value="${esc(u.name)}">
-          <label>Email (sign-in)</label><input name="email" type="email" value="${esc(u.email)}">
-          <label>Phone</label><input name="phone" value="${esc(u.phone || '')}">
-          <label>Role</label><select name="role">${Object.entries(ROLE).map(([k, v]) => `<option value="${k}" ${k === u.role ? 'selected' : ''}>${v}</option>`).join('')}</select>
-          <div class="msg"></div><div class="actions"><button>Save</button><button type="button" class="btn-ghost" data-close>Cancel</button></div></form>`);
-        $('form', m).onsubmit = async (ev) => {
-          ev.preventDefault();
-          try { await api(`/api/users/${u.id}`, { method: 'PATCH', body: Object.fromEntries(new FormData(ev.target)) }); m.remove(); loadUsers(); }
-          catch (err) { App.flash($('.msg', m), err.message); }
-        };
-      }
-    } catch (err) { alert(err.message); }
+  $('#users').addEventListener('click', (e) => {
+    const tr = e.target.closest('[data-id]'); if (!tr || !e.target.closest('[data-edit]')) return;
+    editUser(users.find((x) => x.id === Number(tr.dataset.id)));
   });
 
   // ---------- vehicles ----------
@@ -520,19 +567,86 @@
   });
 
   // ---------- links ----------
+  // QR codes & links: the customer code is featured (with a printable sign); staff codes below.
+  const qrImg = (url, size = 480) => `/api/qr?size=${size}&text=${encodeURIComponent(url)}`;
+  const shortUrl = (url) => url.replace(/^https?:\/\//, '');
+  const STAFF = {
+    login: { icon: '🔐', title: 'Staff sign-in', who: 'Everyone on the team signs in here.' },
+    driver: { icon: '🚐', title: 'Driver app', who: 'For drivers. Add it to the phone’s home screen for ride alerts.' },
+    advisor: { icon: '🧾', title: 'Advisor desk', who: 'For service advisors booking rides.' },
+  };
+  const linkPill = (url) => `<div class="link-pill"><span title="${esc(url)}">${esc(shortUrl(url))}</span><button type="button" class="btn-ghost btn-sm" data-copy="${esc(url)}">Copy</button></div>`;
   async function loadLinks() {
     const { links } = await api('/api/links');
-    $('#links').innerHTML = links.map((l) => `<div class="card">
-      <h3>${esc(l.label)}</h3>
-      <img src="/api/qr?size=480&text=${encodeURIComponent(l.url)}" alt="QR code for ${esc(l.label)}">
-      <div class="small" style="word-break:break-all;margin:.4rem 0">${esc(l.url)}</div>
-      <div class="actions no-print" style="justify-content:center"><button class="btn-blue btn-sm" data-url="${esc(l.url)}" data-label="${esc(l.label)}">Send / share</button>
-      <a class="btn btn-ghost btn-sm" download="${l.key}-qr.png" href="/api/qr?size=1024&text=${encodeURIComponent(l.url)}">⬇ Download</a></div></div>`).join('');
+    const req = links.find((l) => l.key === 'request');
+    const dealer = App.settings.dealer_name || 'Dealership';
+    const variants = [['Pick up only', `${req.url}?type=pickup`, '⬆'], ['Drop off only', `${req.url}?type=dropoff`, '⬇']];
+    $('#qrFeature').innerHTML = `<div class="card qr-hero">
+        <div class="qr-sign" aria-label="Preview of the printable sign">
+          <div class="qr-sign-top"><b>${esc(dealer)}</b><span>Service shuttle</span></div>
+          <div class="qr-sign-q">Need a ride?</div>
+          <img src="${qrImg(req.url)}" alt="QR code to request a shuttle ride">
+          <div class="qr-sign-hint">Scan with your phone camera</div>
+        </div>
+        <div class="qr-hero-text">
+          <span class="badge s-completed">For customers</span>
+          <h2 style="margin:.4rem 0 .3rem">Request a shuttle ride</h2>
+          <p class="muted" style="margin-top:0">Put this on the service desk and in the waiting room, or text it to customers. They choose pick up or drop off, then fill in a few quick steps.</p>
+          ${linkPill(req.url)}
+          <div class="actions">
+            <button type="button" class="btn-lg" data-sign>🖨 Print a sign</button>
+            <button type="button" class="btn-blue" data-share="${esc(req.url)}" data-label="Request a shuttle ride">Send / share</button>
+            <a class="btn btn-ghost" download="request-ride-qr.png" href="${qrImg(req.url, 1024)}">⬇ Download QR</a>
+          </div>
+          <details class="qr-variants"><summary class="small">Links that skip the first question</summary>
+            ${variants.map(([t, u, i]) => `<div class="qr-variant"><img src="${qrImg(u, 240)}" alt="QR code: ${t}"><div><b>${i} ${t}</b>${linkPill(u)}
+              <div class="actions" style="margin-top:.3rem"><button type="button" class="btn-ghost btn-sm" data-share="${esc(u)}" data-label="${t}">Send / share</button>
+              <a class="btn btn-ghost btn-sm" download="request-${t.split(' ')[0].toLowerCase()}-qr.png" href="${qrImg(u, 1024)}">⬇ QR</a></div></div></div>`).join('')}
+          </details>
+        </div>
+      </div>`;
+    $('#links').innerHTML = links.filter((l) => STAFF[l.key]).map((l) => {
+      const s = STAFF[l.key];
+      return `<div class="card qr-card">
+        <div class="qr-card-head"><span class="qr-icon">${s.icon}</span><div><h3>${s.title}</h3><div class="small muted">${s.who}</div></div></div>
+        <div class="qr-frame"><img src="${qrImg(l.url)}" alt="QR code for ${esc(s.title)}"></div>
+        ${linkPill(l.url)}
+        <div class="actions no-print"><button type="button" class="btn-blue btn-sm" data-share="${esc(l.url)}" data-label="${esc(s.title)}">Send / share</button>
+          <a class="btn btn-ghost btn-sm" download="${l.key}-qr.png" href="${qrImg(l.url, 1024)}">⬇ Download</a></div>
+      </div>`;
+    }).join('');
   }
   loaders.links = loadLinks;
-  $('#links').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-url]'); if (!b) return;
-    App.share({ title: b.dataset.label, url: b.dataset.url });
+  // A one-page sign for the counter or waiting room.
+  function printSign(url) {
+    const dealer = App.settings.dealer_name || 'Dealership';
+    const phone = App.settings.dealer_phone || '';
+    const w = window.open('', '_blank', 'width=820,height=1060');
+    if (!w) return alert('Allow pop-ups for this site to print the sign.');
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Shuttle sign</title><style>
+      @page { size: letter; margin: 0.5in; } body { font-family: Arial, Helvetica, sans-serif; text-align: center; color: #111; margin: 0; }
+      .band { background: #111; color: #fff; padding: 28px 20px; border-bottom: 10px solid #eb0a1e; }
+      .band b { display: block; font-size: 30px; letter-spacing: 6px; text-transform: uppercase; } .band span { letter-spacing: 3px; text-transform: uppercase; font-size: 15px; opacity: .85; }
+      h1 { font-size: 54px; margin: 34px 0 6px; } p.sub { font-size: 22px; margin: 0 0 24px; color: #333; }
+      img { width: 4.2in; height: 4.2in; } .scan { font-size: 24px; font-weight: bold; margin: 14px 0 6px; } .url { font-size: 18px; color: #333; }
+      .foot { margin-top: 26px; font-size: 18px; color: #333; }</style></head><body>
+      <div class="band"><b>${esc(dealer)}</b><span>Service shuttle</span></div>
+      <h1>Need a ride?</h1><p class="sub">We'll pick you up or take you home while we take care of your vehicle.</p>
+      <img src="${location.origin}${qrImg(url, 1024)}" alt="QR code"><div class="scan">📱 Scan with your phone camera</div>
+      <div class="url">${esc(shortUrl(url))}</div>
+      ${phone ? `<div class="foot">Questions? Call ${esc(phone)}</div>` : ''}
+      <script>document.querySelector('img').onload = () => setTimeout(() => print(), 150);<\/script></body></html>`);
+    w.document.close();
+  }
+  $('[data-pane="links"]').addEventListener('click', async (e) => {
+    const share = e.target.closest('[data-share]');
+    if (share) return App.share({ title: share.dataset.label, url: share.dataset.share });
+    if (e.target.closest('[data-sign]')) { const { links } = await api('/api/links'); return printSign(links.find((l) => l.key === 'request').url); }
+    const copy = e.target.closest('[data-copy]');
+    if (copy) {
+      try { await navigator.clipboard.writeText(copy.dataset.copy); } catch { prompt('Copy this link:', copy.dataset.copy); return; }
+      copy.textContent = 'Copied ✓'; setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
+    }
   });
 
   // ---------- reports ----------
@@ -900,6 +1014,35 @@
       setTimeout(() => location.reload(), 900);
     } catch (err) { App.flash($('#lookMsg'), err.message); }
   };
+  // ---------- help & suggestions (Discord) ----------
+  const fbF = $('#fbForm');
+  const KIND_LABEL = { help: '🙋 Help', idea: '💡 Idea', problem: '🐞 Problem' };
+  async function loadFeedback() {
+    const d = await api('/api/feedback');
+    $('#fbHookState').textContent = d.webhook_set ? `(saved ${d.webhook_hint})` : '(not set)';
+    fbF.elements.webhook.value = ''; fbF.elements.webhook.placeholder = d.webhook_set ? 'Saved. Paste a new link to replace it.' : 'https://discord.com/api/webhooks/…';
+    fbF.elements.invite.value = d.invite;
+    $('#fbRemove').classList.toggle('hidden', !d.webhook_set);
+    $('#fbList').innerHTML = d.items.length ? d.items.map((i) => `<div class="fb-item"><b>${KIND_LABEL[i.kind] || esc(i.kind)}</b> · ${esc(i.user_name || 'Someone')} · ${fmtTime(i.created_at)}${i.sent ? ' · sent to Discord' : i.error ? ` · <span class="late">not sent (${esc(i.error)})</span>` : ''}
+      <p>${esc(i.message)}</p></div>`).join('') : '<div class="empty">No messages yet.</div>';
+  }
+  fbF.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      if (fbF.elements.webhook.value.trim()) await api('/api/feedback/webhook', { method: 'PUT', body: { webhook: fbF.elements.webhook.value.trim() } });
+      await api('/api/settings', { method: 'PATCH', body: { discord_invite: fbF.elements.invite.value.trim() } });
+      App.flash($('#fbMsgBox'), 'Saved.', true); loadFeedback();
+    } catch (err) { App.flash($('#fbMsgBox'), err.message); }
+  };
+  $('#fbTest').onclick = async () => {
+    try { await api('/api/feedback/test', { body: {} }); App.flash($('#fbMsgBox'), 'Test sent. Check your Discord channel.', true); }
+    catch (err) { App.flash($('#fbMsgBox'), err.message); }
+  };
+  $('#fbRemove').onclick = async () => {
+    if (!confirm('Remove the Discord webhook? Messages will still be saved here.')) return;
+    await api('/api/feedback/webhook', { method: 'PUT', body: { webhook: '' } }); loadFeedback();
+  };
+
   // ---------- easter egg ----------
   async function loadEgg() { const { settings } = await api('/api/me'); $('#eggOn').checked = settings.easter_egg !== '0'; }
   $('#eggOn').onchange = async (e) => {
@@ -909,7 +1052,7 @@
     } catch (err) { App.flash($('#eggMsg'), err.message); e.target.checked = !e.target.checked; }
   };
   $('#eggTry').onclick = () => App.tacoRain(10);
-  loaders.settings = () => { loadSms(); loadLook(); loadEgg(); return loadSettings(); };
+  loaders.settings = () => { loadSms(); loadLook(); loadEgg(); loadFeedback(); return loadSettings(); };
   sf.onsubmit = async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(sf));
@@ -919,6 +1062,8 @@
     catch (err) { App.flash($('#setMsg'), err.message); }
   };
 
+  // Server tab: super admins only.
+  if (me.super_admin) $('[data-tab="server"]').hidden = false; else delete loaders.server;
   show(location.hash.slice(1) in loaders ? location.hash.slice(1) : 'dash');
   checkResets();
   setInterval(() => { if (!$('[data-pane="dash"]').classList.contains('hidden') && !document.hidden) loadDash().catch(() => {}); }, 15000);
