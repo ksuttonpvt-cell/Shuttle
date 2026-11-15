@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.5.2",
+    "date": "2026-11-15",
+    "title": "Bug fixes from a full sweep",
+    "changes": [
+      "Editing a ride that's already urgent now keeps the “Why is it urgent?” box required.",
+      "Closing a pop-up window with Escape, the backdrop or its own buttons now always cleans up and puts the keyboard back where you were.",
+      "Full check of every page, for every role, on phone and computer, light and dark, in both looks, with the site on 4 cores: no other problems found."
+    ]
+  },
+  {
     "version": "2.5.1",
     "date": "2026-11-15",
     "title": "Tidier shutdowns",

@@ -161,7 +161,7 @@ const App = (() => {
     $('#pwForm', m).onsubmit = async (e) => {
       e.preventDefault();
       const f = Object.fromEntries(new FormData(e.target));
-      try { await api('/api/me/password', { body: f }); flash($('.msg', m), 'Password changed.', true); setTimeout(() => m.remove(), 900); }
+      try { await api('/api/me/password', { body: f }); flash($('.msg', m), 'Password changed.', true); setTimeout(() => m.close(), 900); }
       catch (err) { flash($('.msg', m), err.message); }
     };
   }
@@ -171,7 +171,14 @@ const App = (() => {
     back.className = 'modal-back';
     back.innerHTML = `<div class="modal">${html}</div>`;
     back.setAttribute('role', 'dialog'); back.setAttribute('aria-modal', 'true');
-    const close = () => { back.remove(); document.removeEventListener('keydown', onKey); if (opener && opener.isConnected) opener.focus(); };
+    // However it's closed (button, backdrop, Escape, or by code), it says so with a "close" event.
+    let closed = false;
+    const close = () => {
+      if (closed) return; closed = true;
+      back.remove(); document.removeEventListener('keydown', onKey); if (opener && opener.isConnected) opener.focus();
+      back.dispatchEvent(new Event('close'));
+    };
+    back.close = close;
     // Escape closes the top-most window.
     const onKey = (e) => { if (e.key === 'Escape' && back.isConnected && back === [...document.querySelectorAll('.modal-back')].pop()) close(); };
     const opener = document.activeElement;
@@ -396,8 +403,8 @@ const App = (() => {
           <div class="actions"><button class="btn-dark">Cancel ride</button><button type="button" class="btn-ghost" data-close>Keep ride</button></div>
         </form>`);
       const form = $('form', m);
-      const done = (v) => { m.remove(); resolve(v); };
-      m.addEventListener('click', (e) => { if (e.target === m || e.target.closest('[data-close]')) resolve(false); });
+      const done = (v) => { resolve(v); m.close(); };
+      m.addEventListener('close', () => resolve(false)); // closed without cancelling (also by Escape)
       form.onsubmit = async (e) => {
         e.preventDefault();
         const pick = form.elements.pick.value;
