@@ -98,6 +98,10 @@ function openDb(file) {
   addColumn('rides', 'urgent_reason', 'TEXT'); // why an advisor made the ride urgent
   addColumn('rides', 'city', 'TEXT');          // for reports; kept after the nightly customer-info clear
   addColumn('rides', 'est_miles', 'REAL');     // estimated round trip dealership <-> customer
+  addColumn('vehicles', 'fuel', 'TEXT');                         // gas, hybrid, plugin, electric
+  addColumn('vehicles', 'use', "TEXT NOT NULL DEFAULT 'shuttle'"); // shuttle, or loaner (not for the shuttle)
+  addColumn('vehicles', 'fleet_id', 'TEXT');                     // ID from the dealership's vehicle list
+  addColumn('vehicles', 'fleet_status', 'TEXT');                 // status on that list (Loaned, Body Shop, ...)
   addColumn('users', 'super_admin', 'INTEGER NOT NULL DEFAULT 0'); // can use the Server page
   addColumn('users', 'last_heading', 'REAL');  // direction of travel, degrees (from the phone's GPS)
   addColumn('users', 'last_speed', 'REAL');    // metres per second

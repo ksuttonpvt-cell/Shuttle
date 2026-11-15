@@ -56,6 +56,11 @@ Every staff page has a **💬 Help** button: pick Help, Idea or Problem and type
 - **Logs** are saved per day in `data/logs` and kept 14 days. Passwords are never written to them.
 - **No black window:** `start-shuttle-hidden.vbs` starts everything hidden (good for Task Scheduler or the Startup folder); use Shuttle Control to see or stop it.
 
+### Vehicles: shuttles vs loaners, fuel, and importing the fleet list
+
+- Each vehicle has a **fuel type** (Gas, Hybrid, Plug-in hybrid, Electric) and a **use**: **Shuttle** or **Loaner**. Drivers can only start a shift in an active **Shuttle**; loaners never show up for them.
+- **Import vehicle list** (Admin → Vehicles) takes the dealership's fleet export (.xlsx or .csv with VIN, Plate, Make, Model, Year, Odometer, Status). It shows a preview first, then adds new vehicles and updates existing ones by VIN (plate, mileage, status). Fuel is filled in from the model (bZ / 2026 C-HR = electric, PHEV = plug-in, H / Hybrid = hybrid). New vehicles come in as loaners, except service-department ones (status "Service"), which come in as shuttles. Active vehicles (Loaned, Available, On Hold, Service) stay active; Body Shop / Out of Service show as "In shop"; Retired as retired. Vehicles not on the list are never changed, and your Shuttle/Loaner choices, names and seats are kept when you import again.
+
 ### Logins
 Each person has their **own email + password** (8+ characters). Passwords are hashed with scrypt, and sign-in is rate-limited. Admins create accounts and reset passwords, and anyone can change their own password from the top bar.
 

@@ -69,7 +69,7 @@
   // ---------- shift / vehicle / location ----------
   async function drawShift() {
     ({ vehicles } = await api('/api/vehicles'));
-    const usable = vehicles.filter((v) => v.status === 'available');
+    const usable = vehicles.filter((v) => v.status === 'available' && v.use !== 'loaner'); // shuttles only, not loaners
     const veh = vehicles.find((v) => v.id === me.vehicle_id);
     $('#shift').innerHTML = me.on_duty ? `
       <div class="card-head" style="margin:0">
