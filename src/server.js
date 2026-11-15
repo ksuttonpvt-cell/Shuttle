@@ -81,6 +81,9 @@ function primary() {
 
 // One copy of the site (started by the main process).
 function worker() {
+  // If the main process goes away, stop at once (quietly: its log pipe is gone too).
+  for (const out of [process.stdout, process.stderr]) out.on('error', () => {});
+  process.on('disconnect', () => process.exit(0));
   const db = openDb(dbFile); // the main process already brought the database up to date
   runSite(db, { logbook: createLogbook(), bus: createBus() });
 }
