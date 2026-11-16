@@ -76,16 +76,15 @@ function createApp(db, opts = {}) {
   };
   // Visitors reach the site over https through Cloudflare, but the tunnel hands requests
   // to this PC as plain http. Cloudflare says how the visitor connected (CF-Visitor), so
-  // links, QR codes and secure sign-in cookies use https when the visitor did.
+  // links, QR codes and secure sign-in cookies use https when the visitor did. This is
+  // trusted however the tunnel reaches the site (this PC, another PC on the network, a
+  // container): it only changes the links written for that visitor and their own cookie.
   app.use((req, res, next) => {
-    const peer = req.socket.remoteAddress || '';
-    if (peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1') {
-      const visitor = req.get('cf-visitor') || '';
-      const forwarded = (req.get('x-forwarded-proto') || '').split(',')[0].trim();
-      if (/"scheme"\s*:\s*"https"/.test(visitor) || forwarded === 'https') {
-        Object.defineProperty(req, 'protocol', { value: 'https' });
-        Object.defineProperty(req, 'secure', { value: true });
-      }
+    const visitor = req.get('cf-visitor') || '';
+    const forwarded = (req.get('x-forwarded-proto') || '').split(',')[0].trim();
+    if (/"scheme"\s*:\s*"https"/.test(visitor) || forwarded === 'https') {
+      Object.defineProperty(req, 'protocol', { value: 'https' });
+      Object.defineProperty(req, 'secure', { value: true });
     }
     next();
   });
@@ -206,7 +205,10 @@ function createApp(db, opts = {}) {
     return { lat: Number(s.dealer_lat), lng: Number(s.dealer_lng) };
   }
   function baseUrl(req) {
-    return (opts.publicUrl || process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+    let base = (opts.publicUrl || process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get('host')}`).trim().replace(/\/+$/, '');
+    // A web address set as http:// (e.g. in .env) becomes https:// for visitors who came over https.
+    if (req.secure && /^http:\/\//i.test(base)) base = `https://${base.slice(7)}`;
+    return base;
   }
   const publicUser = (u) => u && ({
     id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, active: !!u.active,

@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.7.1",
+    "date": "2026-11-16",
+    "title": "Customer links always use https",
+    "changes": [
+      "QR codes and customer links now always start with https:// for people using the site through its web address. Before, they could start with http://, which adds a redirect step or a “not secure” warning."
+    ]
+  },
+  {
     "version": "2.7.0",
     "date": "2026-11-16",
     "title": "Short customer links and a handier customer page",

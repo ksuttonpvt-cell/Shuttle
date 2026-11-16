@@ -110,3 +110,25 @@ test('guessing tracking codes is cut off', async () => {
   for (let i = 0; i < 41; i++) last = await anon(`/api/public/track/ZZZZZZZ${'23456789ABCDEFGHJKMNPQRSTVWXYZ'[i % 30]}`);
   assert.equal(last.status, 429);
 });
+
+test('links and QR codes use https for https visitors, even if the web address is set as http://', async () => {
+  const { openDb: open } = require('../src/db');
+  const { createApp: make, ensureAdmin: admin1 } = require('../src/app');
+  const db = open(':memory:');
+  admin1(db, { email: 'web@cust.test', password: 'adminpass1', name: 'Web' });
+  const app = make(db, { noTimers: true, publicUrl: 'http://corwinshuttle.example' });
+  const srv = await new Promise((r) => { const x = app.listen(0, () => r(x)); });
+  const b = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    const H = { 'Content-Type': 'application/json', 'CF-Visitor': '{"scheme":"https"}' };
+    const login = await fetch(`${b}/api/login`, { method: 'POST', headers: H, body: JSON.stringify({ email: 'web@cust.test', password: 'adminpass1' }) });
+    const cookie = login.headers.get('set-cookie').split(';')[0];
+    const ride = (await (await fetch(`${b}/api/rides`, { method: 'POST', headers: { ...H, Cookie: cookie }, body: JSON.stringify({ type: 'pickup', customer_name: 'Pat', customer_phone: '3035550101', address: '1 Main', lat: 40.01, lng: -105.27, scheduled_at: new Date(Date.now() + 3600e3).toISOString(), passengers: 1 }) })).json()).ride;
+    assert.equal(ride.track_url, `https://corwinshuttle.example/t/${ride.track_token}`);
+    const png = Buffer.from(await (await fetch(`${b}/api/public/request-qr`, { headers: H })).arrayBuffer());
+    assert.ok(png.equals(await QRCode.toBuffer('HTTPS://CORWINSHUTTLE.EXAMPLE/REQUEST', { width: 320, margin: 2 })), 'the QR code says https');
+    // Without Cloudflare's https signal (someone on the office network), the setting is used as is.
+    const plain = await fetch(`${b}/api/links`, { headers: { Cookie: cookie } });
+    assert.equal(plain.status, 200);
+  } finally { srv.close(); }
+});
