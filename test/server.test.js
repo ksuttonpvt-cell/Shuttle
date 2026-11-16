@@ -155,7 +155,7 @@ test('Admin → Server: status, logs, backups and restart are admin-only and wor
   assert.equal((await admin('/api/settings', { method: 'PATCH', body: { backup_time: 'late' } })).status, 400);
   await admin('/api/settings', { method: 'PATCH', body: { backup_time: '01:00' } });
   const nightly = theApp.locals.nightlyBackup;
-  assert.equal(nightly(new Date('2026-11-16T07:30:00Z')), null, '00:30 Denver: before 1:00');
-  assert.equal(nightly(new Date('2026-11-16T08:05:00Z')).kind, 'daily', '01:05 Denver: made');
-  assert.equal(nightly(new Date('2026-11-16T09:05:00Z')), null, 'once a night');
+  assert.equal(nightly(new Date('2030-01-10T07:30:00Z')), null, '00:30 Denver: before 1:00');
+  assert.equal(nightly(new Date('2030-01-10T08:05:00Z')).kind, 'daily', '01:05 Denver: made');
+  assert.equal(nightly(new Date('2030-01-10T09:05:00Z')), null, 'once a night');
 });

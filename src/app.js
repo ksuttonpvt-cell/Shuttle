@@ -129,7 +129,7 @@ function createApp(db, opts = {}) {
     if (req.method !== 'GET') {
       res.on('finish', () => {
         if (res.statusCode >= 400) return;
-        if (!/^\/api\/driver\/location/.test(req.path)) ridesChanged(); // shared ride lists are rebuilt
+        if (!/^\/api\/(driver\/location|perf)/.test(req.path)) ridesChanged(); // shared ride lists are rebuilt
         const p = req.path;
         if (/^\/api\/(rides|public\/rides|offers|route)/.test(p)) live.soon('rides', 300);
         if (/^\/api\/driver\/location/.test(p)) live.soon('moved', 3000); // vans move: maps only (at most every 3 s)
@@ -1665,6 +1665,63 @@ function createApp(db, opts = {}) {
   });
 
   // Speed test: the page times a few of these. Cloudflare's data center code comes from the CF-Ray header.
+  // ---------- page speed on real devices ----------
+  // Every page reports how long it took to load (see the end of common.js). Only times,
+  // the page (tracking links shortened to /t), the kind of device and network are kept.
+  const PERF_PAGES = { '/': '/', '/admin': '/admin', '/advisor': '/advisor', '/driver': '/driver', '/login': '/login', '/request': '/request' };
+  const PERF_PARTS = ['dns', 'connect', 'tls', 'wait', 'download', 'build', 'ready', 'data', 'tiles'];
+  app.post('/api/perf', (req, res) => {
+    res.status(204).end();
+    const b = req.body && typeof req.body === 'object' ? req.body : {};
+    const p = String(b.page || '');
+    const page = PERF_PAGES[p] || (p.startsWith('/t/') ? '/t' : p.startsWith('/reset/') ? '/reset' : null);
+    if (!page) return;
+    const key = `perf|${clientIp(req)}`;
+    if (limits.count(key, 3600000) >= 120) return; // one device can't flood it
+    limits.hit(key, 3600000);
+    const n = (v) => { const x = Math.round(Number(v)); return Number.isFinite(x) && x >= 0 ? Math.min(x, 600000) : 0; };
+    const word = (v, ok) => (ok.includes(String(v)) ? String(v) : '');
+    const vals = PERF_PARTS.map((k) => n(b[k]));
+    if (!vals[PERF_PARTS.indexOf('ready')]) return;
+    q(`INSERT INTO perf (at, page, role, device, net, proto, nav, ${PERF_PARTS.join(', ')}, tiles_n) VALUES (?, ?, ?, ?, ?, ?, ?, ${PERF_PARTS.map(() => '?').join(', ')}, ?)`)
+      .run(now(), page, req.user ? req.user.role : 'customer', word(b.device, ['phone', 'computer']), word(b.net, ['slow-2g', '2g', '3g', '4g']),
+        word(b.proto, ['h3', 'h2', 'http/1.1']), word(b.type, ['navigate', 'reload', 'back_forward', 'prerender']), ...vals, Math.min(n(b.tiles_n), 500));
+  });
+  app.get('/api/server/perf', requireRole('admin'), (req, res) => {
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 14);
+    const rows = q('SELECT * FROM perf WHERE at >= ? ORDER BY at DESC LIMIT 20000').all(new Date(Date.now() - days * 86400000).toISOString());
+    const pct = (list, p) => { const v = list.filter((x) => x != null).sort((a, c) => a - c); return v.length ? v[Math.min(v.length - 1, Math.floor(p * v.length))] : null; };
+    const sum = (list) => ({ median: pct(list, 0.5), p90: pct(list, 0.9), worst: list.length ? Math.max(...list) : null });
+    const fresh = rows.filter((r) => r.dns > 0 || r.connect > 0); // had to look up the address / connect
+    const parts = {
+      dns: sum(fresh.map((r) => r.dns)), connect: sum(fresh.map((r) => r.connect)), wait: sum(rows.map((r) => r.wait)),
+      download: sum(rows.map((r) => r.download)), build: sum(rows.map((r) => r.build)), ready: sum(rows.map((r) => r.ready)),
+      data: sum(rows.filter((r) => r.data).map((r) => r.data)), tiles: sum(rows.filter((r) => r.tiles_n).map((r) => r.tiles)),
+    };
+    const LABEL = { dns: 'Finding the address (DNS)', connect: 'Connecting', wait: 'Waiting for the shuttle PC', download: 'Downloading', build: 'Building the page', data: 'Loading rides and data', tiles: 'Map images' };
+    const biggest = (r) => {
+      const cand = { dns: r.dns, connect: r.connect, wait: r.wait, download: r.download, build: r.build, data: r.data ? Math.max(0, r.data - r.ready) : 0, tiles: r.tiles_n ? r.tiles : 0 };
+      const k = Object.keys(cand).sort((a, c) => cand[c] - cand[a])[0];
+      return { part: k, label: LABEL[k], ms: cand[k] };
+    };
+    const SLOW = 5000;
+    const slow = rows.filter((r) => Math.max(r.ready, r.data || 0) >= SLOW).slice(0, 25).map((r) => ({
+      at: r.at, page: r.page, role: r.role, device: r.device, net: r.net, proto: r.proto,
+      ready: r.ready, data: r.data, dns: r.dns, connect: r.connect, wait: r.wait, download: r.download, tiles: r.tiles, biggest: biggest(r),
+    }));
+    const blame = {}; for (const s of rows.filter((r) => Math.max(r.ready, r.data || 0) >= SLOW)) { const k = biggest(s).part; blame[k] = (blame[k] || 0) + 1; }
+    const byPage = {};
+    for (const r of rows) (byPage[r.page] = byPage[r.page] || []).push(r.ready);
+    const byDevice = {};
+    for (const r of rows) { const k = `${r.device || 'unknown'}${r.net ? ` · ${r.net}` : ''}`; (byDevice[k] = byDevice[k] || []).push(r.ready); }
+    res.json({
+      days, count: rows.length, slow_ms: SLOW, slow_count: rows.filter((r) => Math.max(r.ready, r.data || 0) >= SLOW).length,
+      parts, labels: LABEL, slow, blame,
+      pages: Object.entries(byPage).map(([page, v]) => ({ page, count: v.length, ...sum(v) })).sort((a, c) => c.count - a.count),
+      devices: Object.entries(byDevice).map(([device, v]) => ({ device, count: v.length, ...sum(v) })).sort((a, c) => c.count - a.count),
+    });
+  });
+
   app.get('/api/server/ping', requireRole('admin'), (req, res) => {
     const ray = String(req.get('cf-ray') || '');
     res.set('Cache-Control', 'no-store').json({ t: Date.now(), colo: ray.includes('-') ? tunnelKit.placeOf(ray.split('-').pop()) : null, via_cloudflare: !!req.get('cf-connecting-ip') });
@@ -1886,16 +1943,33 @@ function createApp(db, opts = {}) {
 
   // ---------- pages ----------
   const pub = path.join(__dirname, '..', 'public');
-  // Pages are never cached, and every script/stylesheet link in them carries a
-  // version stamp that changes on each start. After an update (which restarts the
-  // app) browsers and Cloudflare fetch the new files instead of showing old ones.
-  const assetVersion = opts.assetVersion || Date.now().toString(36);
+  // Pages are never cached. Every script/stylesheet link in them carries a stamp made
+  // from the file's contents, so after an update browsers and Cloudflare fetch only the
+  // files that really changed, and keep using their saved copies of the rest.
+  const leafletDir = path.join(path.dirname(require.resolve('leaflet/package.json')), 'dist');
+  const stamps = new Map();
+  function stampOf(url) {
+    if (!stamps.has(url)) {
+      const file = url.startsWith('/vendor/leaflet/') ? path.join(leafletDir, url.slice('/vendor/leaflet/'.length)) : path.join(pub, url);
+      let v = opts.assetVersion || 'x';
+      try { v = crypto.createHash('sha1').update(fs.readFileSync(file)).digest('hex').slice(0, 10); } catch { /* missing: keep the fallback */ }
+      stamps.set(url, v);
+    }
+    return stamps.get(url);
+  }
+  // Early hints in each page: start connecting to the map image server, and fetch the
+  // main fonts while the stylesheet is still on its way.
+  const FONT_PRELOAD = ['/vendor/fonts/barlow/barlow-latin-400-normal.woff2', '/vendor/fonts/barlow/barlow-latin-700-normal.woff2']
+    .map((f) => `<link rel="preload" href="${f}" as="font" type="font/woff2" crossorigin>`).join('');
+  const MAP_HINT = '<link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin><link rel="dns-prefetch" href="https://tile.openstreetmap.org">';
   const pageCache = new Map();
   const page = (file) => (req, res, next) => {
     let html = pageCache.get(file);
     if (!html) {
-      try { html = require('node:fs').readFileSync(path.join(pub, file), 'utf8'); } catch (e) { return next(e); }
-      html = html.replace(/((?:src|href)="\/(?:js|css|vendor\/leaflet)\/[^"?]+\.(?:js|css))"/g, `$1?v=${assetVersion}"`);
+      try { html = fs.readFileSync(path.join(pub, file), 'utf8'); } catch (e) { return next(e); }
+      html = html.replace(/((?:src|href)="(\/(?:js|css|vendor\/leaflet)\/[^"?]+\.(?:js|css)))"/g, (m, attr, url) => `${attr}?v=${stampOf(url)}"`);
+      const hints = (html.includes('/vendor/leaflet/') ? MAP_HINT : '') + FONT_PRELOAD;
+      html = html.replace('<meta charset="utf-8">', `<meta charset="utf-8">${hints}`);
       pageCache.set(file, html);
     }
     const s = getSettings();
@@ -1918,11 +1992,23 @@ function createApp(db, opts = {}) {
   app.get('/request', page('request.html'));
   app.get('/t/:token', page('track.html'));
   app.get('/reset/:token', (req, res, next) => { res.set('Referrer-Policy', 'no-referrer'); next(); }, page('reset.html'));
-  // The notification worker and app manifest must always be fresh, so they're never cached.
-  for (const [route, file, type] of [['/sw.js', 'sw.js', 'application/javascript'], ['/manifest.webmanifest', 'manifest.webmanifest', 'application/manifest+json']]) {
+  // The app manifest must always be fresh, so it's never cached (sw.js has its own route below).
+  for (const [route, file, type] of [['/manifest.webmanifest', 'manifest.webmanifest', 'application/manifest+json']]) {
     app.get(route, (req, res) => res.set('Cache-Control', 'no-cache').type(type).sendFile(path.join(pub, file)));
   }
   // Scripts and styles: their links are version-stamped, so they can be cached.
+  // The background helper (sw.js) must never be stored by browsers or Cloudflare, or fixes
+  // to it would take weeks to reach phones. Its version follows its contents.
+  let swText = null;
+  app.get('/sw.js', (req, res, next) => {
+    if (!swText) {
+      try {
+        const raw = fs.readFileSync(path.join(pub, 'sw.js'), 'utf8');
+        swText = raw.replace('__VERSION__', crypto.createHash('sha1').update(raw).digest('hex').slice(0, 10));
+      } catch (e) { return next(e); }
+    }
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate').type('application/javascript').send(swText);
+  });
   app.use(express.static(pub, {
     index: false, maxAge: '30d',
     setHeaders: (res, file) => { if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-store'); },
@@ -1945,7 +2031,12 @@ function createApp(db, opts = {}) {
   });
 
   // Forget old sign-in failures and request counts so these lists can't grow forever.
-  if (jobsHere) setInterval(() => { try { limits.prune(); } catch (e) { console.error('Clearing old limits failed:', e.message); } }, 10 * 60000).unref();
+  if (jobsHere) {
+    setInterval(() => {
+      try { limits.prune(); } catch (e) { console.error('Clearing old limits failed:', e.message); }
+      try { q('DELETE FROM perf WHERE at < ?').run(new Date(Date.now() - 14 * 86400000).toISOString()); } catch (e) { console.error('Clearing old page speeds failed:', e.message); }
+    }, 10 * 60000).unref();
+  }
 
   return app;
 }

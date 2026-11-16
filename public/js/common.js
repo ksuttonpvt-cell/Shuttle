@@ -7,8 +7,23 @@ const App = (() => {
   // Talks to the server. Gives up after 20 s, and turns network trouble into plain words.
   // A banner appears while the server can't be reached and goes away when it's back.
   const OFFLINE = "Can't reach the shuttle server. Check your internet connection and try again.";
+  // A request still waiting after 2.5 s shows "Still connecting…", so a slow network
+  // never looks like a frozen screen.
+  let slowCount = 0;
+  function slowNote(on) {
+    slowCount = Math.max(0, slowCount + (on ? 1 : -1));
+    let el = document.getElementById('slowNote');
+    if (!slowCount) { if (el) el.remove(); return; }
+    if (el || !document.body || document.getElementById('netBanner')) return;
+    el = document.createElement('div');
+    el.id = 'slowNote'; el.className = 'slow-note'; el.setAttribute('role', 'status');
+    el.innerHTML = '<span class="slow-dot"></span> Still connecting to the shuttle server…';
+    document.body.appendChild(el);
+  }
   async function api(path, opts = {}) {
     let res;
+    let slow = false;
+    const timer = setTimeout(() => { slow = true; slowNote(true); }, 2500);
     try {
       res = await fetch(path, {
         method: opts.method || (opts.body ? 'POST' : 'GET'),
@@ -20,7 +35,7 @@ const App = (() => {
     } catch {
       connection(false);
       throw new Error(OFFLINE);
-    }
+    } finally { clearTimeout(timer); if (slow) slowNote(false); }
     let data = {};
     try { data = await res.json(); } catch { /* not json (e.g. a Cloudflare error page) */ }
     // 502/503/504/530 come from Cloudflare when the shuttle server itself is off or unreachable.
@@ -259,9 +274,17 @@ const App = (() => {
   // ---------- maps (Leaflet + OpenStreetMap) ----------
   function makeMap(el, center, zoom = 12) {
     const map = L.map(el, { scrollWheelZoom: true }).setView([center.lat, center.lng], zoom);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19, attribution: '&copy; OpenStreetMap contributors',
-    }).addTo(map);
+    // Map images are fetched so the device can keep copies (see sw.js). If the map server
+    // ever refuses that, switch to plain images so the map still shows.
+    const opts = { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' };
+    const url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    let layer = L.tileLayer(url, { ...opts, crossOrigin: true }).addTo(map);
+    let loaded = 0; let failed = 0;
+    layer.on('tileload', () => { loaded++; });
+    layer.on('tileerror', () => {
+      if (++failed < 4 || loaded) return;
+      map.removeLayer(layer); layer = L.tileLayer(url, opts).addTo(map);
+    });
     return map;
   }
   function pinIcon(kind, label = '') {
@@ -660,4 +683,68 @@ const App = (() => {
     brandMark, applyBrand, stepper, tacoRain, live, liveState, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
+})();
+
+// Keep the site's screens and map images on this device so they open instantly (see sw.js),
+// and offer a reload when a newer version has arrived in the background.
+(() => {
+  if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
+  addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    // Opened from the device? Ask whether a newer copy came in meanwhile.
+    const sw = navigator.serviceWorker.controller;
+    if (!sw) return;
+    const ch = new MessageChannel();
+    ch.port1.onmessage = (e) => { if (e.data && e.data.updated) offerReload(); };
+    sw.postMessage({ type: 'shuttle-check', url: location.href }, [ch.port2]);
+  });
+  navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'shuttle-updated') offerReload(); });
+  function offerReload() {
+    if (document.getElementById('updBar')) return;
+    const bar = document.createElement('div');
+    bar.id = 'updBar'; bar.className = 'upd-bar'; bar.setAttribute('role', 'status');
+    bar.innerHTML = '✨ A newer version of the shuttle site is ready. <button type="button">Reload</button><button type="button" class="upd-x" aria-label="Later">✕</button>';
+    bar.querySelector('button').onclick = () => location.reload();
+    bar.querySelector('.upd-x').onclick = () => bar.remove();
+    document.body.appendChild(bar);
+  }
+})();
+
+// Page speed on real devices: after a page loads, send how long each step took (finding
+// the address, connecting, waiting for the shuttle PC, downloading, building the page,
+// the first data and the map images) so Admin → Server can show where time goes.
+// Only times are sent: no names, tracking links or IP addresses are kept.
+(() => {
+  try {
+    if (!('performance' in window) || !performance.getEntriesByType || !navigator.sendBeacon) return;
+    if (document.visibilityState !== 'visible') return; // opened in the background: times would be misleading
+    let sent = false;
+    const ms = (v) => (Number.isFinite(v) && v > 0 ? Math.round(v) : 0);
+    function send() {
+      if (sent) return; sent = true;
+      const n = performance.getEntriesByType('navigation')[0];
+      if (!n) return;
+      const res = performance.getEntriesByType('resource');
+      const own = res.filter((r) => r.name.startsWith(location.origin));
+      const api = own.filter((r) => /\/api\//.test(r.name) && !/\/api\/(events|perf)/.test(r.name) && r.startTime < 10000);
+      const tiles = res.filter((r) => /tile\.openstreetmap\.org/.test(r.name) && r.startTime < 15000);
+      const conn = navigator.connection || {};
+      const data = {
+        page: location.pathname, type: n.type, proto: n.nextHopProtocol || '',
+        dns: ms(n.domainLookupEnd - n.domainLookupStart),
+        connect: ms(n.connectEnd - n.connectStart),
+        tls: n.secureConnectionStart > 0 ? ms(n.connectEnd - n.secureConnectionStart) : 0,
+        wait: ms(n.responseStart - n.requestStart),
+        download: ms(n.responseEnd - n.responseStart),
+        build: ms((n.domContentLoadedEventEnd || n.responseEnd) - n.responseEnd),
+        ready: ms(n.loadEventEnd || n.domComplete || performance.now()),
+        data: ms(Math.max(0, ...api.map((r) => r.responseEnd))),
+        tiles: ms(Math.max(0, ...tiles.map((r) => r.responseEnd))), tiles_n: tiles.length,
+        net: conn.effectiveType || '', device: matchMedia('(pointer: coarse)').matches ? 'phone' : 'computer',
+      };
+      navigator.sendBeacon('/api/perf', new Blob([JSON.stringify(data)], { type: 'application/json' }));
+    }
+    addEventListener('load', () => setTimeout(send, 8000));
+    addEventListener('pagehide', () => { if (document.readyState === 'complete') send(); });
+  } catch { /* never get in the way of the page */ }
 })();

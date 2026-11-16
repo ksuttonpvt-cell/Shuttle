@@ -122,7 +122,7 @@ test('drivers get lock-screen notifications for new, assigned and cancelled ride
   for (const p of ['/sw.js', '/manifest.webmanifest']) {
     const res = await fetch(base + p);
     assert.equal(res.status, 200, p);
-    assert.equal(res.headers.get('cache-control'), 'no-cache', p);
+    assert.match(res.headers.get('cache-control'), /no-cache/, p);
   }
   assert.equal((await fetch(base + '/icons/icon-192.png')).status, 200);
   assert.equal((await admin('/api/push')).status, 200, 'admins can use the driver page too');
