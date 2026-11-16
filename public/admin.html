@@ -243,6 +243,28 @@
       <button class="btn-block" style="margin-top:.6rem">Save look</button>
     </form>
     <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
+    <h2>Email for password resets</h2>
+    <p class="small muted" style="margin-top:0">With an email account here, “Forgot password?” sends the reset link straight to the person in seconds, instead of waiting for an admin. <span id="emState"></span></p>
+    <form id="emForm">
+      <label>Email provider</label>
+      <select name="preset"><option value="">Pick one…</option><option value="smtp.office365.com|587">Microsoft 365 / Outlook</option><option value="smtp.gmail.com|587">Gmail / Google Workspace</option><option value="other">Other</option></select>
+      <div class="grid cols-2" style="gap:.5rem">
+        <div><label>Email server</label><input name="host" placeholder="smtp.office365.com" autocomplete="off"></div>
+        <div><label>Port</label><input name="port" type="number" value="587" style="max-width:120px"></div>
+      </div>
+      <label>Email account (sign-in)</label><input name="user" type="email" autocomplete="off" placeholder="shuttle@yourdealership.com">
+      <label>Password <span class="small muted" id="emPwState"></span></label><input name="password" type="password" autocomplete="new-password" placeholder="For Gmail and many Microsoft 365 accounts, use an app password">
+      <label>Send links from</label><input name="from" type="email" autocomplete="off" placeholder="Same as the account">
+      <div id="emMsg"></div>
+      <div class="actions" style="margin-top:.5rem"><button>Save</button><button type="button" class="btn-ghost" id="emTest">Send a test to me</button><button type="button" class="btn-ghost hidden" id="emRemove">Remove</button></div>
+      <details style="margin-top:.5rem"><summary class="small">Setup help</summary><ul class="small" style="padding-left:1.1rem;margin:.4rem 0">
+        <li><b>Microsoft 365:</b> server smtp.office365.com, port 587, the mailbox's address and password. Your IT admin may need to turn on “Authenticated SMTP” for that mailbox. If the account uses two-step sign-in, make an app password.</li>
+        <li><b>Gmail:</b> server smtp.gmail.com, port 587. Turn on 2-step verification, then make an <b>app password</b> (Google Account → Security → App passwords) and paste it here.</li>
+        <li>The password stays on the shuttle PC. It's never shown again or sent to anyone's browser.</li>
+        <li>If texting (Twilio) is set up, people with a phone number on file get the link by text too.</li>
+      </ul></details>
+    </form>
+    <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
     <h2>Help &amp; suggestions (Discord)</h2>
     <p class="small muted" style="margin-top:0">Everyone on staff has a <b>💬 Help</b> button at the top. Messages show up here, and in a Discord channel if you add its webhook.</p>
     <form id="fbForm">
@@ -1238,6 +1260,34 @@
       setTimeout(() => location.reload(), 900);
     } catch (err) { App.flash($('#lookMsg'), err.message); }
   };
+  // ---------- email for password resets ----------
+  const emF = $('#emForm');
+  async function loadEmail() {
+    const d = await api('/api/email');
+    $('#emState').innerHTML = d.configured ? `<b>✅ Set up</b>${d.from_env ? ' (in the .env file on the server PC)' : ''}.` : d.texting ? 'Not set up yet (links go by text to people with a phone number).' : '<b>Not set up yet.</b>';
+    emF.elements.host.value = d.host; emF.elements.port.value = d.port || 587; emF.elements.user.value = d.user; emF.elements.from.value = d.from;
+    emF.elements.password.value = '';
+    $('#emPwState').textContent = d.has_password ? '(saved; leave empty to keep it)' : '';
+    $('#emRemove').classList.toggle('hidden', !d.configured || d.from_env);
+    for (const el of emF.elements) if (d.from_env && el.tagName !== 'BUTTON' && el.type !== 'button') el.disabled = true;
+  }
+  emF.elements.preset.onchange = () => { const v = emF.elements.preset.value; if (v && v !== 'other') { const [h, p] = v.split('|'); emF.elements.host.value = h; emF.elements.port.value = p; } };
+  emF.onsubmit = async (e) => {
+    e.preventDefault();
+    const f = emF.elements;
+    try { await api('/api/email', { method: 'PUT', body: { host: f.host.value, port: Number(f.port.value), user: f.user.value, password: f.password.value, from: f.from.value } }); App.flash($('#emMsg'), 'Saved. Send a test to make sure it works.', true); loadEmail(); }
+    catch (err) { App.flash($('#emMsg'), err.message); }
+  };
+  $('#emTest').onclick = async (e) => {
+    e.target.disabled = true; e.target.textContent = 'Sending…';
+    try { const r = await api('/api/email/test', { body: {} }); App.flash($('#emMsg'), r.message, true); } catch (err) { App.flash($('#emMsg'), err.message); }
+    e.target.disabled = false; e.target.textContent = 'Send a test to me';
+  };
+  $('#emRemove').onclick = async () => {
+    if (!confirm('Remove the email account? Reset requests will go to admins again.')) return;
+    await api('/api/email', { method: 'PUT', body: { clear: true } }); loadEmail();
+  };
+
   // ---------- help & suggestions (Discord) ----------
   const fbF = $('#fbForm');
   const KIND_LABEL = { help: '🙋 Help', idea: '💡 Idea', problem: '🐞 Problem' };
@@ -1276,7 +1326,7 @@
     } catch (err) { App.flash($('#eggMsg'), err.message); e.target.checked = !e.target.checked; }
   };
   $('#eggTry').onclick = () => App.tacoRain(10);
-  loaders.settings = () => { loadSms(); loadLook(); loadEgg(); loadFeedback(); return loadSettings(); };
+  loaders.settings = () => { loadSms(); loadLook(); loadEgg(); loadFeedback(); loadEmail().catch(() => {}); return loadSettings(); };
   sf.onsubmit = async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(sf));

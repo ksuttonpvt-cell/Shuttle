@@ -152,6 +152,8 @@ Then right-click the task and choose **Run**. Also go to **Settings → System �
 - If Settings shows an update problem mentioning sign-in or authentication, open PowerShell in the app folder and run `git pull` once. Git will ask you to sign in to GitHub and remember it.
 - To turn automatic updates off, add `AUTO_UPDATE=0` to `.env`. To change how often it checks, set `UPDATE_CHECK_MINUTES`.
 
+**Password resets:** with an email account set up in **Admin → Settings → Email for password resets** (Microsoft 365, Gmail or any provider), “Forgot password?” sends the reset link straight to the person; it works once, for an hour. If texting (Twilio) is set up, people with a phone number on file get it by text too. Without either, admins get an alert and send a link from Staff & logins.
+
 **Processor cores, memory and bandwidth:** the site runs one copy of itself per processor core, so it uses the whole PC when it's busy. Super admins can change this in **Admin → Server → Cores, memory & bandwidth**:
 - **Processor cores:** Auto (every core) or a set number. Takes effect when the site restarts.
 - **Memory limit:** a cap for all copies together. If the site goes over it, the copy using the most memory restarts, and its screens reconnect within seconds. Takes effect when the site restarts.
