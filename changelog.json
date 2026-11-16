@@ -2,9 +2,11 @@
   {
     "version": "2.7.1",
     "date": "2026-11-16",
-    "title": "Customer links always use https",
+    "title": "Routes start where the van is, and links always use https",
     "changes": [
-      "QR codes and customer links now always start with https:// for people using the site through its web address. Before, they could start with http://, which adds a redirect step or a “not secure” warning."
+      "Driver routes no longer start from an old location. If the phone hasn't shared where it is in the last 10 minutes, the route starts at the dealership instead of where the van was hours ago.",
+      "Maps show only the part of a route still ahead (from the van onward), on the driver's map and on the admin and advisor maps.",
+      "QR codes and customer links now always start with https:// for people using the site through its web address."
     ]
   },
   {

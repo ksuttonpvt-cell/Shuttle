@@ -697,7 +697,35 @@ function createApp(db, opts = {}) {
     // The "collect drop-off customers at the dealership" stop is done once they're all on board.
     const waiting = rows.some((r) => r.type === 'dropoff' && r.status !== 'onboard');
     if (!waiting && route.stops.length > 1 && route.stops[0].kind === 'dealer') route.stops.shift();
-    return route;
+    return aheadOnly(route, user);
+  }
+  // A driver's location counts only if it's recent (the phone may have stopped sharing hours ago).
+  const FRESH_MS = 10 * 60000;
+  const freshSpot = (u) => (u && u.last_lat != null && u.last_loc_at && Date.now() - new Date(u.last_loc_at) < FRESH_MS ? { lat: u.last_lat, lng: u.last_lng } : null);
+  // Maps show only the part of the route still ahead: from the van to the next stop and on.
+  // (Only the stretch before the next stop is searched, so a route that comes back past the
+  // dealership isn't cut short.)
+  function aheadOnly(route, user) {
+    const here = freshSpot(user);
+    const path = route.path;
+    if (!here || !Array.isArray(path) || path.length < 2 || !route.stops.length) return route;
+    const pt = ([lat, lng]) => ({ lat, lng });
+    const next = route.stops[0];
+    let stopAt = path.length - 1; let near = Infinity;
+    for (let i = 0; i < path.length; i++) { const km = distanceKm(pt(path[i]), next); if (km < near) { near = km; stopAt = i; } if (km < 0.05) break; }
+    // Closest point on each stretch of the line (flat-earth math is fine over a few miles).
+    const k = Math.cos((here.lat * Math.PI) / 180);
+    let seg = 0; let bestKm = Infinity;
+    for (let i = 0; i < Math.max(1, stopAt); i++) {
+      const [aLat, aLng] = path[i]; const [bLat, bLng] = path[Math.min(i + 1, path.length - 1)];
+      const ax = aLng * k; const bx = bLng * k; const px = here.lng * k;
+      const dx = bx - ax; const dy = bLat - aLat; const len = dx * dx + dy * dy;
+      const t = len ? Math.max(0, Math.min(1, ((px - ax) * dx + (here.lat - aLat) * dy) / len)) : 0;
+      const km = distanceKm({ lat: aLat + t * dy, lng: (ax + t * dx) / k }, here);
+      if (km < bestKm) { bestKm = km; seg = i; }
+    }
+    if (bestKm > 1.5) return { ...route, path: [[here.lat, here.lng], ...path.slice(stopAt)] }; // off the planned roads: from the van to the next stop's part
+    return { ...route, path: [[here.lat, here.lng], ...path.slice(seg + 1)] };
   }
   // Small and fast, so maps can ask every few seconds.
   // Every map asks for this every few seconds; the same answer is shared for 2 seconds.
@@ -815,6 +843,7 @@ function createApp(db, opts = {}) {
   });
 
   const MAX_ROUTE_RIDES = 12;
+  const keepOrderRequested = (req) => !!(req.body && req.body.keep_order); // saving a route already previewed: same start
   async function buildRoute(req) {
     const ids = [...new Set((Array.isArray(req.body.ride_ids) ? req.body.ride_ids : []).map(Number).filter(Boolean))];
     if (!ids.length) throw new Error('Pick at least one ride for the route.');
@@ -829,8 +858,12 @@ function createApp(db, opts = {}) {
     const f = req.body.from || {};
     const fromLat = num(f.lat); const fromLng = num(f.lng);
     let start;
-    if (fromLat != null && fromLng != null && Math.abs(fromLat) <= 90 && Math.abs(fromLng) <= 180) start = { lat: fromLat, lng: fromLng, label: 'You' };
-    else if (req.user.last_lat != null) start = { lat: req.user.last_lat, lng: req.user.last_lng, label: 'You' };
+    // Start where the van is now. An old location (the phone stopped sharing) would send the
+    // route somewhere the van isn't, so then the route starts at the dealership.
+    const fresh = freshSpot(req.user);
+    const sent = fromLat != null && fromLng != null && Math.abs(fromLat) <= 90 && Math.abs(fromLng) <= 180 ? { lat: fromLat, lng: fromLng } : null;
+    if (sent && (keepOrderRequested(req) || !f.at || Date.now() - Number(f.at) < FRESH_MS)) start = { ...sent, label: 'You' };
+    else if (fresh) start = { ...fresh, label: 'You' };
     else start = { ...dealer, label: 'Dealership' };
 
     const skipped = rides.filter((r) => r.lat == null).map((r) => r.customer_name);

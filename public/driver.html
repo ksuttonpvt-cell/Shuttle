@@ -114,7 +114,7 @@
     if (!navigator.geolocation) return alert('This device cannot share location.');
     watchId = navigator.geolocation.watchPosition((pos) => {
       const { latitude: lat, longitude: lng } = pos.coords;
-      me.last_lat = lat; me.last_lng = lng;
+      me.last_lat = lat; me.last_lng = lng; me.last_loc_at = new Date().toISOString();
       if (myMarker) myMarker.setLatLng([lat, lng]); else myMarker = L.marker([lat, lng], { icon: App.carIcon(), zIndexOffset: 900 }).bindPopup('You').addTo(map);
       // Send every 5 seconds, or sooner (2 s) after moving more than about 40 m.
       const moved = lastSentAt ? App.milesFromDealer(lat, lng, { dealer_lat: lastSentAt[0], dealer_lng: lastSentAt[1] }) * 1609 : Infinity;
@@ -307,7 +307,10 @@
     const card = $('#routeCard');
     let saved = null; let preview = null; let skipped = []; let picking = null; let msg = '';
     const pathLayer = L.layerGroup().addTo(map);
-    const here = () => (me.last_lat != null ? { lat: me.last_lat, lng: me.last_lng } : null);
+    // Where the van is now, only if the phone shared it in the last 10 minutes (otherwise the
+    // server starts the route at the dealership instead of an old spot).
+    const here = () => (me.last_lat != null && me.last_loc_at && Date.now() - new Date(me.last_loc_at) < 10 * 60000
+      ? { lat: me.last_lat, lng: me.last_lng, at: new Date(me.last_loc_at).getTime() } : null);
     const candidates = () => rides.filter((r) => r.lat != null && (r.driver_id === me.id || (!r.driver_id && me.on_duty)));
     function drawPath(rt) {
       pathLayer.clearLayers();
