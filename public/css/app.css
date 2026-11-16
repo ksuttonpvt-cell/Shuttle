@@ -479,7 +479,7 @@ html[data-look="corwin"] .ride-name { font-size: 1.12rem; font-weight: 800; lett
 html[data-look="corwin"] .badge { letter-spacing: .05em; }
 /* Buttons and tabs */
 html[data-look="corwin"] button, html[data-look="corwin"] .btn { border-radius: 10px; font-weight: 700; letter-spacing: .02em; }
-html[data-look="corwin"] button:not(.btn-ghost):not(.pstep):not(.choice):not([data-goto]):not(.linklike):not(.tabs button):not(.chips button):not(.tchip):not(.linkish):not(.mini-seg button):not(.upd-x),
+html[data-look="corwin"] button:not(.btn-ghost):not(.pstep):not(.choice):not([data-goto]):not(.linklike):not(.tabs button):not(.chips button):not(.tchip):not(.linkish):not(.mini-seg button):not(.upd-x):not(.cust-btn),
 html[data-look="corwin"] .btn:not(.btn-ghost) { box-shadow: 0 1px 0 rgba(255,255,255,.18) inset, 0 4px 12px color-mix(in srgb, var(--brand) 22%, transparent); }
 html[data-look="corwin"] .btn-lg { text-transform: uppercase; letter-spacing: .08em; font-size: 1rem; padding: 1rem 1.2rem; }
 html[data-look="corwin"] .tabs { background: var(--card); padding: .3rem; border-radius: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.05); gap: .2rem; }
@@ -573,3 +573,19 @@ ul.copies { margin: .4rem 0 0; padding-left: 1.1rem; }
 .upd-bar button { margin-left: auto; padding: .35rem .8rem; }
 .upd-bar .upd-x { margin-left: 0; background: transparent; color: var(--muted); border: 0; box-shadow: none; padding: .35rem .5rem; }
 @media (prefers-reduced-motion: reduce) { .slow-note, .slow-dot { animation: none; } }
+
+/* Customer tracking page */
+.cust-wrap { max-width: 600px; }
+.cust-big { font-size: 1.9rem; font-weight: 800; line-height: 1.15; margin: .2rem 0 .3rem; letter-spacing: -.01em; }
+html[data-look="corwin"] .cust-big { font-family: "Barlow Semi Condensed", "Barlow", system-ui, sans-serif; text-transform: uppercase; letter-spacing: .01em; }
+.cust-headline { font-size: 1.15rem; margin: .2rem 0 .5rem; }
+.cust-meta { font-size: 1rem; gap: .35rem; }
+.cust-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .5rem; }
+.cust-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .2rem; min-height: 72px; padding: .6rem; border-radius: 14px; background: var(--card); color: var(--ink); border: 1px solid var(--line); font-weight: 700; font-size: .95rem; text-decoration: none; box-shadow: var(--shadow); cursor: pointer; white-space: normal; text-align: center; }
+.cust-btn span { font-size: 1.5rem; line-height: 1; }
+.cust-btn:hover { background: var(--hover); color: var(--ink); }
+.cust-change { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.cust-change button, .cust-late button { min-height: 52px; font-size: 1rem; white-space: normal; }
+.cust-late { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; margin: .6rem 0; }
+@media (max-width: 420px) { .cust-late { grid-template-columns: 1fr 1fr; } .cust-change { grid-template-columns: 1fr; } }
+.nowrap { white-space: nowrap; }

@@ -40,6 +40,7 @@ const DEFAULT_SETTINGS = {
   dealer_lat: '40.0236',
   dealer_lng: '-105.2405',
   public_requests: '1',
+  customer_actions: '1', // customers can say they're running late or cancel from their tracking page
   timezone: 'America/Denver',
   service_radius_mi: '15.5',
   dropoff_wait_min: '30',   // drop offs leave at least this many minutes after booking, unless urgent
@@ -59,7 +60,7 @@ const DEFAULT_SETTINGS = {
   sms_en_route: '1',
   sms_cancelled: '1',
 };
-const YES_NO_SETTINGS = ['public_requests', 'ride_offers', 'easter_egg', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
+const YES_NO_SETTINGS = ['public_requests', 'customer_actions', 'ride_offers', 'easter_egg', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
 
 function createApp(db, opts = {}) {
   const app = express();
@@ -246,6 +247,27 @@ function createApp(db, opts = {}) {
 
   // ---------- driver phone notifications ----------
   const push = createPush(db, { sender: opts.pushSender });
+  // ---------- customer links ----------
+  // Tracking links use a short code: 8 letters and digits that can't be mixed up
+  // (no 0/O, 1/I/L or U), e.g. corwinshuttleservice.com/t/K7M2Q9XA. Upper or lower case both work.
+  const CODE_CHARS = '23456789ABCDEFGHJKMNPQRSTVWXYZ';
+  const CODE_RE = /^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/;
+  function newTrackCode() {
+    for (;;) {
+      let c = ''; for (let i = 0; i < 8; i++) c += CODE_CHARS[crypto.randomInt(CODE_CHARS.length)];
+      if (!q('SELECT 1 FROM rides WHERE track_token = ?').get(c)) return c;
+    }
+  }
+  // Links sent before short codes keep working (they're matched exactly).
+  const trackCode = (t) => { const v = String(t || '').trim(); return CODE_RE.test(v.toUpperCase()) ? v.toUpperCase() : v; };
+  // QR codes: links written in capitals fit QR's simpler "alphanumeric" mode, so the code has
+  // fewer, bigger squares and scans faster. Only for links where capitals work the same.
+  function qrText(url) {
+    const m = /^(https?:\/\/[^/?#]+)\/(t\/([^/?#]+)|request)$/i.exec(url);
+    if (!m || (m[3] && !CODE_RE.test(m[3].toUpperCase()))) return url;
+    return url.toUpperCase();
+  }
+
   const rideLine = (r) => `${r.customer_name} — ${r.type === 'pickup' ? 'Pick up' : 'Drop off'} ${fmtWhen(r.scheduled_at)}${r.address ? ` · ${r.address}` : ''}`;
   const quietly = (p) => Promise.resolve(p).catch((e) => console.error('Notification failed:', e.message));
   function pushNewRide(rideId) {
@@ -972,7 +994,7 @@ function createApp(db, opts = {}) {
 
   function insertRide(r, extra) {
     const cols = [...RIDE_FIELDS, 'status', 'source', 'advisor_id', 'track_token', 'return_of'];
-    const vals = [...RIDE_FIELDS.map((f) => r[f] ?? null), extra.status || 'requested', extra.source, extra.advisor_id ?? null, randomToken(12), extra.return_of ?? null];
+    const vals = [...RIDE_FIELDS.map((f) => r[f] ?? null), extra.status || 'requested', extra.source, extra.advisor_id ?? null, newTrackCode(), extra.return_of ?? null];
     const res = q(`INSERT INTO rides (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
     stampPlace(res.lastInsertRowid);
     return q(`${RIDE_SELECT} WHERE r.id = ?`).get(res.lastInsertRowid);
@@ -1199,9 +1221,17 @@ function createApp(db, opts = {}) {
     res.status(201).json({ track_url: `${baseUrl(req)}/t/${ride.track_token}`, token: ride.track_token });
   });
 
+  // Wrong codes are limited per address, so nobody can try codes until one works.
+  function trackedRide(req, res) {
+    const key = `trackmiss|${clientIp(req)}`;
+    if (limits.count(key, 3600000) >= 40) { bad(res, 'Too many tries. Check the link in your text message, or call the dealership.', 429); return null; }
+    const ride = q(`${RIDE_SELECT} WHERE r.track_token = ?`).get(trackCode(req.params.token));
+    if (!ride) { limits.hit(key, 3600000); bad(res, 'Ride not found. Check the link in your text message, or call the dealership.', 404); return null; }
+    return ride;
+  }
   app.get('/api/public/track/:token', (req, res) => {
-    const ride = q(`${RIDE_SELECT} WHERE r.track_token = ?`).get(String(req.params.token));
-    if (!ride) return bad(res, 'Ride not found.', 404);
+    const ride = trackedRide(req, res);
+    if (!ride) return;
     stats.sawTracker(ride.track_token);
     let driverLoc = null;
     if (ride.driver_id && ['en_route', 'onboard'].includes(ride.status)) {
@@ -1215,9 +1245,18 @@ function createApp(db, opts = {}) {
       const stop = d && liveRoute(d)?.stops.find((x) => x.ride_id === ride.id);
       if (stop && new Date(stop.eta) > Date.now() - 15 * 60000) eta = stop.eta;
     }
+    // No planned route? Estimate from how far the van is (road miles ≈ 1.35 × straight line, ~28 mph in town).
+    let etaEstimated = false;
+    const s = getSettings();
+    if (!eta && driverLoc && ride.status === 'en_route' && ride.lat != null) {
+      const km = distanceKm(driverLoc, { lat: ride.lat, lng: ride.lng });
+      eta = new Date(Date.now() + Math.max(1, Math.round(((km * KM_TO_MI * 1.35) / 28) * 60)) * 60000).toISOString(); etaEstimated = true;
+    } else if (!eta && driverLoc && ride.status === 'onboard') {
+      const target = ride.type === 'pickup' ? dealerOrigin() : (ride.lat != null ? { lat: ride.lat, lng: ride.lng } : null);
+      if (target) { const km = distanceKm(driverLoc, target); eta = new Date(Date.now() + Math.max(1, Math.round(((km * KM_TO_MI * 1.35) / 28) * 60)) * 60000).toISOString(); etaEstimated = true; }
+    }
     let position = null;
     if (ride.status === 'requested' || ride.status === 'assigned') position = queuePositions().get(ride.id) ?? null;
-    const s = getSettings();
     res.json({
       ride: {
         type: ride.type, status: ride.status, customer_first_name: ride.customer_name.split(' ')[0],
@@ -1227,10 +1266,66 @@ function createApp(db, opts = {}) {
         updated_at: ride.updated_at,
       },
       driver_location: driverLoc,
-      eta,
+      eta, eta_estimated: etaEstimated,
       queue_position: position,
+      can_change: s.customer_actions !== '0' && ['requested', 'assigned', 'en_route'].includes(ride.status),
       dealer: { name: s.dealer_name, address: s.dealer_address, phone: s.dealer_phone, lat: Number(s.dealer_lat), lng: Number(s.dealer_lng) },
     });
+  });
+
+  // ---------- customer actions from the tracking page ----------
+  // "Running late" adds a dated note to the ride; "Cancel" cancels it with a reason. The driver
+  // (and the advisor) get a phone notification, and every open screen updates right away.
+  const tellStaff = (ride, title, body) => {
+    const ids = [ride.driver_id, ride.advisor_id].filter(Boolean);
+    if (ids.length) quietly(push.notifyUsers([...new Set(ids)], { title, body, tag: `ride-${ride.id}`, url: '/driver' }));
+    live.soon('rides', 300);
+  };
+  const LATE = { 5: 'about 5 minutes', 10: 'about 10 minutes', 15: 'about 15 minutes', 20: '20 minutes or more' };
+  app.post('/api/public/track/:token/late', atomic((req, res) => {
+    const ride = trackedRide(req, res); if (!ride) return;
+    if (getSettings().customer_actions === '0') return bad(res, 'Please call the dealership.', 403);
+    if (!['requested', 'assigned', 'en_route'].includes(ride.status)) return bad(res, 'This ride can’t be changed now.', 409);
+    const mins = Number(req.body && req.body.minutes);
+    if (!LATE[mins]) return bad(res, 'Pick how late you’ll be.');
+    const key = `late|${ride.id}`;
+    if (limits.count(key, 3600000) >= 3) return bad(res, 'We already have your update. Please call the dealership if anything else changes.', 429);
+    limits.hit(key, 3600000);
+    const line = `[${fmtWhen(now())}] Customer: running ${LATE[mins]} late.`;
+    q('UPDATE rides SET notes = ?, updated_at = ? WHERE id = ?').run(ride.notes ? `${ride.notes}\n${line}` : line, now(), ride.id);
+    tellStaff(ride, `⏰ ${ride.customer_name.split(' ')[0]} is running late`, `Running ${LATE[mins]} late · ${rideLine(ride)}`);
+    res.json({ ok: true, message: 'Thanks! We told your driver.' });
+  }));
+  const CUSTOMER_CANCEL = ['My plans changed', 'I found another ride', 'I don’t need the shuttle anymore', 'Other'];
+  app.post('/api/public/track/:token/cancel', atomic((req, res) => {
+    const ride = trackedRide(req, res); if (!ride) return;
+    if (getSettings().customer_actions === '0') return bad(res, 'Please call the dealership to cancel.', 403);
+    const reason = String((req.body && req.body.reason) || '');
+    if (!CUSTOMER_CANCEL.includes(reason)) return bad(res, 'Pick a reason.');
+    const details = str(req.body.details, 200);
+    if (reason === 'Other' && (!details || details.length < 3)) return bad(res, 'Please tell us a little more.');
+    const text = `Customer cancelled: ${reason === 'Other' ? details : reason}${reason !== 'Other' && details ? ` (${details})` : ''}`;
+    const done = q(`UPDATE rides SET status = 'cancelled', cancel_reason = ?, cancelled_by = NULL, cancelled_at = ?, updated_at = ?
+                    WHERE id = ? AND status IN ('requested','assigned','en_route')`).run(text, now(), now(), ride.id).changes;
+    if (!done) return bad(res, 'This ride can’t be cancelled now. Please call the dealership.', 409);
+    q("UPDATE ride_offers SET status = 'expired', responded_at = ? WHERE ride_id = ? AND status = 'pending'").run(now(), ride.id);
+    tellStaff(ride, `❌ ${ride.customer_name.split(' ')[0]} cancelled their ride`, `${text} · ${rideLine(ride)}`);
+    res.json({ ok: true, message: 'Your ride is cancelled. Thanks for letting us know.' });
+  }));
+  // "Add to calendar": a one-event calendar file for the ride.
+  app.get('/api/public/track/:token/calendar', (req, res) => {
+    const ride = trackedRide(req, res); if (!ride) return;
+    const s = getSettings();
+    const t = (iso) => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const esc2 = (v) => String(v || '').replace(/([,;\\])/g, '\\$1').replace(/\n/g, '\\n');
+    const start = new Date(ride.scheduled_at);
+    const what = ride.type === 'pickup' ? 'Shuttle pick up' : 'Shuttle ride home';
+    const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Shuttle//EN', 'BEGIN:VEVENT',
+      `UID:ride-${ride.id}@shuttle`, `DTSTAMP:${t(now())}`, `DTSTART:${t(start.toISOString())}`, `DTEND:${t(new Date(start.getTime() + 30 * 60000).toISOString())}`,
+      `SUMMARY:${esc2(`${what} · ${s.dealer_name}`)}`, `LOCATION:${esc2(ride.type === 'pickup' ? ride.address : s.dealer_address)}`,
+      `DESCRIPTION:${esc2(`Track your driver: ${baseUrl(req)}/t/${ride.track_token}${s.dealer_phone ? `\nQuestions? Call ${s.dealer_phone}` : ''}`)}`,
+      'BEGIN:VALARM', 'TRIGGER:-PT15M', 'ACTION:DISPLAY', `DESCRIPTION:${esc2(what)}`, 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+    res.type('text/calendar').set('Content-Disposition', 'attachment; filename="shuttle-ride.ics"').set('Cache-Control', 'no-store').send(ics);
   });
 
   // ---------- settings ----------
@@ -1873,20 +1968,19 @@ function createApp(db, opts = {}) {
     // Only make QR codes for links to this site, so it can't be used as an open QR generator.
     if (!text.startsWith(baseUrl(req) + '/')) return bad(res, 'QR codes can only point to this site.');
     if (text.length > 500) return bad(res, 'That link is too long for a QR code.');
-    const png = await QRCode.toBuffer(text, { width: Math.min(num(req.query.size) || 320, 1024), margin: 2, errorCorrectionLevel: 'M' });
+    const png = await QRCode.toBuffer(qrText(text), { width: Math.min(num(req.query.size) || 320, 1024), margin: 2, errorCorrectionLevel: 'M' });
     res.type('png').set('Cache-Control', 'private, max-age=3600').send(png);
   });
 
   // Track pages show their own QR so a customer can hand the link to someone else.
   app.get('/api/public/track/:token/qr', async (req, res) => {
-    const ride = q('SELECT track_token FROM rides WHERE track_token = ?').get(String(req.params.token));
-    if (!ride) return bad(res, 'Ride not found.', 404);
-    const png = await QRCode.toBuffer(`${baseUrl(req)}/t/${ride.track_token}`, { width: 320, margin: 2 });
+    const ride = trackedRide(req, res); if (!ride) return;
+    const png = await QRCode.toBuffer(qrText(`${baseUrl(req)}/t/${ride.track_token}`), { width: 320, margin: 2 });
     res.type('png').send(png);
   });
 
   app.get('/api/public/request-qr', async (req, res) => {
-    const png = await QRCode.toBuffer(`${baseUrl(req)}/request`, { width: Math.min(num(req.query.size) || 320, 1024), margin: 2 });
+    const png = await QRCode.toBuffer(qrText(`${baseUrl(req)}/request`), { width: Math.min(num(req.query.size) || 320, 1024), margin: 2 });
     res.type('png').set('Cache-Control', 'public, max-age=3600').send(png);
   });
 
