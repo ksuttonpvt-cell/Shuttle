@@ -77,3 +77,15 @@ test('pages: file stamps follow the file contents, with early hints for maps and
   assert.doesNotMatch(login, /tile\.openstreetmap/, 'no map, no map hint');
   assert.match(login, /rel="preload" href="\/vendor\/fonts\/barlow\/barlow-latin-700-normal\.woff2" as="font"/);
 });
+
+test('the background helper (sw.js) is never stored, carries its version, and never keeps live data', async () => {
+  const r = await fetch(`${base}/sw.js`);
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('cache-control'), /no-store/);
+  const js = await r.text();
+  assert.match(js, /const VERSION = '[0-9a-f]{10}'/);
+  assert.doesNotMatch(js, /__VERSION__/);
+  // Only screens, files and map images are kept: API answers always go to the server.
+  assert.match(js, /everything else \(rides, tracking, sign-in…\) always goes to the server/);
+  assert.doesNotMatch(js, /\/api\/.*caches\.open/);
+});

@@ -2,12 +2,14 @@
   {
     "version": "2.6.0",
     "date": "2026-11-16",
-    "title": "Faster first loads, and page speed from real devices",
+    "title": "Opens instantly, and page speed from real devices",
     "changes": [
-      "New on Admin → Server: Page speed on real devices. Every page records how long it took to load and which part was slow: finding the address (DNS), connecting, waiting for the shuttle PC, downloading, building the page, loading rides, and map images. Slow loads are listed with the part that held them up, plus tips for each.",
-      "After an update, phones only download the files that changed, instead of everything again.",
-      "Maps use one map server address instead of three (fewer DNS lookups), and phones start connecting to it right away.",
-      "The main fonts start loading straight away instead of after the styles.",
+      "Phones and computers keep the site's screens and map images, so the shuttle site opens instantly after the first visit, even on slow Wi-Fi or a slow network. Rides and tracking always come fresh from the server; no customer details are kept on devices.",
+      "After an update, the screen still opens instantly and a bar offers the newer version with a Reload button.",
+      "If the server is slow to answer, a “Still connecting…” note shows instead of a frozen screen.",
+      "New on Admin → Server: Page speed on real devices. It shows how long each part of loading takes on staff and customer devices (finding the address, connecting, waiting for the shuttle PC, downloading, building the page, rides, and map images) and lists slow loads with what held them up.",
+      "After an update, phones only download the files that changed.",
+      "Maps use one map server address instead of three, and connect to it right away. The main fonts start loading straight away.",
       "Driver page: no stray “· ·” when a van has no make or model."
     ]
   },

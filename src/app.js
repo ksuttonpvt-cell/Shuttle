@@ -1992,11 +1992,23 @@ function createApp(db, opts = {}) {
   app.get('/request', page('request.html'));
   app.get('/t/:token', page('track.html'));
   app.get('/reset/:token', (req, res, next) => { res.set('Referrer-Policy', 'no-referrer'); next(); }, page('reset.html'));
-  // The notification worker and app manifest must always be fresh, so they're never cached.
-  for (const [route, file, type] of [['/sw.js', 'sw.js', 'application/javascript'], ['/manifest.webmanifest', 'manifest.webmanifest', 'application/manifest+json']]) {
+  // The app manifest must always be fresh, so it's never cached (sw.js has its own route below).
+  for (const [route, file, type] of [['/manifest.webmanifest', 'manifest.webmanifest', 'application/manifest+json']]) {
     app.get(route, (req, res) => res.set('Cache-Control', 'no-cache').type(type).sendFile(path.join(pub, file)));
   }
   // Scripts and styles: their links are version-stamped, so they can be cached.
+  // The background helper (sw.js) must never be stored by browsers or Cloudflare, or fixes
+  // to it would take weeks to reach phones. Its version follows its contents.
+  let swText = null;
+  app.get('/sw.js', (req, res, next) => {
+    if (!swText) {
+      try {
+        const raw = fs.readFileSync(path.join(pub, 'sw.js'), 'utf8');
+        swText = raw.replace('__VERSION__', crypto.createHash('sha1').update(raw).digest('hex').slice(0, 10));
+      } catch (e) { return next(e); }
+    }
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate').type('application/javascript').send(swText);
+  });
   app.use(express.static(pub, {
     index: false, maxAge: '30d',
     setHeaders: (res, file) => { if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-store'); },

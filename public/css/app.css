@@ -479,7 +479,7 @@ html[data-look="corwin"] .ride-name { font-size: 1.12rem; font-weight: 800; lett
 html[data-look="corwin"] .badge { letter-spacing: .05em; }
 /* Buttons and tabs */
 html[data-look="corwin"] button, html[data-look="corwin"] .btn { border-radius: 10px; font-weight: 700; letter-spacing: .02em; }
-html[data-look="corwin"] button:not(.btn-ghost):not(.pstep):not(.choice):not([data-goto]):not(.linklike):not(.tabs button):not(.chips button):not(.tchip):not(.linkish):not(.mini-seg button),
+html[data-look="corwin"] button:not(.btn-ghost):not(.pstep):not(.choice):not([data-goto]):not(.linklike):not(.tabs button):not(.chips button):not(.tchip):not(.linkish):not(.mini-seg button):not(.upd-x),
 html[data-look="corwin"] .btn:not(.btn-ghost) { box-shadow: 0 1px 0 rgba(255,255,255,.18) inset, 0 4px 12px color-mix(in srgb, var(--brand) 22%, transparent); }
 html[data-look="corwin"] .btn-lg { text-transform: uppercase; letter-spacing: .08em; font-size: 1rem; padding: 1rem 1.2rem; }
 html[data-look="corwin"] .tabs { background: var(--card); padding: .3rem; border-radius: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.05); gap: .2rem; }
@@ -563,3 +563,13 @@ ul.copies { margin: .4rem 0 0; padding-left: 1.1rem; }
 .perf-bar .med { background: var(--tr-pages); }
 .perf-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; }
 .perf-key.med { background: var(--tr-pages); } .perf-key.p90 { background: color-mix(in srgb, var(--tr-pages) 35%, transparent); }
+
+/* "Still connecting…" and "A newer version is ready" */
+.slow-note { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; z-index: 2500; background: var(--ink); color: var(--on-ink); padding: .5rem .9rem; border-radius: 99px; font-size: .85rem; font-weight: 600; box-shadow: var(--shadow); display: flex; align-items: center; gap: .5rem; animation: slow-in .2s ease-out; }
+.slow-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); animation: slow-pulse 1s ease-in-out infinite; }
+@keyframes slow-pulse { 50% { opacity: .3; } }
+@keyframes slow-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+.upd-bar { position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 2600; max-width: 520px; margin: 0 auto; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-left: 4px solid var(--blue); border-radius: 12px; padding: .6rem .7rem; box-shadow: var(--shadow); display: flex; align-items: center; gap: .6rem; font-size: .9rem; }
+.upd-bar button { margin-left: auto; padding: .35rem .8rem; }
+.upd-bar .upd-x { margin-left: 0; background: transparent; color: var(--muted); border: 0; box-shadow: none; padding: .35rem .5rem; }
+@media (prefers-reduced-motion: reduce) { .slow-note, .slow-dot { animation: none; } }
