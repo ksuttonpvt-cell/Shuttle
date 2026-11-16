@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.6.0",
+    "date": "2026-11-16",
+    "title": "Faster first loads, and page speed from real devices",
+    "changes": [
+      "New on Admin → Server: Page speed on real devices. Every page records how long it took to load and which part was slow: finding the address (DNS), connecting, waiting for the shuttle PC, downloading, building the page, loading rides, and map images. Slow loads are listed with the part that held them up, plus tips for each.",
+      "After an update, phones only download the files that changed, instead of everything again.",
+      "Maps use one map server address instead of three (fewer DNS lookups), and phones start connecting to it right away.",
+      "The main fonts start loading straight away instead of after the styles.",
+      "Driver page: no stray “· ·” when a van has no make or model."
+    ]
+  },
+  {
     "version": "2.5.3",
     "date": "2026-11-15",
     "title": "No more double wins",

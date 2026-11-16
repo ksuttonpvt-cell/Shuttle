@@ -118,6 +118,12 @@ function openDb(file) {
   addColumn('users', 'route_json', 'TEXT');    // the driver's planned route (stops in order + path)
   addColumn('users', 'reset_requested_at', 'TEXT'); // set when someone taps "Forgot password?"
   db.exec(`
+    CREATE TABLE IF NOT EXISTS perf (          -- page load times from real devices (no names, links or IPs); kept 14 days
+      id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, page TEXT, role TEXT, device TEXT, net TEXT, proto TEXT, nav TEXT,
+      dns INTEGER, connect INTEGER, tls INTEGER, wait INTEGER, download INTEGER, build INTEGER, ready INTEGER,
+      data INTEGER, tiles INTEGER, tiles_n INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS perf_at ON perf(at);
     CREATE TABLE IF NOT EXISTS feedback (      -- Help & suggestions from staff (also sent to Discord)
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,

@@ -259,7 +259,7 @@ const App = (() => {
   // ---------- maps (Leaflet + OpenStreetMap) ----------
   function makeMap(el, center, zoom = 12) {
     const map = L.map(el, { scrollWheelZoom: true }).setView([center.lat, center.lng], zoom);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; OpenStreetMap contributors',
     }).addTo(map);
     return map;
@@ -660,4 +660,43 @@ const App = (() => {
     brandMark, applyBrand, stepper, tacoRain, live, liveState, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
+})();
+
+// Page speed on real devices: after a page loads, send how long each step took (finding
+// the address, connecting, waiting for the shuttle PC, downloading, building the page,
+// the first data and the map images) so Admin → Server can show where time goes.
+// Only times are sent: no names, tracking links or IP addresses are kept.
+(() => {
+  try {
+    if (!('performance' in window) || !performance.getEntriesByType || !navigator.sendBeacon) return;
+    if (document.visibilityState !== 'visible') return; // opened in the background: times would be misleading
+    let sent = false;
+    const ms = (v) => (Number.isFinite(v) && v > 0 ? Math.round(v) : 0);
+    function send() {
+      if (sent) return; sent = true;
+      const n = performance.getEntriesByType('navigation')[0];
+      if (!n) return;
+      const res = performance.getEntriesByType('resource');
+      const own = res.filter((r) => r.name.startsWith(location.origin));
+      const api = own.filter((r) => /\/api\//.test(r.name) && !/\/api\/(events|perf)/.test(r.name) && r.startTime < 10000);
+      const tiles = res.filter((r) => /tile\.openstreetmap\.org/.test(r.name) && r.startTime < 15000);
+      const conn = navigator.connection || {};
+      const data = {
+        page: location.pathname, type: n.type, proto: n.nextHopProtocol || '',
+        dns: ms(n.domainLookupEnd - n.domainLookupStart),
+        connect: ms(n.connectEnd - n.connectStart),
+        tls: n.secureConnectionStart > 0 ? ms(n.connectEnd - n.secureConnectionStart) : 0,
+        wait: ms(n.responseStart - n.requestStart),
+        download: ms(n.responseEnd - n.responseStart),
+        build: ms((n.domContentLoadedEventEnd || n.responseEnd) - n.responseEnd),
+        ready: ms(n.loadEventEnd || n.domComplete || performance.now()),
+        data: ms(Math.max(0, ...api.map((r) => r.responseEnd))),
+        tiles: ms(Math.max(0, ...tiles.map((r) => r.responseEnd))), tiles_n: tiles.length,
+        net: conn.effectiveType || '', device: matchMedia('(pointer: coarse)').matches ? 'phone' : 'computer',
+      };
+      navigator.sendBeacon('/api/perf', new Blob([JSON.stringify(data)], { type: 'application/json' }));
+    }
+    addEventListener('load', () => setTimeout(send, 8000));
+    addEventListener('pagehide', () => { if (document.readyState === 'complete') send(); });
+  } catch { /* never get in the way of the page */ }
 })();

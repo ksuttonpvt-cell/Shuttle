@@ -303,6 +303,20 @@
         </form>
         <div id="resMsg"></div>
       </div>
+      <div class="card" style="grid-column:1/-1">
+        <div class="card-head"><h2>Page speed on real devices</h2>
+          <select id="perfDays" aria-label="How far back" style="width:auto"><option value="1">Last 24 hours</option><option value="7" selected>Last 7 days</option><option value="14">Last 14 days</option></select></div>
+        <div id="perfOut" class="small muted">Loading…</div>
+        <details style="margin-top:.6rem"><summary class="small">What each part means, and what helps</summary>
+          <ul class="small" style="padding-left:1.1rem;margin:.4rem 0">
+            <li><b>Finding the address (DNS):</b> the phone asking where corwinshuttleservice.com is. Slow here means the Wi-Fi or router's DNS. On the Ubiquiti router, set the DNS servers to 1.1.1.1 and 1.0.0.1, and make sure there's no local DNS record or host override for the site's address.</li>
+            <li><b>Connecting:</b> reaching Cloudflare. Slow here means weak Wi-Fi or cell signal.</li>
+            <li><b>Waiting for the shuttle PC:</b> Cloudflare passing the request to the PC and back. Slow here means the PC was asleep or busy, or the Cloudflare connection was reconnecting (see Shuttle Control).</li>
+            <li><b>Downloading / building the page:</b> the phone itself. Older phones take longer.</li>
+            <li><b>Loading rides and data</b> and <b>Map images:</b> after the page appears. Map images come from OpenStreetMap, not from your PC.</li>
+            <li>Only times are kept (for 14 days), with the page and kind of device. No names, tracking links or IP addresses.</li>
+          </ul></details>
+      </div>
       <div class="card">
         <div class="card-head"><h2>Connection speed</h2><button class="btn-blue btn-sm" id="srvSpeed">Test speed</button></div>
         <div id="srvSpeedOut" class="small muted">Times how long this device takes to reach the shuttle server and back, through Cloudflare.</div>
@@ -923,6 +937,40 @@
   $('#trAll').onclick = () => { trHidden.clear(); saveTr(); drawTraffic(); };
   $('#trNone').onclick = () => { trHidden = new Set((srvStatus?.traffic_types || []).map(([k]) => k)); saveTr(); drawTraffic(); };
 
+  // ---------- page speed on real devices ----------
+  const secs = (v) => (v == null ? '—' : v >= 10000 ? `${Math.round(v / 1000)} s` : v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${v} ms`);
+  const PAGE_NAME = { '/': 'Home', '/admin': 'Admin', '/advisor': 'Advisor', '/driver': 'Driver', '/login': 'Sign in', '/request': 'Customer request', '/t': 'Customer tracking', '/reset': 'Password reset' };
+  async function loadPerf() {
+    const d = await api(`/api/server/perf?days=${$('#perfDays').value}`);
+    if (!d.count) { $('#perfOut').innerHTML = 'No page loads measured yet. They appear here as people open the site (after this update reaches the phones).'; return; }
+    const order = ['dns', 'connect', 'wait', 'download', 'build', 'data', 'tiles'];
+    const max = Math.max(1, ...order.map((k) => d.parts[k].p90 || 0));
+    const rows = order.map((k) => {
+      const p = d.parts[k];
+      const w = (v) => `${Math.max(p.median ? 1 : 0, Math.round(((v || 0) / max) * 100))}%`;
+      return `<tr><td>${esc(d.labels[k])}</td><td class="num">${secs(p.median)}</td><td class="num">${secs(p.p90)}</td><td class="num">${secs(p.worst)}</td>
+        <td class="perf-barcell"><div class="perf-bar"><i class="p90" style="width:${w(p.p90)}"></i><i class="med" style="width:${w(p.median)}"></i></div></td></tr>`;
+    }).join('');
+    const blame = Object.entries(d.blame).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${esc(d.labels[k])} (${n})`).join(', ');
+    const when = (iso) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    $('#perfOut').innerHTML = `
+      <p style="margin:.2rem 0 .6rem">${d.count.toLocaleString()} page loads measured. Half were ready within <b>${secs(d.parts.ready.median)}</b>, and 9 in 10 within <b>${secs(d.parts.ready.p90)}</b>.
+        ${d.slow_count ? `<b>${d.slow_count}</b> took ${secs(d.slow_ms)} or more${blame ? `, mostly because of: ${blame}` : ''}.` : 'None took 5 seconds or more. 👍'}</p>
+      <div class="table-wrap"><table class="perf-table"><thead><tr><th>Part</th><th class="num">Typical</th><th class="num">Slow (1 in 10)</th><th class="num">Slowest</th><th aria-hidden="true"></th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="small muted" style="margin-top:.2rem"><span class="perf-key med"></span> typical · <span class="perf-key p90"></span> slow (1 in 10). Finding the address and connecting only count visits that had to do them.</div>
+      ${d.slow.length ? `<details style="margin-top:.6rem" open><summary class="small"><b>Slow loads</b> (most recent first)</summary><div class="table-wrap"><table class="perf-table">
+        <thead><tr><th>When</th><th>Page</th><th>Device</th><th class="num">Ready</th><th>Most of the time went to</th></tr></thead><tbody>
+        ${d.slow.map((x) => `<tr><td>${when(x.at)}</td><td>${esc(PAGE_NAME[x.page] || x.page)}</td><td>${esc([x.role, x.device, x.net].filter(Boolean).join(' · '))}</td><td class="num">${secs(Math.max(x.ready, x.data || 0))}</td><td>${esc(x.biggest.label)} (${secs(x.biggest.ms)})</td></tr>`).join('')}
+        </tbody></table></div></details>` : ''}
+      <details style="margin-top:.4rem"><summary class="small">By page and by device</summary><div class="grid cols-2" style="margin-top:.4rem">
+        <div class="table-wrap"><table class="perf-table"><thead><tr><th>Page</th><th class="num">Loads</th><th class="num">Typical</th><th class="num">Slow (1 in 10)</th></tr></thead><tbody>
+          ${d.pages.map((x) => `<tr><td>${esc(PAGE_NAME[x.page] || x.page)}</td><td class="num">${x.count}</td><td class="num">${secs(x.median)}</td><td class="num">${secs(x.p90)}</td></tr>`).join('')}</tbody></table></div>
+        <div class="table-wrap"><table class="perf-table"><thead><tr><th>Device</th><th class="num">Loads</th><th class="num">Typical</th><th class="num">Slow (1 in 10)</th></tr></thead><tbody>
+          ${d.devices.map((x) => `<tr><td>${esc(x.device)}</td><td class="num">${x.count}</td><td class="num">${secs(x.median)}</td><td class="num">${secs(x.p90)}</td></tr>`).join('')}</tbody></table></div>
+      </div></details>`;
+  }
+  $('#perfDays').onchange = () => loadPerf().catch(() => {});
+
   // ---------- cores, memory, bandwidth ----------
   let resFilled = false;
   function showResources(c) {
@@ -1132,7 +1180,7 @@
   }, 2000);
 
   const serverVisible = () => !$('[data-pane="server"]').classList.contains('hidden') && !document.hidden;
-  loaders.server = () => { loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
+  loaders.server = () => { loadPerf().catch((err) => { $('#perfOut').textContent = err.message; }); loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
   setInterval(() => { if (serverVisible()) { loadServer().catch(() => {}); if ($('#srvLive').checked) loadLog().catch(() => {}); } }, 5000);
   setInterval(() => { if (serverVisible()) loadChecks(); }, 60000);
 

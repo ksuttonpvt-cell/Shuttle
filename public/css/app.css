@@ -550,3 +550,16 @@ html[data-look="corwin"] .choice span:last-child { font-weight: 400; }
 .tchip.off .tl { text-decoration: line-through; }
 ul.copies { margin: .4rem 0 0; padding-left: 1.1rem; }
 #resForm select, #resForm input { max-width: 260px; }
+
+/* Page speed on real devices (Admin → Server) */
+.perf-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.perf-table th, .perf-table td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.perf-table th { font-weight: 600; color: var(--muted); font-size: .78rem; }
+.perf-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.perf-barcell { width: 40%; min-width: 120px; }
+.perf-bar { position: relative; height: 10px; border-radius: 3px; background: var(--subtle); overflow: hidden; }
+.perf-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+.perf-bar .p90 { background: color-mix(in srgb, var(--tr-pages) 35%, transparent); }
+.perf-bar .med { background: var(--tr-pages); }
+.perf-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; }
+.perf-key.med { background: var(--tr-pages); } .perf-key.p90 { background: color-mix(in srgb, var(--tr-pages) 35%, transparent); }
