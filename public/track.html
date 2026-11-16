@@ -7,11 +7,13 @@
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/css/app.css">
 </head>
-<body>
+<body class="cust">
 <div class="hero"><div data-brand class="brand-block"></div><div class="hero-emoji" style="font-size:2rem">🚐</div><h1 id="title">Your shuttle ride</h1><div id="dealer" style="color:#ccc"></div></div>
-<main class="wrap grid" style="max-width:600px">
-  <div class="card" id="status"><div class="empty">Loading…</div></div>
-  <div class="card"><div id="map" class="map"></div></div>
+<main class="wrap grid cust-wrap">
+  <div class="card" id="status" aria-live="polite"><div class="empty">Loading your ride…</div></div>
+  <div class="cust-actions" id="actions"></div>
+  <div class="card cust-map-card" id="mapCard"><div id="map" class="map"></div></div>
+  <div class="card hidden" id="change"></div>
   <div class="card small muted" id="foot"></div>
 </main>
 <footer class="site-foot" data-foot></footer>
@@ -21,64 +23,177 @@
 (async () => {
   const { $, api, esc, fmtTime } = App;
   const token = location.pathname.split('/').pop();
-  let map = null; let car = null; let fitted = false;
+  const link = `${location.origin}/t/${token}`;
+  let map = null; let car = null; let fitted = false; let last = null; let changeOpen = null; let notice = null;
   const STEPS = [['requested', 'Requested'], ['assigned', 'Driver assigned'], ['en_route', 'On the way'], ['onboard', 'On board'], ['completed', 'Done']];
+  const minsUntil = (iso) => Math.round((new Date(iso) - Date.now()) / 60000);
+  const smsLink = (phone, text) => `sms:${phone.replace(/[^\d+]/g, '')}?&body=${encodeURIComponent(text)}`;
+
+  // The big line at the top: what's happening, in plain words, with a countdown when we have one.
+  function bigLine(ride, eta, estimated) {
+    if (ride.status === 'en_route' && eta) {
+      const m = minsUntil(eta);
+      return m <= 1 ? 'Your driver is almost there' : `Arriving in ${estimated ? 'about ' : ''}${m} min`;
+    }
+    if (ride.status === 'onboard' && eta) { const m = minsUntil(eta); return m <= 1 ? 'Almost there' : `About ${m} min to go`; }
+    if ((ride.status === 'requested' || ride.status === 'assigned') && ride.scheduled_at) {
+      const m = minsUntil(ride.scheduled_at);
+      if (m > 90) return `Scheduled for ${fmtTime(ride.scheduled_at)}`;
+      if (m > 1) return `Scheduled in ${m} min`;
+    }
+    return null;
+  }
+
+  function render(data) {
+    const { ride, dealer, driver_location: loc, queue_position: pos, eta, eta_estimated: est } = data;
+    $('#dealer').textContent = dealer.name;
+    if (!document.querySelector('[data-brand] *')) App.applyBrand(dealer.name);
+    const first = ride.customer_first_name;
+    $('#title').textContent = ride.status === 'cancelled' ? `Hi ${first}, your ride is cancelled`
+      : ride.status === 'completed' ? `Thanks, ${first}!`
+        : ride.type === 'pickup' ? `Hi ${first}, we're coming to get you` : `Hi ${first}, your ride home`;
+    document.title = `${ride.type === 'pickup' ? 'Shuttle pick up' : 'Your ride home'} · ${dealer.name}`;
+    const open = ['requested', 'assigned', 'en_route', 'onboard'].includes(ride.status);
+
+    let body;
+    if (ride.status === 'cancelled') body = `<h2>This ride was cancelled</h2><p class="muted">${dealer.phone ? `Questions? Call ${esc(dealer.phone)}.` : 'Questions? Call the dealership.'}</p>`;
+    else {
+      const idx = STEPS.findIndex(([st]) => st === ride.status);
+      const steps = STEPS.map(([, label], i) => `<div class="step ${i < idx ? 'done' : i === idx ? 'now' : ''}"><i>${i < idx ? '✓' : i + 1}</i>${label}</div>`).join('');
+      const driver = esc(ride.driver_name || 'Your driver');
+      const headline = {
+        requested: 'We got your request. A driver will be assigned shortly.',
+        assigned: `${driver} will be your driver.`,
+        en_route: `${driver} is on the way!`,
+        onboard: ride.type === 'pickup' ? 'Heading to the dealership.' : "You're on your way home.",
+        completed: 'Ride complete. Thanks for choosing us!',
+      }[ride.status];
+      const big = bigLine(ride, eta, est);
+      const veh = ride.vehicle;
+      body = `<div class="status-steps">${steps}</div>
+        ${big ? `<div class="cust-big">${esc(big)}</div>` : ''}
+        <h2 class="cust-headline">${headline}</h2>
+        <div class="ride-meta cust-meta">
+          <div>🕒 ${ride.type === 'pickup' ? 'Pick up' : 'Leaving'} ${fmtTime(ride.scheduled_at)}</div>
+          <div>📍 ${ride.type === 'pickup' ? 'From' : 'To'} ${esc(ride.address)}</div>
+          ${veh ? `<div>🚐 Look for: <b>${esc([veh.color, veh.make_model].filter(Boolean).join(' ') || veh.name)}</b>${veh.plate ? ` · plate <b class="nowrap">${esc(veh.plate)}</b>` : ''}</div>` : ''}
+          ${eta && open ? `<div>⏱ ${ride.status === 'onboard' ? 'Arriving' : ride.type === 'pickup' ? 'Driver expected' : 'Arriving'} around <b>${fmtTime(eta)}</b>${est ? ' (estimate)' : ''}</div>` : ''}
+          ${pos ? `<div>📋 You're #${pos} in the shuttle line</div>` : ''}
+        </div>`;
+    }
+    $('#status').innerHTML = body;
+
+    // One-tap buttons.
+    const buttons = [];
+    if (dealer.phone) {
+      buttons.push(`<a class="cust-btn" href="${App.telLink(dealer.phone)}"><span>📞</span>Call</a>`);
+      buttons.push(`<a class="cust-btn" href="${smsLink(dealer.phone, `Hi, this is ${ride.customer_first_name} about my shuttle ride (${link}). `)}"><span>💬</span>Text us</a>`);
+    }
+    if (open && minsUntil(ride.scheduled_at) > 20 && ['requested', 'assigned'].includes(ride.status)) {
+      buttons.push(`<a class="cust-btn" href="/api/public/track/${encodeURIComponent(token)}/calendar"><span>📅</span>Add to calendar</a>`);
+    }
+    if (open) buttons.push('<button type="button" class="cust-btn" id="shareBtn"><span>🔗</span>Share</button>');
+    $('#actions').innerHTML = buttons.join('');
+    $('#actions').classList.toggle('hidden', !buttons.length);
+    if ($('#shareBtn')) $('#shareBtn').onclick = shareRide;
+
+    // Running late / cancel.
+    const ch = $('#change');
+    ch.classList.toggle('hidden', !data.can_change);
+    if (data.can_change && !changeOpen) {
+      ch.innerHTML = `<h2>Need to change something?</h2>
+        <div class="cust-change">
+          <button type="button" class="btn-ghost" id="lateBtn">⏰ I'm running late</button>
+          <button type="button" class="btn-ghost" id="cancelBtn">✖ Cancel my ride</button>
+        </div><div id="changeMsg"></div>`;
+      $('#lateBtn').onclick = late; $('#cancelBtn').onclick = cancel;
+    }
+
+    $('#mapCard').classList.toggle('hidden', !open);
+    $('#foot').innerHTML = `${esc(dealer.name)} · ${esc(dealer.address)}<br>This page updates on its own. Last change ${fmtTime(ride.updated_at)}.`;
+    // A thank-you stays on screen for a minute, even as the page updates itself.
+    if (notice && Date.now() - notice.at < 60000) {
+      const box = data.can_change ? $('#changeMsg') : $('#status');
+      if (box && !box.querySelector('.alert-ok')) box.insertAdjacentHTML('beforeend', `<div class="alert alert-ok" style="margin-top:.6rem">${esc(notice.text)}</div>`);
+    }
+
+    if (open) {
+      if (!map) {
+        App.settings = { dealer_name: dealer.name, dealer_address: dealer.address, dealer_lat: dealer.lat, dealer_lng: dealer.lng };
+        map = App.makeMap($('#map'), dealer, 12);
+        App.dealerMarker(map, App.settings);
+        if (ride.lat != null) L.marker([ride.lat, ride.lng], { icon: App.pinIcon(ride.type, '★') }).bindPopup('You').addTo(map);
+      }
+      if (loc) {
+        if (car) App.glide(car, [loc.lat, loc.lng]);
+        else car = L.marker([loc.lat, loc.lng], { icon: App.carIcon() }).bindPopup('Your shuttle').addTo(map);
+      } else if (car) { car.remove(); car = null; }
+      if (!fitted || (loc && !fitted.withCar)) {
+        const pts = [[dealer.lat, dealer.lng]];
+        if (ride.lat != null) pts.push([ride.lat, ride.lng]);
+        if (loc) pts.push([loc.lat, loc.lng]);
+        if (pts.length > 1) map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
+        fitted = { withCar: !!loc };
+      }
+    }
+  }
 
   async function load() {
     let data;
     try { data = await api(`/api/public/track/${encodeURIComponent(token)}`); }
-    catch (err) { $('#status').innerHTML = `<h2>Ride not found</h2><p>${esc(err.message)}</p>`; return; }
-    const { ride, dealer, driver_location: loc, queue_position: pos, eta } = data;
-    $('#dealer').textContent = dealer.name;
-    if (!document.querySelector('[data-brand] *')) App.applyBrand(dealer.name);
-    $('#title').textContent = ride.type === 'pickup' ? `Hi ${ride.customer_first_name}, we're coming to get you` : `Hi ${ride.customer_first_name}, your ride home`;
-
-    let body;
-    if (ride.status === 'cancelled') body = `<h2>This ride was cancelled</h2><p>Questions? Call ${esc(dealer.phone || 'the dealership')}.</p>`;
-    else {
-      const idx = STEPS.findIndex(([s]) => s === ride.status);
-      const steps = STEPS.map(([, label], i) => `<div class="step ${i < idx ? 'done' : i === idx ? 'now' : ''}"><i>${i < idx ? '✓' : i + 1}</i>${label}</div>`).join('');
-      const headline = {
-        requested: 'We got your request. A driver will be assigned shortly.',
-        assigned: `${esc(ride.driver_name || 'Your driver')} will be your driver.`,
-        en_route: `${esc(ride.driver_name || 'Your driver')} is on the way!`,
-        onboard: ride.type === 'pickup' ? 'Heading to the dealership.' : "You're on your way.",
-        completed: 'Ride complete. Thanks for choosing us!',
-      }[ride.status];
-      const veh = ride.vehicle;
-      body = `<div class="status-steps">${steps}</div>
-        <h2>${headline}</h2>
-        <div class="ride-meta" style="font-size:1rem">
-          <div>🕒 Scheduled ${fmtTime(ride.scheduled_at)}</div>
-          <div>📍 ${ride.type === 'pickup' ? 'Pick up at' : 'Drop off at'} ${esc(ride.address)}</div>
-          ${veh ? `<div>🚐 Look for: <b>${esc([veh.color, veh.make_model].filter(Boolean).join(' ') || veh.name)}</b>${veh.plate ? ` · plate ${esc(veh.plate)}` : ''}</div>` : ''}
-          ${eta ? `<div>⏱ ${ride.type === 'pickup' ? 'Driver expected around' : 'Estimated arrival around'} <b>${fmtTime(eta)}</b></div>` : ''}
-          ${pos ? `<div>📋 You're #${pos} in the shuttle line</div>` : ''}
-        </div>
-        ${dealer.phone ? `<div class="actions"><a class="btn btn-ghost" href="${App.telLink(dealer.phone)}">📞 Call the dealership</a></div>` : ''}`;
+    catch (err) {
+      if (last) return; // keep showing the last good view; it retries by itself
+      $('#status').innerHTML = `<h2>We couldn't find that ride</h2><p>${esc(err.message)}</p>`;
+      $('#mapCard').classList.add('hidden');
+      return;
     }
-    $('#status').innerHTML = body;
-    $('#foot').innerHTML = `${esc(dealer.name)} · ${esc(dealer.address)}<br>This page updates on its own. Last change ${fmtTime(ride.updated_at)}.`;
-
-    if (!map) {
-      App.settings = { dealer_name: dealer.name, dealer_address: dealer.address, dealer_lat: dealer.lat, dealer_lng: dealer.lng };
-      map = App.makeMap($('#map'), dealer, 12);
-      App.dealerMarker(map, App.settings);
-      if (ride.lat != null) L.marker([ride.lat, ride.lng], { icon: App.pinIcon(ride.type, '★') }).bindPopup('You').addTo(map);
-    }
-    if (loc) {
-      if (car) App.glide(car, [loc.lat, loc.lng]);
-      else car = L.marker([loc.lat, loc.lng], { icon: App.carIcon() }).bindPopup('Your shuttle').addTo(map);
-    } else if (car) { car.remove(); car = null; }
-    if (!fitted) {
-      const pts = [[dealer.lat, dealer.lng]];
-      if (ride.lat != null) pts.push([ride.lat, ride.lng]);
-      if (loc) pts.push([loc.lat, loc.lng]);
-      if (pts.length > 1) map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
-      fitted = true;
-    }
+    last = data; render(data);
   }
+
+  async function shareRide() {
+    const text = `Follow my shuttle ride from ${last ? last.dealer.name : 'the dealership'}: ${link}`;
+    if (navigator.share) { try { await navigator.share({ title: 'Shuttle ride', text, url: link }); return; } catch { return; } }
+    try { await navigator.clipboard.writeText(link); App.flash($('#changeMsg') || $('#foot'), 'Link copied.', true); } catch { prompt('Copy this link:', link); }
+  }
+
+  function late() {
+    changeOpen = 'late';
+    const m = App.modal(`<h2>How late will you be?</h2>
+      <p class="muted small">We'll let your driver know right away.</p>
+      <div class="cust-late">${[[5, '5 min'], [10, '10 min'], [15, '15 min'], [20, '20+ min']].map(([v, l]) => `<button type="button" class="btn-ghost" data-min="${v}">${l}</button>`).join('')}</div>
+      <div class="msg"></div>
+      <div class="actions"><button type="button" class="btn-ghost" data-close>Never mind</button></div>`);
+    m.addEventListener('close', () => { changeOpen = null; });
+    m.querySelectorAll('[data-min]').forEach((b) => { b.onclick = async () => {
+      try { const r = await api(`/api/public/track/${encodeURIComponent(token)}/late`, { body: { minutes: Number(b.dataset.min) } }); notice = { text: r.message, at: Date.now() }; m.close(); load(); }
+      catch (err) { App.flash($('.msg', m), err.message); }
+    }; });
+  }
+
+  function cancel() {
+    changeOpen = 'cancel';
+    const reasons = ['My plans changed', 'I found another ride', 'I don’t need the shuttle anymore', 'Other'];
+    const m = App.modal(`<h2>Cancel your shuttle ride?</h2>
+      <form>
+        <div class="reasons">${reasons.map((r, i) => `<label class="check"><input type="radio" name="reason" value="${esc(r)}" ${i === 0 ? 'required' : ''}> ${esc(r)}</label>`).join('')}</div>
+        <label>Anything we should know? <span class="muted">(needed for “Other”)</span></label>
+        <textarea name="details" maxlength="200" rows="2"></textarea>
+        <div class="msg"></div>
+        <div class="actions"><button class="btn-dark">Cancel my ride</button><button type="button" class="btn-ghost" data-close>Keep my ride</button></div>
+      </form>`);
+    m.addEventListener('close', () => { changeOpen = null; });
+    $('form', m).onsubmit = async (e) => {
+      e.preventDefault();
+      const f = e.target.elements;
+      try {
+        const r = await api(`/api/public/track/${encodeURIComponent(token)}/cancel`, { body: { reason: f.reason.value, details: f.details.value } });
+        notice = { text: r.message, at: Date.now() }; m.close(); await load();
+      } catch (err) { App.flash($('.msg', m), err.message); }
+    };
+  }
+
   App.poll(load, 6000); // fast enough to watch the shuttle move
+  setInterval(() => { if (last && !changeOpen) render(last); }, 30000); // keep the countdown current between updates
 })();
 </script>
 </body>

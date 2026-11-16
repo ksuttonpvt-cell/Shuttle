@@ -1,5 +1,18 @@
 [
   {
+    "version": "2.7.0",
+    "date": "2026-11-16",
+    "title": "Short customer links and a handier customer page",
+    "changes": [
+      "Tracking links are short and easy to read, like corwinshuttleservice.com/t/K7M2Q9XA, with no look-alike letters, and any case works. Links sent before still work.",
+      "Customer QR codes are simpler (fewer, bigger squares), so they scan faster even when printed small.",
+      "The customer page shows a big countdown (“Arriving in about 8 min”), even when the driver isn't on a planned route.",
+      "Big one-tap buttons for customers: Call, Text us, Add to calendar, and Share (for family picking them up).",
+      "Customers can say they're running late (5, 10, 15 or 20+ min) or cancel with a reason. The driver and advisor get a notification and it shows on the ride. Admins can turn this off in Settings.",
+      "Wrong tracking codes are limited, so nobody can guess other customers' links."
+    ]
+  },
+  {
     "version": "2.6.0",
     "date": "2026-11-16",
     "title": "Opens instantly, and page speed from real devices",

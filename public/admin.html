@@ -191,6 +191,7 @@
         <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
       </select>
       <label class="check" style="margin-top:1rem"><input type="checkbox" name="public_requests"> Let customers request rides online (the /request page)</label>
+      <label class="check"><input type="checkbox" name="customer_actions"> Let customers say they're running late or cancel from their tracking page (the driver gets a notification)</label>
       <label class="check" style="margin-top:.6rem"><input type="checkbox" name="ride_offers"> Offer waiting rides to the closest free driver (they get a ding and can take it or pass; if they pass, it goes to the next closest)</label>
       <div id="setMsg"></div>
       <button style="margin-top:1rem">Save settings</button>
@@ -866,6 +867,7 @@
     if (sf.elements.service_radius_mi.value === '') sf.elements.service_radius_mi.value = '0';
     if (!sf.elements.timezone.value) sf.elements.timezone.value = 'America/Denver';
     sf.elements.public_requests.checked = settings.public_requests === '1';
+    sf.elements.customer_actions.checked = settings.customer_actions !== '0';
     sf.elements.ride_offers.checked = settings.ride_offers !== '0';
     const at = [Number(settings.dealer_lat), Number(settings.dealer_lng)];
     if (!setMap) {
@@ -1279,6 +1281,7 @@
     e.preventDefault();
     const body = Object.fromEntries(new FormData(sf));
     body.public_requests = sf.elements.public_requests.checked ? '1' : '0';
+    body.customer_actions = sf.elements.customer_actions.checked ? '1' : '0';
     body.ride_offers = sf.elements.ride_offers.checked ? '1' : '0';
     try { const { settings } = await api('/api/settings', { method: 'PATCH', body }); App.settings = settings; App.flash($('#setMsg'), 'Saved.', true); }
     catch (err) { App.flash($('#setMsg'), err.message); }
