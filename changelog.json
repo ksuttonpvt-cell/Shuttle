@@ -1,5 +1,18 @@
 [
   {
+    "version": "2.9.0",
+    "date": "2026-11-16",
+    "title": "Smarter routes: dealership stops along the way, urgent rides first",
+    "changes": [
+      "Routes can now stop at the dealership in the middle of a trip: drop off the customers picked up so far, collect drop-off customers who are ready, then head out again. No more riding everyone around until the end.",
+      "Urgent rides and rides due soonest come first. Being late counts far more than a few extra minutes of driving, and urgent rides count three times as much again.",
+      "Routes avoid showing up long before a customer is due: the driver arrives about 10 minutes early instead.",
+      "Seats are respected the whole way. A trip with more people than seats goes back to the dealership in between instead of being refused.",
+      "Each dealership stop says who gets off and who gets on, and pick ups that will be late are marked.",
+      "A pick-up stop leaves the route as soon as the customer is on board."
+    ]
+  },
+  {
     "version": "2.8.0",
     "date": "2026-11-16",
     "title": "Password resets in seconds",

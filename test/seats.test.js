@@ -64,22 +64,35 @@ test('routes and ride offers respect the van\'s seats', async () => {
   const near = await book('Near Pickup', 'pickup', -105.20, 3);
   const other = await book('Other Pickup', 'pickup', -105.22, 2);
 
-  // Fits if the drop off happens first; seats after each stop are shown.
+  // 3 + 3 people fits a 4-seat van only if they're never in it together: pick up the near
+  // customer, let them off at the dealership while the drop-off party gets on, then go.
   let r = await dana('/api/route', { body: { ride_ids: [far.id, near.id] } });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   const rt = r.data.route;
   assert.equal(rt.seats, 4);
   assert.equal(rt.peak, 3);
-  assert.deepEqual(rt.stops.map((x) => x.ride_id), [null, far.id, near.id, null]);
-  assert.deepEqual(rt.stops.map((x) => x.on_board), [3, 0, 3, 3]);
+  assert.deepEqual(rt.stops.map((x) => x.ride_id), [near.id, null, far.id, null]);
+  assert.deepEqual(rt.stops.map((x) => x.on_board), [3, 3, 0, 0]);
+  assert.deepEqual([rt.stops[1].drop_ids, rt.stops[1].load_ids], [[near.id], [far.id]], 'the dealership stop says who gets off and on');
+  assert.match(rt.stops[1].label, /Dealership: drop off Near Pickup · pick up Far Dropoff/);
 
-  // Two pick ups of 3 and 2 = 5 people riding back together: too many for 4 seats in any order.
+  // Two pick ups of 3 and 2 = 5 people: they can't ride back together in 4 seats, so the
+  // trip brings the first group to the dealership before getting the second.
   r = await dana('/api/route', { body: { ride_ids: [near.id, other.id] } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.ok(r.data.route.peak <= 4);
+  assert.equal(r.data.route.stops.filter((x) => x.kind === 'dealer').length, 2, 'a dealership stop in between');
+
+  // One party bigger than the van can't fit, whatever the order.
+  const huge = await book('Huge Party', 'pickup', -105.21, 5);
+  r = await dana('/api/route', { body: { ride_ids: [huge.id] } });
   assert.equal(r.status, 400);
   assert.match(r.data.error, /Small Van: it has 4 seats, but this trip needs room for 5/);
+  await admin(`/api/rides/${huge.id}`, { method: 'PATCH', body: { status: 'cancelled', cancel_reason: 'test party' } });
 
   // A saved order that would overfill the van is refused too.
-  r = await dana('/api/route', { body: { ride_ids: [near.id, far.id], save: true, keep_order: true } });
+  // (collect the drop-off party first, then pick up the other 3 with them still on board)
+  r = await dana('/api/route', { body: { ride_ids: [near.id, far.id], sequence: [0, near.id, far.id], save: true, keep_order: true } });
   assert.equal(r.status, 400);
   assert.match(r.data.error, /6 people would be in Small Van at once/);
 

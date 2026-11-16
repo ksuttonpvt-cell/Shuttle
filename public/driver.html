@@ -322,11 +322,12 @@
       });
     }
     // "Leave now → Pat 8:38 → Kim 8:50 → Back at dealership 9:28"
-    const shortName = (x) => (x.kind === 'dealer' ? (x.label.startsWith('Back') ? 'Back at dealership' : 'Dealership') : x.label);
+    // Dealership stops along the way say who gets off and on there.
+    const shortName = (x) => (x.kind === 'dealer' ? (x.label.startsWith('Back') ? 'Back at dealership' : x.label) : x.label);
     const timeline = (rt) => `<div class="timeline">
         <div class="tl-row"><span class="tl-dot tl-start"></span><b>Leave now</b><span class="muted small">${fmtTime(rt.planned_at)}</span></div>
-        ${rt.stops.map((x, i) => `<div class="tl-leg small muted">🚐 ${x.leg_min} min · ${x.leg_mi} mi</div>
-          <div class="tl-row"><span class="tl-dot ${x.kind === 'dealer' ? 'tl-dealer' : ''}">${i + 1}</span><b>${esc(shortName(x))}${rt.seats && x.on_board != null && i < rt.stops.length - 1 ? ` <span class="seat-pill">👥 ${x.on_board}/${rt.seats}</span>` : ''}</b><span><b>${fmtTime(x.eta)}</b></span></div>`).join('')}
+        ${rt.stops.map((x, i) => `${x.leg_min ? `<div class="tl-leg small muted">🚐 ${x.leg_min} min · ${x.leg_mi} mi</div>` : ''}
+          <div class="tl-row"><span class="tl-dot ${x.kind === 'dealer' ? 'tl-dealer' : ''}">${i + 1}</span><b>${esc(shortName(x))}${rt.seats && x.on_board != null && i < rt.stops.length - 1 ? ` <span class="seat-pill">👥 ${x.on_board}/${rt.seats}</span>` : ''}${x.late_min ? ` <span class="late small">⚠ about ${x.late_min} min late</span>` : ''}</b><span><b>${fmtTime(x.eta)}</b></span></div>`).join('')}
         <div class="route-total" style="margin-top:.5rem">Back at the dealership about ${fmtTime(rt.finish_at)} · ${rt.total_mi} mi total</div>
         <div class="small muted">${rt.source === 'roads' ? 'Real road driving times' : 'Estimated times (road info unavailable)'}, plus 3 min at each stop.</div></div>`;
     // How many people are checked, against the van's seats.
@@ -336,11 +337,11 @@
       const chosen = list.filter((r) => picking.has(r.id));
       const ups = chosen.filter((r) => r.type === 'pickup').reduce((n, r) => n + r.passengers, 0);
       const downs = chosen.filter((r) => r.type === 'dropoff').reduce((n, r) => n + r.passengers, 0);
-      const most = Math.max(ups, downs);
+      const biggest = Math.max(0, ...chosen.map((r) => r.passengers));
       const all = ups + downs;
-      const tone = most > veh.seats ? 'alert-err' : all > veh.seats ? 'alert-warn' : 'alert-ok';
-      const say = most > veh.seats ? `Too many: ${most} ${ups >= downs ? 'pick-up' : 'drop-off'} passengers won't fit in ${veh.seats} seats. Uncheck some rides.`
-        : all > veh.seats ? `${all} passengers in all, more than ${veh.seats} seats, so the route will drop people off before picking others up.`
+      const tone = biggest > veh.seats ? 'alert-err' : all > veh.seats ? 'alert-warn' : 'alert-ok';
+      const say = biggest > veh.seats ? `Too many: a party of ${biggest} won't fit in ${veh.seats} seats. Uncheck that ride.`
+        : all > veh.seats ? `${all} passengers in all, more than ${veh.seats} seats, so the route will stop at the dealership in between to let people off.`
         : `${all} passenger${all === 1 ? '' : 's'} · ${esc(veh.name)} has ${veh.seats} seats`;
       return `<div class="alert ${tone} small">👥 ${say}</div>`;
     }
@@ -398,7 +399,7 @@
     async function plan(ids, save, keepOrder = false) {
       msg = '<div class="small muted" style="margin-top:.5rem">Working out the quickest order…</div>'; paint();
       try {
-        const r = await api('/api/route', { body: { ride_ids: ids, from: keepOrder && preview ? preview.start : here(), save, keep_order: keepOrder } });
+        const r = await api('/api/route', { body: { ride_ids: ids, sequence: keepOrder && preview ? preview.sequence : undefined, from: keepOrder && preview ? preview.start : here(), save, keep_order: keepOrder } });
         skipped = r.skipped || []; msg = '';
         if (save) { saved = r.route; preview = null; picking = null; } else preview = r.route;
         drawPath(saved || preview);
@@ -421,7 +422,7 @@
         const ids = preview.stops.filter((x) => x.ride_id).map((x) => x.ride_id);
         alerts.tookMyself(ids);
         fetch('/api/route', { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ride_ids: ids, from: preview.start, save: true, keep_order: true }) })
+          body: JSON.stringify({ ride_ids: ids, sequence: preview.sequence, from: preview.start, save: true, keep_order: true }) })
           .then((r) => r.json()).then((d) => {
             if (d.route) { saved = d.route; preview = null; picking = null; drawPath(saved); refresh(); }
             else { msg = `<div class="alert alert-err">${esc(d.error || 'Could not save the route.')}</div>`; paint(); }
