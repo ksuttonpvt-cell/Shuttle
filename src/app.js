@@ -16,6 +16,7 @@ const { parseFleet, FUELS } = require('./fleet');
 const { createLogbook } = require('./logbook');
 const { cityOf, estimatedRideMiles } = require('./places');
 const { createLimits } = require('./limits');
+const { createMailer, ADDR_RE } = require('./mailer');
 const { createBus, coresAvailable, coresWanted } = require('./cluster');
 const { createThrottle } = require('./throttle');
 const { mergeSnapshots, TRAFFIC_TYPES } = require('./serverstats');
@@ -420,21 +421,91 @@ function createApp(db, opts = {}) {
               WHERE r.token_hash = ? AND r.expires_at > ? AND u.active = 1`).get(hashToken(token), now()) || null;
   }
 
+  // ---------- email (for password reset links) ----------
+  // The dealership's own email account. The password is kept on the server only.
+  const mailer = opts.mailer || createMailer(() => {
+    const s = getSettings();
+    return s.smtp_host ? { host: s.smtp_host, port: s.smtp_port, user: s.smtp_user, pass: s.smtp_pass, from: s.smtp_from || s.smtp_user, fromName: s.smtp_from_name || s.dealer_name } : null;
+  });
+  const SELF_RESET_MIN = 60; // a link sent straight to the person works for an hour
+  // "Forgot password": the reset link goes straight to the person by email (and by text if
+  // texting is set up and they have a phone number). If neither can be sent, admins are
+  // alerted to send one, as before. Same answer whether or not the email has an account.
   app.post('/api/password-reset/request', (req, res) => {
     const email = str(req.body.email, 200);
     if (!email) return bad(res, 'Enter your email.');
     const ipKey = `reset|${clientIp(req)}`;
     if (throttled(ipKey, 5)) return bad(res, 'Too many requests. Try again in 15 minutes.', 429);
     recordFailure(ipKey);
+    const auto = mailer.configured || sms.configured;
+    res.json({ ok: true, auto });
     const user = q('SELECT * FROM users WHERE email = ? AND active = 1').get(email);
-    // Only alert admins once an hour per person, so the button can't be used to spam them.
-    if (user && !(user.reset_requested_at && Date.now() - new Date(user.reset_requested_at) < 3600000)) {
-      q('UPDATE users SET reset_requested_at = ? WHERE id = ?').run(now(), user.id);
-      const admins = q("SELECT id FROM users WHERE role = 'admin' AND active = 1").all().map((a) => a.id);
-      quietly(push.notifyUsers(admins, { title: '🔑 Password reset requested', body: `${user.name} (${user.email}) forgot their password. Open Admin → Staff & logins to send a reset link.`, tag: `reset-${user.id}`, url: '/admin#users' }));
-    }
-    // Same answer whether or not the email has an account.
-    res.json({ ok: true });
+    if (!user) return;
+    const base = baseUrl(req);
+    (async () => {
+      let sentBy = [];
+      const key = `resetsend|${user.id}`;
+      if (auto && limits.count(key, 3600000) < 4) { // at most 4 links an hour per person
+        limits.hit(key, 3600000);
+        const token = randomToken(24);
+        q('DELETE FROM password_resets WHERE user_id = ? OR expires_at < ?').run(user.id, now()); // only the newest link works
+        q('INSERT INTO password_resets (token_hash, user_id, expires_at, created_by) VALUES (?, ?, ?, NULL)')
+          .run(hashToken(token), user.id, new Date(Date.now() + SELF_RESET_MIN * 60000).toISOString());
+        const url = `${base}/reset/${token}`;
+        const dealer = getSettings().dealer_name || 'Shuttle';
+        const jobs = [];
+        if (mailer.configured) {
+          jobs.push(mailer.send({ to: user.email, subject: `Reset your ${dealer} shuttle password`,
+            text: `Hi ${user.name.split(' ')[0]},\n\nSomeone (hopefully you) asked to reset your shuttle password. Tap this link to choose a new one:\n\n${url}\n\nIt works once, for the next hour.\n\nDidn't ask? You can ignore this email; your password stays the same.\n\n${dealer} shuttle` })
+            .then(() => sentBy.push('email'), (e) => console.error(new Date().toLocaleString(), `[reset] Email to ${user.name} failed: ${e.message}`)));
+        }
+        const phone = toE164(user.phone || '');
+        if (sms.configured && phone) {
+          jobs.push(sms.send(phone, `${dealer} shuttle: reset your password here (works once, for 1 hour): ${url} Didn't ask? Ignore this.`)
+            .then(() => sentBy.push('text'), (e) => console.error(new Date().toLocaleString(), `[reset] Text to ${user.name} failed: ${e.message}`)));
+        }
+        await Promise.all(jobs);
+        sentBy = [...new Set(sentBy)];
+        if (sentBy.length) { console.log(new Date().toLocaleString(), `[reset] Reset link sent to ${user.name} by ${sentBy.join(' and ')}.`); return; }
+      }
+      // Nothing could be sent: alert admins (once an hour per person, so it can't be used to spam them).
+      if (!(user.reset_requested_at && Date.now() - new Date(user.reset_requested_at) < 3600000)) {
+        q('UPDATE users SET reset_requested_at = ? WHERE id = ?').run(now(), user.id);
+        const admins = q("SELECT id FROM users WHERE role = 'admin' AND active = 1").all().map((a) => a.id);
+        quietly(push.notifyUsers(admins, { title: '🔑 Password reset requested', body: `${user.name} (${user.email}) forgot their password. Open Admin → Staff & logins to send a reset link.`, tag: `reset-${user.id}`, url: '/admin#users' }));
+        live.soon('drivers', 300); // the staff list shows the request
+      }
+    })().catch((e) => console.error('Password reset failed:', e.message));
+  });
+
+  // Admin → Settings → Email: set up, test, or remove the email account used for reset links.
+  const emailInfo = () => {
+    const c = mailer.config();
+    return { configured: mailer.configured, from_env: !!(c && c.source === 'env'), host: c?.host || '', port: Number(c?.port) || 587, user: c?.user || '', from: c?.from || '', has_password: !!(c && c.pass), texting: sms.configured };
+  };
+  app.get('/api/email', requireRole('admin'), (req, res) => res.json(emailInfo()));
+  app.put('/api/email', requireRole('admin'), (req, res) => {
+    const b = req.body || {};
+    const set = (k, v) => (v ? q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v) : q('DELETE FROM settings WHERE key = ?').run(k));
+    if (b.clear) { for (const k of ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_from']) set(k, ''); return res.json(emailInfo()); }
+    const host = str(b.host, 200); const user = str(b.user, 200); const from = str(b.from, 200) || user;
+    const port = Number(b.port) || 587;
+    if (!host || !/^[a-z0-9.-]+$/i.test(host)) return bad(res, 'Enter the email server, like smtp.office365.com.');
+    if (![25, 465, 587, 2525].includes(port)) return bad(res, 'Use port 587 (most common) or 465.');
+    if (user && !ADDR_RE.test(user) && user.length < 2) return bad(res, 'Enter the email account to sign in with.');
+    if (!from || !ADDR_RE.test(from)) return bad(res, 'Enter the email address the links come from.');
+    set('smtp_host', host); set('smtp_port', String(port)); set('smtp_user', user || ''); set('smtp_from', from);
+    if (b.password) set('smtp_pass', String(b.password).slice(0, 300)); // blank keeps the saved one
+    console.log(new Date().toLocaleString(), `[server] ${req.user.name} set up email for reset links (${host}).`);
+    res.json(emailInfo());
+  });
+  app.post('/api/email/test', requireRole('admin'), async (req, res) => {
+    if (!mailer.configured) return bad(res, 'Set up the email account first.');
+    const to = str(req.body && req.body.to, 200) || req.user.email;
+    try {
+      await mailer.send({ to, subject: 'Shuttle test email', text: `This is a test from the ${getSettings().dealer_name || ''} shuttle site. Password reset links will be sent like this.` }, { timeoutMs: 15000 });
+      res.json({ ok: true, message: `Sent to ${to}. Check that inbox (and spam).` });
+    } catch (e) { bad(res, `Couldn't send: ${e.message}`, 502); }
   });
 
   app.post('/api/users/:id/reset-link', requireRole('admin'), (req, res) => {

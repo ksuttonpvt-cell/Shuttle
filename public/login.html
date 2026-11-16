@@ -31,7 +31,7 @@
     </form>
     <form id="forgot" class="hidden">
       <h2 style="margin-top:0">Reset your password</h2>
-      <p class="small muted">Enter the email you sign in with. A shuttle admin will get an alert and send you a link to set a new password.</p>
+      <p class="small muted">Enter the email you sign in with, and we'll send you a link to set a new password.</p>
       <label for="femail">Email</label>
       <input id="femail" name="email" type="email" autocomplete="username" required>
       <div id="fmsg"></div>
@@ -64,8 +64,10 @@
     e.preventDefault();
     const btn = e.target.querySelector('.btn-lg'); btn.disabled = true;
     try {
-      await App.api('/api/password-reset/request', { body: { email: App.$('#femail').value } });
-      App.flash(App.$('#fmsg'), "Got it. If that email has an account, a shuttle admin has been alerted and will send you a reset link. You can also ask them in person.", true);
+      const r = await App.api('/api/password-reset/request', { body: { email: App.$('#femail').value } });
+      App.flash(App.$('#fmsg'), r.auto
+        ? 'Sent! If that email has an account, a reset link is on its way to that email (and by text if your phone number is on file). It works for 1 hour. Nothing after a few minutes? Check spam, or ask a shuttle admin.'
+        : "Got it. If that email has an account, a shuttle admin has been alerted and will send you a reset link. You can also ask them in person.", true);
     } catch (err) { App.flash(App.$('#fmsg'), err.message); }
     btn.disabled = false;
   };

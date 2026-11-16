@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.8.0",
+    "date": "2026-11-16",
+    "title": "Password resets in seconds",
+    "changes": [
+      "“Forgot password?” now sends the reset link straight to the person by email in seconds, instead of waiting for an admin. Set up the email account in Admin → Settings → Email for password resets (Microsoft 365, Gmail, or any provider), and use “Send a test to me” to check it.",
+      "If texting is set up, people with a phone number on file get the link by text too.",
+      "The link works once, for 1 hour. If nothing can be sent, admins are alerted like before.",
+      "The email password stays on the shuttle PC and is never shown or sent to browsers."
+    ]
+  },
+  {
     "version": "2.7.1",
     "date": "2026-11-16",
     "title": "Routes start where the van is, and links always use https",
