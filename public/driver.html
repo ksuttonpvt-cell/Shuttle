@@ -74,7 +74,7 @@
     $('#shift').innerHTML = me.on_duty ? `
       <div class="card-head" style="margin:0">
         <div><h2 style="margin:0">On duty ✅</h2>
-          <div class="muted small">Driving <b>${esc(veh?.name || '—')}</b>${veh ? ` · ${esc([veh.color, veh.make_model, veh.plate].filter(Boolean).join(' · '))} · ${veh.seats} seats` : ''}</div>
+          <div class="muted small">Driving <b>${esc(veh?.name || '—')}</b>${veh ? [veh.color, veh.make_model, veh.plate, veh.seats ? `${veh.seats} seats` : ''].filter(Boolean).map((x) => ` · ${esc(x)}`).join('') : ''}</div>
           <div class="small" id="gps">${watchId != null ? '📡 Sharing location' : '📡 Location off'}</div>
           <div class="small">${alerts.on ? '🔔 New-ride alerts on' : '🔕 New-ride alerts off'}</div>
         </div>
