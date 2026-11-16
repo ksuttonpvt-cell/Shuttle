@@ -160,3 +160,47 @@ test('drivers plan, save and share routes; maps get live positions', async () =>
   assert.equal((await eli('/api/route', { body: { ride_ids: [] } })).status, 400);
   assert.equal((await admin('/api/route', { body: { ride_ids: [east.id] } })).status, 400, 'admins have no GPS start but can still preview');
 });
+
+test('routes start where the van is now, not where the phone was hours ago, and maps show only what is ahead', async () => {
+  const db = openDb(':memory:');
+  ensureAdmin(db, { email: 'boss@route.test', password: 'adminpass1', name: 'Boss' });
+  const app = createApp(db, { noTimers: true });
+  const srv = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const client = () => { let cookie = ''; return async (p, { method, body } = {}) => {
+    const res = await fetch(base + p, { method: method || (body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    const set = res.headers.get('set-cookie'); if (set) cookie = set.split(';')[0];
+    return { status: res.status, data: await res.json().catch(() => null) };
+  }; };
+  try {
+    const a = client(); await a('/api/login', { body: { email: 'boss@route.test', password: 'adminpass1' } });
+    const dr = (await a('/api/users', { body: { name: 'Dee', email: 'dee@route.test', role: 'driver', password: 'driverpass1' } })).data.user;
+    const v = (await a('/api/vehicles', { body: { name: 'Van', seats: 7 } })).data.vehicle;
+    const ride = (await a('/api/rides', { body: { type: 'pickup', customer_name: 'Pat', customer_phone: '3035550101', address: 'East', lat: EAST.lat, lng: EAST.lng, scheduled_at: new Date(Date.now() + 3600e3).toISOString(), passengers: 1 } })).data.ride;
+    const d = client(); await d('/api/login', { body: { email: 'dee@route.test', password: 'driverpass1' } });
+    await d('/api/driver/shift', { body: { on_duty: true, vehicle_id: v.id } });
+    // The phone last shared its location up near Longmont, three hours ago.
+    db.prepare('UPDATE users SET last_lat = 40.167, last_lng = -105.10, last_loc_at = ? WHERE id = ?').run(new Date(Date.now() - 3 * 3600e3).toISOString(), dr.id);
+    let rt = (await d('/api/route', { body: { ride_ids: [ride.id] } })).data.route;
+    assert.ok(Math.abs(rt.start.lat - DEALER.lat) < 0.001 && Math.abs(rt.start.lng - DEALER.lng) < 0.001, 'starts at the dealership, not the old spot');
+    // An old spot sent by the phone with its time is ignored too.
+    rt = (await d('/api/route', { body: { ride_ids: [ride.id], from: { lat: 40.167, lng: -105.10, at: Date.now() - 3 * 3600e3 } } })).data.route;
+    assert.ok(Math.abs(rt.start.lat - DEALER.lat) < 0.001, 'old phone location ignored');
+    // A fresh location is used.
+    rt = (await d('/api/route', { body: { ride_ids: [ride.id], from: { lat: 40.03, lng: -105.2, at: Date.now() } } })).data.route;
+    assert.equal(rt.start.lat, 40.03);
+
+    // Save a route from the dealership, then drive halfway: the map shows only what's ahead.
+    await d('/api/driver/location', { body: { lat: DEALER.lat, lng: DEALER.lng } });
+    const saved = (await d('/api/route', { body: { ride_ids: [ride.id], save: true } })).data.route;
+    const fullStart = saved.path[0];
+    const mid = { lat: (DEALER.lat + EAST.lat) / 2, lng: (DEALER.lng + EAST.lng) / 2 };
+    await d('/api/driver/location', { body: mid });
+    const now = (await d('/api/route')).data.route;
+    assert.deepEqual(now.path[0], [mid.lat, mid.lng], 'starts at the van');
+    assert.notDeepEqual(now.path[0], fullStart, 'the part already driven (from the dealership) is gone');
+    assert.deepEqual(now.path.slice(1), saved.path.slice(1), 'and the rest of the route is unchanged');
+    const live = (await a('/api/drivers/live')).data.drivers.find((x) => x.id === dr.id);
+    assert.deepEqual(live.route.path[0], [mid.lat, mid.lng], 'admin and advisor maps too');
+  } finally { srv.close(); }
+});
