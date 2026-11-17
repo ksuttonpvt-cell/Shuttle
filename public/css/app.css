@@ -682,3 +682,9 @@ body.spec { height: 100%; margin: 0; display: grid; grid-template-rows: auto 1fr
 .daily-text { white-space: pre-wrap; font-size: .85rem; line-height: 1.45; background: var(--subtle, rgba(0,0,0,.04)); border-radius: 10px; padding: .8rem; max-height: 60vh; overflow: auto; }
 /* Wide tables scroll inside their card instead of widening the page. */
 [data-pane="reports"] > *, [data-pane="reports"] .grid > *, [data-pane="server"] > *, [data-pane="comms"] > * { min-width: 0; }
+
+/* Your branding: icon and banner previews, and the banner behind the name */
+.icon-preview { width: 48px; height: 48px; border-radius: 12px; border: 1px solid var(--line); object-fit: cover; }
+.banner-preview { width: 160px; height: 56px; border-radius: 8px; border: 1px solid var(--line); background-size: cover; background-position: center; display: inline-block; }
+html[data-banner] .hero { background-image: linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.6)), var(--banner); background-size: cover; background-position: center; }
+html[data-banner] .center-page { background: linear-gradient(rgba(0,0,0,.5), rgba(0,0,0,.6)), var(--banner) center / cover fixed; }

@@ -211,7 +211,31 @@ const App = (() => {
     };
   }
 
-  // ---------- dealership branding (the Corwin look) ----------
+  // Midnight at the start of a local day (YYYY-MM-DD) in the business's time zone, as a Date.
+  // (The shuttle PC's own clock setting doesn't matter.)
+  function zoneOffsetMs(zone, d) {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      .formatToParts(d).filter((x) => x.type !== 'literal').map((x) => [x.type, Number(x.value)]));
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(d.getTime() / 1000) * 1000;
+  }
+  function localMidnight(day, zone) {
+    const guess = Date.parse(`${day}T00:00:00Z`);
+    let t = guess - zoneOffsetMs(zone, new Date(guess));
+    t = guess - zoneOffsetMs(zone, new Date(t)); // again, in case daylight saving changed in between
+    return new Date(t);
+  }
+  const nextDay = (day) => new Date(Date.parse(`${day}T12:00:00Z`) + 86400000).toISOString().slice(0, 10);
+  // The end of today in the business's time zone (the page's data-tz), for "today" lists.
+  function endOfToday() {
+    const zone = document.documentElement.dataset.tz || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return localMidnight(nextDay(new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(new Date())), zone);
+  }
+
+  // What riders call the base: "dealership", or a shuttle service's own word (hotel, office…).
+  const place = () => document.documentElement.dataset.place || 'dealership';
+  const Place = () => place().charAt(0).toUpperCase() + place().slice(1);
+
+  // ---------- your branding (the Branded look) ----------
   // The logo if one was uploaded, otherwise a wordmark made from the dealership name:
   // "CORWIN" big, "TOYOTA OF BOULDER · SHUTTLE" small.
   function brandMark(dealerName, extra = '') {
@@ -227,7 +251,8 @@ const App = (() => {
   function applyBrand(dealerName) {
     $$('[data-brand]').forEach((el) => { el.innerHTML = brandMark(dealerName, el.dataset.brand || ''); });
     const name = document.documentElement.dataset.brandName || dealerName;
-    $$('[data-foot]').forEach((el) => { el.innerHTML = `<b>${esc(name)}</b> · Service shuttle`; });
+    $$('[data-foot]').forEach((el) => { el.innerHTML = `<b>${esc(name)}</b> · ${place() === 'dealership' ? 'Service shuttle' : 'Shuttle'}`; });
+    $$('span[data-word]').forEach((el) => { el.textContent = el.dataset.word === 'cap' ? Place() : place(); });
     let preview = null;
     try { preview = localStorage.getItem('shuttle.look'); } catch { /* storage blocked */ }
     const site = document.documentElement.dataset.siteLook;
@@ -399,9 +424,9 @@ const App = (() => {
     const mi = milesFromDealer(lat, lng, s); const max = Number(s.service_radius_mi) || 0;
     if (max > 0 && mi > max) {
       const admin = App.user && App.user.role === 'admin';
-      return { ok: false, text: `⚠️ ${mi.toFixed(1)} miles from the dealership. That's outside the ${max}-mile shuttle area.${admin ? ' As an admin you can still book it.' : ''}` };
+      return { ok: false, text: `⚠️ ${mi.toFixed(1)} miles from the ${place()}. That's outside the ${max}-mile shuttle area.${admin ? ' As an admin you can still book it.' : ''}` };
     }
-    return { ok: true, text: `📍 Spot marked · ${mi.toFixed(1)} miles from the dealership` };
+    return { ok: true, text: `📍 Spot marked · ${mi.toFixed(1)} miles from the ${place()}` };
   }
 
   // Shows open rides + on-duty drivers on a map layer. Returns a function to refresh.
@@ -531,7 +556,7 @@ const App = (() => {
   }
 
   function rideMessage(ride) {
-    const dealer = App.settings?.dealer_name || 'the dealership';
+    const dealer = App.settings?.dealer_name || `the ${place()}`;
     const what = ride.type === 'pickup' ? 'shuttle pick up' : 'shuttle ride';
     return `Hi ${ride.customer_name.split(' ')[0]}, your ${dealer} ${what} is scheduled for ${fmtTime(ride.scheduled_at)}. Track your driver here: ${ride.track_url}`;
   }
@@ -766,7 +791,7 @@ const App = (() => {
 
   return {
     whatsNew, esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
-    brandMark, applyBrand, stepper, pickPhoto, waitMeter, tacoRain, live, liveState, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
+    brandMark, applyBrand, place, Place, endOfToday, stepper, pickPhoto, waitMeter, tacoRain, live, liveState, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
 })();

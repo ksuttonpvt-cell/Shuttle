@@ -7,8 +7,8 @@ const Rides = (() => {
     const type = r.type || 'pickup';
     return `
       <div class="seg">
-        <input type="radio" name="type" value="pickup" id="t-pu-${r.id || 'n'}" ${type === 'pickup' ? 'checked' : ''}><label for="t-pu-${r.id || 'n'}">⬆ Pick up<br><span class="small">customer → dealership</span></label>
-        <input type="radio" name="type" value="dropoff" id="t-do-${r.id || 'n'}" ${type === 'dropoff' ? 'checked' : ''}><label for="t-do-${r.id || 'n'}">⬇ Drop off<br><span class="small">dealership → customer</span></label>
+        <input type="radio" name="type" value="pickup" id="t-pu-${r.id || 'n'}" ${type === 'pickup' ? 'checked' : ''}><label for="t-pu-${r.id || 'n'}">⬆ Pick up<br><span class="small">customer → ${App.place()}</span></label>
+        <input type="radio" name="type" value="dropoff" id="t-do-${r.id || 'n'}" ${type === 'dropoff' ? 'checked' : ''}><label for="t-do-${r.id || 'n'}">⬇ Drop off<br><span class="small">${App.place()} → customer</span></label>
       </div>
       <div class="row">
         <div><label>Customer name *</label><input name="customer_name" required value="${esc(r.customer_name)}"></div>
@@ -87,8 +87,8 @@ const Rides = (() => {
           <input type="radio" name="type" value="dropoff" id="t-do-n"><label for="t-do-n">Drop off</label>
         </div>
         <div class="choice-grid">
-          <button type="button" class="choice" data-choose="pickup" data-next-on-click><span class="choice-icon">⬆</span><b>Pick up</b><span>Bring the customer to the dealership</span></button>
-          <button type="button" class="choice" data-choose="dropoff" data-next-on-click><span class="choice-icon">⬇</span><b>Drop off</b><span>Take the customer from the dealership</span></button>
+          <button type="button" class="choice" data-choose="pickup" data-next-on-click><span class="choice-icon">⬆</span><b>Pick up</b><span>Bring the customer to the ${App.place()}</span></button>
+          <button type="button" class="choice" data-choose="dropoff" data-next-on-click><span class="choice-icon">⬇</span><b>Drop off</b><span>Take the customer from the ${App.place()}</span></button>
         </div>
       </section>
       <section data-step="customer" data-title="Customer" hidden>
@@ -230,7 +230,7 @@ const Rides = (() => {
     const wired = Rides.wireForm(form);
     const WORDS = {
       pickup: { where: 'Where are we picking them up?', when: 'When should we pick them up, and how many people?' },
-      dropoff: { where: 'Where are we taking them?', when: 'When do they leave the dealership, and how many people?' },
+      dropoff: { where: 'Where are we taking them?', when: `When do they leave the ${App.place()}, and how many people?` },
     };
     const typeOf = () => form.elements.type.value;
     const WAIT = Number(App.settings.dropoff_wait_min) || 0;

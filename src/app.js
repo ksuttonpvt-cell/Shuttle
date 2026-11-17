@@ -57,7 +57,10 @@ const DEFAULT_SETTINGS = {
   ride_offers: '1',
   discord_invite: '',       // optional "Join our Discord" link shown in the Help window
   easter_egg: '1',          // Easter egg: tacos rain for 10 seconds every Tuesday at noon
-  look: 'corwin',           // 'corwin' (dealership branding) or 'classic', for everyone
+  look: 'corwin',           // 'corwin' (your branding: name, logo, colors) or 'classic', for everyone
+  business_type: 'dealership', // dealership | shuttle (hotel, airport parking, office, events…)
+  place_word: '',           // what riders call your base: blank = "dealership" (or "office" for a shuttle service)
+  request_path: '',         // optional short link for customers to request a ride, e.g. "ride" -> yoursite.com/ride
   brand_color: '#eb0a1e',   // Corwin look: accent (buttons, stripes)
   brand_dark: '#0d0f12',    // Corwin look: header and banner background
   brand_name: '',           // Corwin look: name shown in the header (blank = dealership name); first word is big        // offer waiting rides to the closest free driver, who can accept or pass
@@ -101,7 +104,7 @@ function createApp(db, opts = {}) {
     next();
   });
   app.use('/api/phone/incoming', express.urlencoded({ extended: false, limit: '20kb' })); // Twilio sends forms
-  app.use((req, res, next) => (req.path === '/api/brand/logo' || req.path === '/api/vehicles/import' ? next()
+  app.use((req, res, next) => (['/api/brand/logo', '/api/brand/icon', '/api/brand/banner', '/api/vehicles/import'].includes(req.path) ? next()
     : express.json({ limit: /^\/api\/(me|users\/\d+)\/photo$/.test(req.path) ? '300kb' : '100kb' })(req, res, next)));
   // Live numbers for Admin → Server.
   const stats = opts.stats || createStats({ timers: !opts.noTimers });
@@ -207,6 +210,8 @@ function createApp(db, opts = {}) {
     const s = getSettings(); const out = {};
     for (const k of Object.keys(DEFAULT_SETTINGS)) out[k] = s[k];
     out.logo_v = s.brand_logo ? (s.brand_logo_v || '1') : ''; // the logo itself is served from /brand/logo
+    out.icon_v = s.brand_icon_512 ? (s.brand_icon_v || '1') : ''; out.banner_v = s.brand_banner ? (s.brand_banner_v || '1') : '';
+    out.place = placeWord();
     const p = phonePolicy(); out.phone_calls = p.calls; out.phone_texts = p.texts; // how staff call and text customers
     return out;
   }
@@ -219,8 +224,14 @@ function createApp(db, opts = {}) {
     const s = getSettings();
     return { lat: Number(s.dealer_lat), lng: Number(s.dealer_lng) };
   }
+  // What riders call your base ("dealership", "hotel", "office"…), for driver and customer wording.
+  function placeWord() {
+    const s = getSettings();
+    return String(s.place_word || '').trim().toLowerCase() || (s.business_type === 'shuttle' ? 'office' : 'dealership');
+  }
+  const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
   function baseUrl(req) {
-    let base = (opts.publicUrl || process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get('host')}`).trim().replace(/\/+$/, '');
+    let base = (opts.publicUrl || getSettings().site_url || process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get('host')}`).trim().replace(/\/+$/, '');
     // A web address set as http:// (e.g. in .env) becomes https:// for visitors who came over https.
     if (req.secure && /^http:\/\//i.test(base)) base = `https://${base.slice(7)}`;
     return base;
@@ -236,6 +247,8 @@ function createApp(db, opts = {}) {
   });
   // BDC team members are advisors (same access) with their own page.
   const STAFF_ROLES = ['admin', 'advisor', 'driver', 'bdc'];
+  const RESERVED_PATHS = new Set(['admin', 'advisor', 'bdc', 'driver', 'login', 'logout', 'request', 'reset', 't', 's', 'api', 'brand', 'icons', 'js', 'css', 'vendor', 'img', 'healthz', 'sw.js', 'manifest.webmanifest', 'favicon.ico', 'robots.txt']);
+  const brandName = () => { const s = getSettings(); return String(s.brand_name || s.dealer_name || 'Shuttle').trim(); };
   const asRole = (r) => (r === 'bdc' ? { role: 'advisor', team: 'bdc' } : { role: r, team: null });
   // Several roles: `role` (+ team) is a person's strongest role (admin, then advisor or BDC,
   // then driver), so every admin/advisor check keeps working; the others are in extra_roles.
@@ -291,6 +304,21 @@ function createApp(db, opts = {}) {
   }
   const fmtWhen = (iso) => new Date(iso).toLocaleString('en-US', { timeZone: tz(), weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const localDate = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: tz() }).format(new Date(iso)); // YYYY-MM-DD
+  // Midnight at the start of a local day (YYYY-MM-DD) in the business's time zone, as a Date.
+  // (The shuttle PC's own clock setting doesn't matter.)
+  function zoneOffsetMs(zone, d) {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      .formatToParts(d).filter((x) => x.type !== 'literal').map((x) => [x.type, Number(x.value)]));
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(d.getTime() / 1000) * 1000;
+  }
+  function localMidnight(day, zone) {
+    const guess = Date.parse(`${day}T00:00:00Z`);
+    let t = guess - zoneOffsetMs(zone, new Date(guess));
+    t = guess - zoneOffsetMs(zone, new Date(t)); // again, in case daylight saving changed in between
+    return new Date(t);
+  }
+  const nextDay = (day) => new Date(Date.parse(`${day}T12:00:00Z`) + 86400000).toISOString().slice(0, 10);
+
 
   // ---------- automatic customer texts ----------
   // The dealership's own number (Admin → Phone & email). The auth token stays on the server.
@@ -349,7 +377,7 @@ function createApp(db, opts = {}) {
     const first = (ride.customer_name || '').split(' ')[0] || 'there';
     const dealer = s.dealer_name;
     const call = contactPhone() ? ` Questions? Call ${contactPhone()}.` : '';
-    const what = ride.type === 'pickup' ? 'shuttle pick up' : 'shuttle ride from the dealership';
+    const what = ride.type === 'pickup' ? 'shuttle pick up' : `shuttle ride from the ${placeWord()}`;
     if (event === 'booked') return `Hi ${first}, your ${dealer} ${what} is booked for ${fmtWhen(ride.scheduled_at)}. Track your driver here: ${trackUrl}`;
     if (event === 'en_route') {
       const veh = [ride.vehicle_color, ride.vehicle_make_model].filter(Boolean).join(' ') || ride.vehicle_name;
@@ -360,7 +388,7 @@ function createApp(db, opts = {}) {
     if (event === 'arrived') {
       const veh = [ride.vehicle_color, ride.vehicle_make_model].filter(Boolean).join(' ') || ride.vehicle_name;
       const driver = ride.driver_name ? ride.driver_name.split(' ')[0] : 'Your driver';
-      const where = ride.type === 'pickup' ? 'is here' : 'is out front at the dealership';
+      const where = ride.type === 'pickup' ? 'is here' : `is out front at the ${placeWord()}`;
       return `${dealer}: ${driver} ${where}${veh ? ` in the ${veh}` : ''}${ride.vehicle_plate ? ` (plate ${ride.vehicle_plate})` : ''}. Tap when you're coming out: ${trackUrl}`;
     }
     return null;
@@ -510,7 +538,7 @@ function createApp(db, opts = {}) {
     const ride = q(`${RIDE_SELECT} WHERE r.id = ?`).get(rideId);
     if (!ride || !ride.customer_email || !ADDR_RE.test(ride.customer_email)) return;
     const s = getSettings(); const first = ride.customer_name.split(' ')[0];
-    const what = ride.type === 'pickup' ? 'shuttle pick up' : 'shuttle ride from the dealership';
+    const what = ride.type === 'pickup' ? 'shuttle pick up' : `shuttle ride from the ${placeWord()}`;
     mailer.send({ to: ride.customer_email, subject: `Your ${s.dealer_name} ${what} is booked`,
       text: `Hi ${first},\n\nYour ${what} is booked for ${fmtWhen(ride.scheduled_at)}.\n\nFollow your driver here:\n${trackBase}/t/${ride.track_token}\n\n${contactPhone() ? `Questions? Call ${contactPhone()}.\n\n` : ''}${s.dealer_name}` })
       .then(() => console.log(new Date().toLocaleString(), `[email] Booking email sent for ride ${ride.id}.`))
@@ -1168,7 +1196,7 @@ function createApp(db, opts = {}) {
       const id = Number(q('INSERT INTO ride_offers (ride_id, driver_id, miles, minutes, created_at, expires_at, rotation) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(r.id, best.d.id, miles, minutes, nowIso, new Date(at.getTime() + OFFER_SECONDS * 1000).toISOString(), best.d.rotation ? 1 : 0).lastInsertRowid);
       drivers = drivers.filter((d) => d.id !== best.d.id);
-      const where = r.type === 'pickup' ? `${miles} mi away (about ${minutes} min)` : `customer is at the dealership, ${miles} mi from you`;
+      const where = r.type === 'pickup' ? `${miles} mi away (about ${minutes} min)` : `customer is at the ${placeWord()}, ${miles} mi from you`;
       quietly(push.notifyUsers([best.d.id], {
         title: best.d.rotation ? '🔄 On your way back: ride near you' : best.d.load ? '🚐 Ride near you when you finish' : "🚐 You're free: ride near you",
         body: `${r.type === 'pickup' ? 'Pick up' : 'Drop off'} ${r.customer_name} · ${where}. Want it?`,
@@ -1232,7 +1260,7 @@ function createApp(db, opts = {}) {
       if (r.driver_id && r.driver_id !== req.user.id) throw new Error(`${r.customer_name}'s ride belongs to ${r.driver_name || 'another driver'}.`);
     }
     if (rides.length !== ids.length) throw new Error('One of those rides no longer exists. Refresh and try again.');
-    const dealer = { ...dealerOrigin(), label: 'Dealership', kind: 'dealer' };
+    const dealer = { ...dealerOrigin(), label: cap(placeWord()), kind: 'dealer' };
     const f = req.body.from || {};
     const fromLat = num(f.lat); const fromLng = num(f.lng);
     let start;
@@ -1242,7 +1270,7 @@ function createApp(db, opts = {}) {
     const sent = fromLat != null && fromLng != null && Math.abs(fromLat) <= 90 && Math.abs(fromLng) <= 180 ? { lat: fromLat, lng: fromLng } : null;
     if (sent && (keepOrderRequested(req) || !f.at || Date.now() - Number(f.at) < FRESH_MS)) start = { ...sent, label: 'You' };
     else if (fresh) start = { ...fresh, label: 'You' };
-    else start = { ...dealer, label: 'Dealership' };
+    else start = { ...dealer, label: cap(placeWord()) };
 
     const keepOrder = !!req.body.keep_order;
     // Drop offs need an address; picked-up customers already on board just ride back.
@@ -1283,7 +1311,7 @@ function createApp(db, opts = {}) {
       let label; let address = x.point.address || getSettings().dealer_address;
       if (x.kind === 'dealer') {
         const bits = [x.off.length ? `drop off ${names(x.off)}` : '', x.on.length ? `pick up ${names(x.on)}` : ''].filter(Boolean).join(' · ');
-        label = x.last ? `Back at the dealership${x.off.length ? ` (drop off ${names(x.off)})` : ''}` : `Dealership${bits ? `: ${bits}` : ''}`;
+        label = x.last ? `Back at the ${placeWord()}${x.off.length ? ` (drop off ${names(x.off)})` : ''}` : `${cap(placeWord())}${bits ? `: ${bits}` : ''}`;
         address = getSettings().dealer_address;
       } else label = `${x.kind === 'pickup' ? 'Pick up' : 'Drop off'} ${x.ride.name}`;
       return {
@@ -1401,7 +1429,7 @@ function createApp(db, opts = {}) {
       const mi = milesFromDealer(r.lat, r.lng);
       if (mi > radius) {
         const phone = contactPhone();
-        return { error: `That address is ${mi.toFixed(1)} miles from the dealership. The shuttle only goes up to ${radius} miles. ${
+        return { error: `That address is ${mi.toFixed(1)} miles from the ${placeWord()}. The shuttle only goes up to ${radius} miles. ${
           forCustomer ? `Please call the service department${phone ? ` at ${phone}` : ''} and we'll help you make other arrangements.` : '(An admin can book it if needed.)'}` };
       }
     }
@@ -1453,12 +1481,12 @@ function createApp(db, opts = {}) {
     const scope = req.query.scope || 'open';
     if (scope === 'open') where.push(`r.status IN (${OPEN_STATUSES.map(() => '?').join(',')})`), args.push(...OPEN_STATUSES);
     else if (scope === 'today') {
-      const start = new Date(); start.setHours(0, 0, 0, 0);
+      const start = localMidnight(localDate(now()), tz());
       where.push('(r.scheduled_at >= ? OR r.cancelled_at >= ? OR r.completed_at >= ? OR r.status IN (\'requested\',\'assigned\',\'en_route\',\'onboard\'))');
       args.push(start.toISOString(), start.toISOString(), start.toISOString());
     }
     else if (scope === 'upcoming') { // booked for after today
-      const end = new Date(); end.setHours(24, 0, 0, 0);
+      const end = localMidnight(nextDay(localDate(now())), tz());
       where.push(`r.status IN (${OPEN_STATUSES.map(() => '?').join(',')}) AND r.scheduled_at >= ?`); args.push(...OPEN_STATUSES, end.toISOString());
     } else if (scope === 'recent') { // finished in the last 3 days
       where.push("r.status IN ('completed','cancelled') AND COALESCE(r.completed_at, r.cancelled_at, r.updated_at) >= ?");
@@ -1674,11 +1702,92 @@ function createApp(db, opts = {}) {
     q("DELETE FROM settings WHERE key IN ('brand_logo', 'brand_logo_v')").run();
     res.json({ settings: shareableSettings() });
   });
+  // App icon: the browser tab, phones' home screens and notifications. The admin page makes
+  // square PNGs at each size from any picture; without one, the shuttle icon is used.
+  const ICON_SIZES = { 512: 'icon-512.png', 192: 'icon-192.png', 180: 'apple-touch-icon.png' };
+  const dataImage = (v, types) => { const m = /^data:([a-z/+]+);base64,([A-Za-z0-9+/=]+)$/.exec(String(v || '')); return m && types.includes(m[1]) ? { type: m[1], bytes: Buffer.from(m[2], 'base64') } : null; };
+  const isPng = (b) => b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
+  const isJpeg = (b) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8;
+  app.get('/brand/icon-:size.png', (req, res) => {
+    const size = Number(req.params.size); if (!ICON_SIZES[size]) return res.status(404).end();
+    const img = dataImage(getSettings()[`brand_icon_${size}`], ['image/png']);
+    if (!img) return res.set('Cache-Control', 'public, max-age=3600').sendFile(path.join(pub, 'icons', ICON_SIZES[size]));
+    res.set({ 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' }).send(img.bytes);
+  });
+  app.post('/api/brand/icon', requireRole('admin'), express.json({ limit: '1500kb' }), (req, res) => {
+    const imgs = {};
+    for (const size of Object.keys(ICON_SIZES)) {
+      const img = dataImage(req.body && req.body[`i${size}`], ['image/png']);
+      if (!img || !isPng(img.bytes)) return bad(res, 'Pick a picture for the icon (PNG, JPG or WebP).');
+      if (img.bytes.length > 500 * 1024) return bad(res, 'That picture is too detailed for an icon. Try a simpler one.');
+      imgs[size] = img;
+    }
+    for (const [size, img] of Object.entries(imgs)) setSetting(`brand_icon_${size}`, `data:image/png;base64,${img.bytes.toString('base64')}`);
+    setSetting('brand_icon_v', Date.now().toString(36));
+    res.json({ settings: shareableSettings() });
+  });
+  app.delete('/api/brand/icon', requireRole('admin'), (req, res) => {
+    q("DELETE FROM settings WHERE key IN ('brand_icon_512', 'brand_icon_192', 'brand_icon_180', 'brand_icon_v')").run();
+    res.json({ settings: shareableSettings() });
+  });
+  // Banner picture: behind the name on the sign-in page and the customer pages.
+  app.get('/brand/banner.jpg', (req, res) => {
+    const img = dataImage(getSettings().brand_banner, ['image/jpeg']);
+    if (!img) return res.status(404).end();
+    res.set({ 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' }).send(img.bytes);
+  });
+  app.post('/api/brand/banner', requireRole('admin'), express.json({ limit: '1500kb' }), (req, res) => {
+    const img = dataImage(req.body && req.body.data, ['image/jpeg']);
+    if (!img || !isJpeg(img.bytes)) return bad(res, 'Pick a photo for the banner (JPG, PNG or WebP).');
+    if (img.bytes.length > 900 * 1024) return bad(res, 'That photo is too big. Try a smaller one.');
+    setSetting('brand_banner', `data:image/jpeg;base64,${img.bytes.toString('base64')}`);
+    setSetting('brand_banner_v', Date.now().toString(36));
+    res.json({ settings: shareableSettings() });
+  });
+  app.delete('/api/brand/banner', requireRole('admin'), (req, res) => {
+    q("DELETE FROM settings WHERE key IN ('brand_banner', 'brand_banner_v')").run();
+    res.json({ settings: shareableSettings() });
+  });
+
+  // ---------- your own web address ----------
+  // The address in links, texts, emails and QR codes. Set here it wins over PUBLIC_URL in .env.
+  // "Check" asks that address for this site's id, to prove it reaches this shuttle PC.
+  let siteId = getSettings().site_id;
+  if (!siteId) { siteId = randomToken(12); setSetting('site_id', siteId); }
+  app.get('/api/site-id', (req, res) => res.set('Cache-Control', 'no-store').json({ id: siteId }));
+  const siteUrlInfo = (req) => ({ url: getSettings().site_url || '', env_url: process.env.PUBLIC_URL || '', in_use: baseUrl(req), request_path: getSettings().request_path || '' });
+  app.get('/api/site-url', requireRole('admin'), (req, res) => res.json(siteUrlInfo(req)));
+  function cleanSiteUrl(v) {
+    let u = String(v || '').trim(); if (!u) return '';
+    if (!/^https?:\/\//i.test(u)) u = `https://${u}`;
+    let url; try { url = new URL(u); } catch { return null; }
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || (url.pathname && url.pathname !== '/') || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(url.hostname)) return null;
+    return `https://${url.host.toLowerCase()}`;
+  }
+  app.put('/api/site-url', requireRole('admin'), (req, res) => {
+    const url = cleanSiteUrl(req.body && req.body.url);
+    if (url === null) return bad(res, 'Enter a web address like shuttle.yourdealership.com (https, no page or path).');
+    if (url) setSetting('site_url', url); else q("DELETE FROM settings WHERE key = 'site_url'").run();
+    console.log(new Date().toLocaleString(), `[server] ${req.user.name} set the site's web address to ${url || '(automatic)'}.`);
+    res.json(siteUrlInfo(req));
+  });
+  app.post('/api/site-url/check', requireRole('admin'), async (req, res) => {
+    const url = cleanSiteUrl(req.body && req.body.url) || getSettings().site_url;
+    if (!url) return bad(res, 'Enter the web address to check.');
+    try {
+      const r = await fetch(`${url}/api/site-id`, { signal: AbortSignal.timeout(8000), redirect: 'follow' });
+      const d = await r.json().catch(() => ({}));
+      if (d.id === siteId) return res.json({ ok: true, message: `✅ ${url} reaches this shuttle site.` });
+      res.json({ ok: false, message: `${url} answered, but it isn't this shuttle site. Point it at this PC (in Cloudflare: Zero Trust → Networks → Tunnels → your tunnel → Public hostnames).` });
+    } catch (e) {
+      res.json({ ok: false, message: `${url} didn't answer (${e.name === 'TimeoutError' ? 'timed out' : e.message}). Check its DNS and the Cloudflare tunnel's public hostname.` });
+    }
+  });
 
   app.post('/api/public/rides', (req, res) => {
-    if (getSettings().public_requests !== '1') return bad(res, 'Online ride requests are turned off. Please call the dealership.', 403);
+    if (getSettings().public_requests !== '1') return bad(res, 'Online ride requests are turned off. Please call us.', 403);
     const key = `public|${clientIp(req)}`;
-    if (limits.count(key, 3600000) >= 10) return bad(res, 'Too many requests. Please call the dealership.', 429);
+    if (limits.count(key, 3600000) >= 10) return bad(res, 'Too many requests. Please call us.', 429);
     limits.hit(key, 3600000);
     if (!str(req.body.customer_phone)) return bad(res, 'A phone number is required so the driver can reach you.');
     const body = { ...req.body, priority: 'normal', urgent_reason: null };
@@ -1696,9 +1805,9 @@ function createApp(db, opts = {}) {
   // Wrong codes are limited per address, so nobody can try codes until one works.
   function trackedRide(req, res) {
     const key = `trackmiss|${clientIp(req)}`;
-    if (limits.count(key, 3600000) >= 40) { bad(res, 'Too many tries. Check the link in your text message, or call the dealership.', 429); return null; }
+    if (limits.count(key, 3600000) >= 40) { bad(res, 'Too many tries. Check the link in your text message, or call us.', 429); return null; }
     const ride = q(`${RIDE_SELECT} WHERE r.track_token = ?`).get(trackCode(req.params.token));
-    if (!ride) { limits.hit(key, 3600000); bad(res, 'Ride not found. Check the link in your text message, or call the dealership.', 404); return null; }
+    if (!ride) { limits.hit(key, 3600000); bad(res, 'Ride not found. Check the link in your text message, or call us.', 404); return null; }
     return ride;
   }
   app.get('/api/public/track/:token', (req, res) => {
@@ -1806,8 +1915,8 @@ function createApp(db, opts = {}) {
     const key = `specmiss|${clientIp(req)}`;
     if (limits.count(key, 3600000) >= 40) return bad(res, 'Too many tries.', 429);
     const l = q('SELECT * FROM spectate_links WHERE token_hash = ?').get(hashToken(String(req.params.token).slice(0, 100)));
-    if (!l) { limits.hit(key, 3600000); return bad(res, 'This link doesn’t work. Ask the dealership for a new one.', 404); }
-    if (l.revoked_at || l.expires_at <= now()) return bad(res, 'This link has ended. Ask the dealership for a new one.', 410);
+    if (!l) { limits.hit(key, 3600000); return bad(res, 'This link doesn’t work. Ask us for a new one.', 404); }
+    if (l.revoked_at || l.expires_at <= now()) return bad(res, 'This link has ended. Ask us for a new one.', 410);
     if (!req.query.again) q('UPDATE spectate_links SET views = views + 1 WHERE id = ?').run(l.id);
     const rows = q(`SELECT u.*, v.name AS vehicle_name, v.make_model, v.color FROM users u LEFT JOIN vehicles v ON v.id = u.vehicle_id
                     WHERE ${IS_DRIVER()} AND u.active = 1 ${l.driver_id ? 'AND u.id = ?' : 'AND u.on_duty = 1'}`).all(...(l.driver_id ? [l.driver_id] : []));
@@ -1845,7 +1954,7 @@ function createApp(db, opts = {}) {
     if (!['coming', 'need5'].includes(answer)) return bad(res, 'Pick an answer.');
     if (!ride.arrived_at || !['assigned', 'en_route'].includes(ride.status)) return bad(res, 'Your driver isn’t there yet. We’ll let you know when they are.', 409);
     const key = `reply|${ride.id}`;
-    if (limits.count(key, 3600000) >= 4) return bad(res, 'Your driver already knows. Please call the dealership if anything changes.', 429);
+    if (limits.count(key, 3600000) >= 4) return bad(res, 'Your driver already knows. Please call us if anything changes.', 429);
     limits.hit(key, 3600000);
     q('UPDATE rides SET customer_reply = ?, customer_reply_at = ?, updated_at = ? WHERE id = ?').run(answer, now(), now(), ride.id);
     const first = ride.customer_name.split(' ')[0];
@@ -1862,12 +1971,12 @@ function createApp(db, opts = {}) {
   const LATE = { 5: 'about 5 minutes', 10: 'about 10 minutes', 15: 'about 15 minutes', 20: '20 minutes or more' };
   app.post('/api/public/track/:token/late', atomic((req, res) => {
     const ride = trackedRide(req, res); if (!ride) return;
-    if (getSettings().customer_actions === '0') return bad(res, 'Please call the dealership.', 403);
+    if (getSettings().customer_actions === '0') return bad(res, 'Please call us.', 403);
     if (!['requested', 'assigned', 'en_route'].includes(ride.status)) return bad(res, 'This ride can’t be changed now.', 409);
     const mins = Number(req.body && req.body.minutes);
     if (!LATE[mins]) return bad(res, 'Pick how late you’ll be.');
     const key = `late|${ride.id}`;
-    if (limits.count(key, 3600000) >= 3) return bad(res, 'We already have your update. Please call the dealership if anything else changes.', 429);
+    if (limits.count(key, 3600000) >= 3) return bad(res, 'We already have your update. Please call us if anything else changes.', 429);
     limits.hit(key, 3600000);
     const line = `[${fmtWhen(now())}] Customer: running ${LATE[mins]} late.`;
     q('UPDATE rides SET notes = ?, updated_at = ? WHERE id = ?').run(ride.notes ? `${ride.notes}\n${line}` : line, now(), ride.id);
@@ -1877,7 +1986,7 @@ function createApp(db, opts = {}) {
   const CUSTOMER_CANCEL = ['My plans changed', 'I found another ride', 'I don’t need the shuttle anymore', 'Other'];
   app.post('/api/public/track/:token/cancel', atomic((req, res) => {
     const ride = trackedRide(req, res); if (!ride) return;
-    if (getSettings().customer_actions === '0') return bad(res, 'Please call the dealership to cancel.', 403);
+    if (getSettings().customer_actions === '0') return bad(res, 'Please call us to cancel.', 403);
     const reason = String((req.body && req.body.reason) || '');
     if (!CUSTOMER_CANCEL.includes(reason)) return bad(res, 'Pick a reason.');
     const details = str(req.body.details, 200);
@@ -1885,7 +1994,7 @@ function createApp(db, opts = {}) {
     const text = `Customer cancelled: ${reason === 'Other' ? details : reason}${reason !== 'Other' && details ? ` (${details})` : ''}`;
     const done = q(`UPDATE rides SET status = 'cancelled', cancel_reason = ?, cancelled_by = NULL, cancelled_at = ?, updated_at = ?
                     WHERE id = ? AND status IN ('requested','assigned','en_route')`).run(text, now(), now(), ride.id).changes;
-    if (!done) return bad(res, 'This ride can’t be cancelled now. Please call the dealership.', 409);
+    if (!done) return bad(res, 'This ride can’t be cancelled now. Please call us.', 409);
     q("UPDATE ride_offers SET status = 'expired', responded_at = ? WHERE ride_id = ? AND status = 'pending'").run(now(), ride.id);
     tellStaff(ride, `❌ ${ride.customer_name.split(' ')[0]} cancelled their ride`, `${text} · ${rideLine(ride)}`);
     res.json({ ok: true, message: 'Your ride is cancelled. Thanks for letting us know.' });
@@ -1913,7 +2022,13 @@ function createApp(db, opts = {}) {
       let v = String(req.body[k]).slice(0, 300);
       if ((k === 'dealer_lat' || k === 'dealer_lng') && Number.isNaN(Number(v))) return bad(res, 'Latitude/longitude must be numbers.');
       if (YES_NO_SETTINGS.includes(k)) v = req.body[k] && req.body[k] !== '0' ? '1' : '0';
-      if (k === 'look' && !['classic', 'corwin'].includes(v)) return bad(res, 'Pick Classic or Corwin.');
+      if (k === 'look' && !['classic', 'corwin'].includes(v)) return bad(res, 'Pick Classic or Branded.');
+      if (k === 'business_type' && !['dealership', 'shuttle'].includes(v)) return bad(res, 'Pick a dealership or a shuttle service.');
+      if (k === 'place_word') { v = v.trim().toLowerCase(); if (v && !/^[a-z][a-z '&-]{1,29}$/.test(v)) return bad(res, 'Use a short word for your base, like hotel, office or terminal.'); }
+      if (k === 'request_path') {
+        v = v.trim().toLowerCase().replace(/^\/+|\/+$/g, '');
+        if (v && (!/^[a-z0-9][a-z0-9-]{1,29}$/.test(v) || RESERVED_PATHS.has(v))) return bad(res, 'Use 2–30 letters, numbers or dashes for the short link, and not a word the site already uses (like admin or driver).');
+      }
       if (k === 'discord_invite' && v && !/^https:\/\/(discord\.gg|(www\.)?discord\.com\/invite)\/[\w-]+$/.test(v.trim())) return bad(res, 'Use a Discord invite link like https://discord.gg/abc123.');
       if ((k === 'brand_color' || k === 'brand_dark') && !/^#[0-9a-f]{6}$/i.test(v)) return bad(res, 'Colors must look like #eb0a1e.');
       if (k === 'gps_low_battery_pct' && !(Number.isInteger(Number(v)) && Number(v) >= 5 && Number(v) <= 50)) return bad(res, 'Pick a battery level from 5% to 50%.');
@@ -2936,7 +3051,7 @@ function createApp(db, opts = {}) {
   app.get('/api/links', requireRole(), (req, res) => {
     const base = baseUrl(req);
     res.json({ links: [
-      { key: 'request', label: 'Customer: request a shuttle ride', url: `${base}/request` },
+      { key: 'request', label: 'Customer: request a shuttle ride', url: `${base}/${getSettings().request_path || 'request'}` },
       { key: 'login', label: 'Staff sign-in', url: `${base}/login` },
       { key: 'driver', label: 'Driver app', url: `${base}/driver` },
       { key: 'advisor', label: 'Advisor desk', url: `${base}/advisor` },
@@ -3060,7 +3175,9 @@ function createApp(db, opts = {}) {
       try { html = fs.readFileSync(path.join(pub, file), 'utf8'); } catch (e) { return next(e); }
       html = html.replace(/((?:src|href)="(\/(?:js|css|vendor\/leaflet)\/[^"?]+\.(?:js|css)))"/g, (m, attr, url) => `${attr}?v=${stampOf(url)}"`);
       const hints = (html.includes('/vendor/leaflet/') ? MAP_HINT : '') + FONT_PRELOAD;
-      html = html.replace('<meta charset="utf-8">', `<meta charset="utf-8">${hints}`);
+      html = html.replace('<meta charset="utf-8">', `<meta charset="utf-8">${hints}<!--brand-head-->`);
+      // Icons and the manifest come from the brand (below), so drop the fixed ones.
+      html = html.replace(/<link rel="(?:manifest|apple-touch-icon|icon)"[^>]*>\s*/g, '').replace(/<meta name="theme-color"[^>]*>\s*/g, '');
       pageCache.set(file, html);
     }
     const s = getSettings();
@@ -3069,8 +3186,13 @@ function createApp(db, opts = {}) {
     const look = s.look === 'corwin' ? 'corwin' : 'classic';
     const logo = s.brand_logo ? (s.brand_logo_v || '1') : '';
     const name = String(s.brand_name || s.dealer_name || '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+    const iv = s.brand_icon_512 ? `?v=${s.brand_icon_v || 1}` : '';
+    const banner = s.brand_banner ? `;--banner:url(/brand/banner.jpg?v=${s.brand_banner_v || 1})` : '';
+    const head = `<link rel="icon" href="/brand/icon-192.png${iv}"><link rel="apple-touch-icon" href="/brand/icon-180.png${iv}"><link rel="manifest" href="/manifest.webmanifest${iv}"><meta name="theme-color" content="${dark}">`;
     res.set('Cache-Control', 'no-store').type('html')
-      .send(html.replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-brand-name="${name}" data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" data-build="${buildId()}" style="--brand:${color};--brand-dark:${dark}">`));
+      .send(html.replace('<!--brand-head-->', head)
+        .replace(/<title>([^<]*)<\/title>/, (m, t) => `<title>${t}${name ? ` · ${name}` : ''}</title>`)
+        .replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-brand-name="${name}" data-place="${placeWord().replace(/[&<>"']/g, '')}" ${banner ? 'data-banner="1" ' : ''}data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" data-build="${buildId()}" style="--brand:${color};--brand-dark:${dark}${banner}">`));
   };
   app.get('/', (req, res) => {
     if (!req.user) return res.redirect('/login');
@@ -3082,13 +3204,25 @@ function createApp(db, opts = {}) {
   app.get('/driver', page('driver.html'));
   app.get('/admin', page('admin.html'));
   app.get('/request', page('request.html'));
+  // The short link for customers (Admin → Settings), e.g. yoursite.com/ride.
+  app.get('/:slug', (req, res, next) => (getSettings().request_path && req.params.slug.toLowerCase() === getSettings().request_path ? page('request.html')(req, res, next) : next()));
   app.get('/t/:token', page('track.html'));
   app.get('/s/:token', (req, res, next) => { res.set('Referrer-Policy', 'no-referrer').set('X-Robots-Tag', 'noindex'); next(); }, page('spectate.html'));
   app.get('/reset/:token', (req, res, next) => { res.set('Referrer-Policy', 'no-referrer'); next(); }, page('reset.html'));
   // The app manifest must always be fresh, so it's never cached (sw.js has its own route below).
-  for (const [route, file, type] of [['/manifest.webmanifest', 'manifest.webmanifest', 'application/manifest+json']]) {
-    app.get(route, (req, res) => res.set('Cache-Control', 'no-cache').type(type).sendFile(path.join(pub, file)));
-  }
+  // The app manifest (phones' "Add to Home Screen"): your name, colors and icon.
+  app.get('/manifest.webmanifest', (req, res) => {
+    const s = getSettings(); const name = brandName();
+    const dark = /^#[0-9a-f]{6}$/i.test(s.brand_dark || '') ? s.brand_dark : '#111111';
+    const v = s.brand_icon_512 ? `?v=${s.brand_icon_v || 1}` : '';
+    res.set('Cache-Control', 'no-cache').type('application/manifest+json').send(JSON.stringify({
+      name: `${name} Shuttle`, short_name: name.split(' ')[0].slice(0, 12) || 'Shuttle',
+      description: `Shuttle rides, pick ups and drop offs for ${name}.`, start_url: '/driver', scope: '/', display: 'standalone',
+      background_color: dark, theme_color: dark,
+      icons: [{ src: `/brand/icon-192.png${v}`, sizes: '192x192', type: 'image/png' }, { src: `/brand/icon-512.png${v}`, sizes: '512x512', type: 'image/png' },
+        ...(s.brand_icon_512 ? [] : [{ src: '/icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }])],
+    }));
+  });
   // Scripts and styles: their links are version-stamped, so they can be cached.
   // The background helper (sw.js) must never be stored by browsers or Cloudflare, or fixes
   // to it would take weeks to reach phones. Its version follows its contents.

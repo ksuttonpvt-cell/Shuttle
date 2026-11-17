@@ -60,7 +60,7 @@
 
   async function loadList() {
     const [open, upcoming, recent] = await Promise.all(['open', 'upcoming', 'recent'].map((s) => api(`/api/rides?scope=${s}`)));
-    const end = new Date(); end.setHours(24, 0, 0, 0);
+    const end = App.endOfToday();
     const rankOf = new Map(open.rides.map((r) => [r.id, r.rank]));
     const sets = {
       today: sortTime(open.rides.filter((r) => new Date(r.scheduled_at) < end), false),

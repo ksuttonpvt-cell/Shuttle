@@ -57,7 +57,7 @@
     const open = ['requested', 'assigned', 'en_route', 'onboard'].includes(ride.status);
 
     let body;
-    if (ride.status === 'cancelled') body = `<h2>This ride was cancelled</h2><p class="muted">${dealer.phone ? `Questions? Call ${esc(dealer.phone)}.` : 'Questions? Call the dealership.'}</p>`;
+    if (ride.status === 'cancelled') body = `<h2>This ride was cancelled</h2><p class="muted">${dealer.phone ? `Questions? Call ${esc(dealer.phone)}.` : 'Questions? Call us.'}</p>`;
     else {
       const idx = STEPS.findIndex(([st]) => st === ride.status);
       const steps = STEPS.map(([, label], i) => `<div class="step ${i < idx ? 'done' : i === idx ? 'now' : ''}"><i>${i < idx ? '✓' : i + 1}</i>${label}</div>`).join('');
@@ -66,7 +66,7 @@
         requested: 'We got your request. A driver will be assigned shortly.',
         assigned: `${driver} will be your driver.`,
         en_route: `${driver} is on the way!`,
-        onboard: ride.type === 'pickup' ? 'Heading to the dealership.' : "You're on your way home.",
+        onboard: ride.type === 'pickup' ? `Heading to the ${App.place()}.` : "You're on your way home.",
         completed: 'Ride complete. Thanks for choosing us!',
       }[ride.status];
       const big = bigLine(ride, eta, est);
@@ -167,7 +167,7 @@
     if (box.dataset.key !== key) {
       box.dataset.key = key;
       box.innerHTML = `<div class="here-top"><span class="here-pill">${r.type === 'pickup' ? 'Your shuttle is here' : 'Your shuttle is out front'}</span><span class="here-timer" data-here-timer></span></div>
-        <h2>${who} is ${r.type === 'pickup' ? 'outside' : 'waiting at the dealership'}</h2>
+        <h2>${who} is ${r.type === 'pickup' ? 'outside' : `waiting at the ${App.place()}`}</h2>
         ${look ? `<p>Look for the ${look}.</p>` : ''}
         <p class="small muted" data-here-note></p>
         ${replied ? `<div class="alert alert-ok">${replied === 'coming' ? `${who} knows you're coming out.` : `${who} knows you need 5 more minutes.`}</div>` : ''}
@@ -193,7 +193,7 @@
       note.textContent = `${who} can wait about ${last.arrive_wait_min || 5} minutes.`;
     } else {
       t.textContent = '0:00';
-      note.textContent = last.dealer.phone ? `Please come out now, or call us at ${last.dealer.phone}.` : 'Please come out now, or call the dealership.';
+      note.textContent = last.dealer.phone ? `Please come out now, or call us at ${last.dealer.phone}.` : 'Please come out now, or call us.';
     }
   }
   setInterval(tickHere, 1000);
@@ -211,7 +211,7 @@
   }
 
   async function shareRide() {
-    const text = `Follow my shuttle ride from ${last ? last.dealer.name : 'the dealership'}: ${link}`;
+    const text = `Follow my shuttle ride from ${last ? last.dealer.name : `the ${App.place()}`}: ${link}`;
     if (navigator.share) { try { await navigator.share({ title: 'Shuttle ride', text, url: link }); return; } catch { return; } }
     try { await navigator.clipboard.writeText(link); App.flash($('#changeMsg') || $('#foot'), 'Link copied.', true); } catch { prompt('Copy this link:', link); }
   }

@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.18.0",
+    "date": "2026-11-17",
+    "title": "Your own name, pictures and web address everywhere",
+    "changes": [
+      "Admin → Settings → Your business: pick Car dealership or Shuttle service (hotel, airport parking, office…), and what riders call your home base. Drivers and customers then see your word everywhere: “bring you to the hotel”, “Back at the hotel”, route stops, texts and emails.",
+      "Your branding: besides your name, colors and logo, you can now upload an app icon (the browser tab, phones' home screens and notifications) and a banner photo shown behind your name on the sign-in and customer pages.",
+      "Every browser tab shows your name, like “Driver App · Your Business”, and “Add to Home Screen” uses your name, colors and icon.",
+      "Web address: type your own address (like shuttle.yourbusiness.com) in Settings, tap Check to make sure it reaches this shuttle PC, and every link, text, email and QR code uses it.",
+      "Optional short link for customers, like yourbusiness.com/ride, that opens the ride request page. QR codes use it.",
+      "The “Corwin” look is now called the Branded look.",
+      "Fix: “Today” and “Booked ahead” lists now split at midnight in the business's time zone, whatever the shuttle PC's clock is set to."
+    ]
+  },
+  {
     "version": "2.17.0",
     "date": "2026-11-17",
     "title": "Phone & email your way, detailed reports, and a daily report at midnight",

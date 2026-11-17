@@ -10,7 +10,7 @@
 <body>
 <div class="hero"><div data-brand class="brand-block"></div><div class="hero-emoji" style="font-size:2rem">🚐</div><h1>Request a shuttle ride</h1><div id="dealer" class="muted" style="color:#ccc"></div></div>
 <main class="wrap" style="max-width:560px">
-  <div class="card" id="off" hidden><h2>Online requests are off</h2><p>Please call the service department<span id="offPhone"></span> and we'll get you scheduled.</p></div>
+  <div class="card" id="off" hidden><h2>Online requests are off</h2><p>Please call us<span id="offPhone"></span> and we'll get you scheduled.</p></div>
   <form class="card" id="f" hidden>
     <div class="progress" data-progress></div>
     <input type="hidden" name="type" value="pickup">
@@ -19,11 +19,11 @@
       <div class="choice-grid">
         <button type="button" class="choice" data-choose="pickup" data-next-on-click>
           <span class="choice-icon">⬆</span><b>Pick up</b>
-          <span>We'll pick you up and bring you to the dealership</span>
+          <span>We'll pick you up and bring you to the <span data-word>dealership</span></span>
         </button>
         <button type="button" class="choice" data-choose="dropoff" data-next-on-click>
           <span class="choice-icon">⬇</span><b>Drop off</b>
-          <span>We'll take you from the dealership to home or work</span>
+          <span>We'll take you from the <span data-word>dealership</span> to home or work</span>
         </button>
       </div>
     </section>
@@ -85,7 +85,7 @@
   // One question at a time: pick up or drop off -> you -> location -> time & people -> review.
   const WORDING = {
     pickup: { address: 'Where should we pick you up?', when: 'What time should we pick you up, and how many people?' },
-    dropoff: { address: 'Where are we taking you?', when: 'What time do you need to leave the dealership, and how many people?' },
+    dropoff: { address: 'Where are we taking you?', when: `What time do you need to leave the ${App.place()}, and how many people?` },
   };
   f.hidden = false;
   const steps = App.stepper(f, {
@@ -97,7 +97,7 @@
       if (step === 'when') {
         const wait = Number(info.dropoff_wait_min) || 0;
         $('#waitNote').hidden = !(f.elements.type.value === 'dropoff' && wait > 0);
-        $('#waitNote').textContent = `⏳ Drop offs leave the dealership at least ${wait} minutes after you ask, so the shuttle can line up rides.`;
+        $('#waitNote').textContent = `⏳ Drop offs leave the ${App.place()} at least ${wait} minutes after you ask, so the shuttle can line up rides.`;
         // Pick ups: how soon a shuttle could get there, from where the vans are now.
         if (f.elements.type.value === 'pickup') {
           const at = f.elements.lat.value ? { lat: Number(f.elements.lat.value), lng: Number(f.elements.lng.value) } : null;
@@ -130,7 +130,7 @@
       $('#pinmsg').textContent = note.text; $('#pinmsg').classList.toggle('late', !note.ok);
     },
   });
-  if (info.service_radius_mi > 0) $('#areaNote').textContent = `The shuttle serves addresses within ${info.service_radius_mi} miles of the dealership (the dashed circle).`;
+  if (info.service_radius_mi > 0) $('#areaNote').textContent = `The shuttle serves addresses within ${info.service_radius_mi} miles of the ${App.place()} (the dashed circle).`;
   // Typing a new address clears the old pin, so the distance is always checked for the right spot.
   f.elements.address.addEventListener('input', () => {
     f.elements.lat.value = ''; f.elements.lng.value = '';

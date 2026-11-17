@@ -173,11 +173,21 @@
 
   <!-- Settings -->
   <section data-pane="settings" class="card hidden" style="max-width:640px">
-    <h2>Dealership settings</h2>
+    <h2>Your business</h2>
     <form id="setForm">
-      <label>Dealership name</label><input name="dealer_name">
+      <div class="seg" role="radiogroup" aria-label="Kind of business" style="margin-bottom:.4rem">
+        <input type="radio" name="business_type" value="dealership" id="btDealer"><label for="btDealer">Car dealership</label>
+        <input type="radio" name="business_type" value="shuttle" id="btShuttle"><label for="btShuttle">Shuttle service</label>
+      </div>
+      <p class="small muted" style="margin:0">A shuttle service is any other business with a shuttle: a hotel, airport parking, an office, events… Drivers and customers see your words instead of “dealership”.</p>
+      <label>Business name</label><input name="dealer_name">
       <label>Address</label><input name="dealer_address">
       <label>Phone shown to customers</label><input name="dealer_phone" type="tel">
+      <label>What riders call your home base</label><input name="place_word" maxlength="30" placeholder="dealership" style="max-width:280px">
+      <p class="small muted" style="margin:.25rem 0 0">Used in “bring you to the ___”, “Back at the ___”, “waiting at the ___”. For example: hotel, office, terminal, lot.</p>
+      <label>Short link for customers to request a ride <span class="small muted">(optional)</span></label>
+      <div class="linkbox" style="max-width:420px"><span class="muted small" id="reqBase" style="white-space:nowrap"></span><input name="request_path" maxlength="30" placeholder="request"></div>
+      <p class="small muted" style="margin:.25rem 0 0">For example “ride” makes <b>yoursite/ride</b> open the ride request page. QR codes and links use it. /request always works too.</p>
       <div class="row">
         <div><label>Map latitude</label><input name="dealer_lat"></div>
         <div><label>Map longitude</label><input name="dealer_lng"></div>
@@ -225,34 +235,61 @@
       <button style="margin-top:1rem">Save settings</button>
     </form>
     <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
-    <h2>Look</h2>
-    <p class="small muted" style="margin-top:0">Try the <b>Corwin</b> dealership look on just this device first. When you like it, switch it on for everyone (staff pages, the customer request and tracking pages, and sign-in).</p>
+    <h2>Your branding</h2>
+    <p class="small muted" style="margin-top:0">Your name, colors, logo, app icon and banner show on every page: sign-in, the staff and driver pages, the customer request and tracking pages, the browser tab, and phones' home screens. Try the <b>Branded</b> look on just this device first, then switch it on for everyone.</p>
     <div class="actions" style="margin:.2rem 0 .8rem">
-      <a class="btn btn-ghost" href="/admin?look=corwin#settings">👀 Preview Corwin look on this device</a>
+      <a class="btn btn-ghost" href="/admin?look=corwin#settings">👀 Preview the Branded look on this device</a>
       <a class="btn btn-ghost" href="/admin?look=off#settings">Stop preview</a>
     </div>
     <form id="lookForm">
       <div class="seg" role="radiogroup" aria-label="Look for everyone">
         <input type="radio" name="look" value="classic" id="lookClassic"><label for="lookClassic">Classic</label>
-        <input type="radio" name="look" value="corwin" id="lookCorwin"><label for="lookCorwin">Corwin</label>
+        <input type="radio" name="look" value="corwin" id="lookCorwin"><label for="lookCorwin">Branded</label>
       </div>
-      <label style="margin-top:.8rem">Name shown in the header</label>
-      <input name="brand_name" placeholder="Corwin Toyota of Boulder">
-      <p class="small muted" style="margin:.25rem 0 0">The first word is shown big (CORWIN) and the rest small (TOYOTA OF BOULDER). Leave blank to use the dealership name.</p>
+      <label style="margin-top:.8rem">Name shown in the header and the browser tab</label>
+      <input name="brand_name" placeholder="Your business name">
+      <p class="small muted" style="margin:.25rem 0 0">The first word is shown big and the rest small. Leave blank to use the business name.</p>
       <div class="look-swatches" style="margin-top:.8rem">
         <div><label>Accent color</label><input type="color" name="brand_color"></div>
         <div><label>Header color</label><input type="color" name="brand_dark"></div>
-        <button type="button" class="btn-ghost btn-sm" id="lookReset">Back to Corwin red &amp; black</button>
+        <button type="button" class="btn-ghost btn-sm" id="lookReset">Back to red &amp; black</button>
       </div>
-      <label style="margin-top:1rem">Dealership logo (optional)</label>
+      <label style="margin-top:1rem">Logo (optional)</label>
       <div class="actions" style="align-items:center;margin-top:0">
         <span class="logo-preview" id="logoPreview"></span>
         <input type="file" id="logoFile" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="max-width:260px">
         <button type="button" class="btn-ghost btn-sm hidden" id="logoRemove">Remove logo</button>
       </div>
-      <p class="small muted">A white or light logo on a transparent background looks best in the dark header. PNG, JPG, WebP or SVG, up to 600 KB. Without a logo, the header shows the dealership name as a wordmark.</p>
+      <p class="small muted">A white or light logo on a transparent background looks best in the dark header. PNG, JPG, WebP or SVG, up to 600 KB. Without a logo, the header shows the business name as a wordmark.</p>
+      <label style="margin-top:1rem">App icon (optional)</label>
+      <div class="actions" style="align-items:center;margin-top:0">
+        <img class="icon-preview" id="iconPreview" alt="App icon" src="/brand/icon-192.png">
+        <input type="file" id="iconFile" accept="image/png,image/jpeg,image/webp" style="max-width:260px">
+        <button type="button" class="btn-ghost btn-sm hidden" id="iconRemove">Back to the shuttle icon</button>
+      </div>
+      <p class="small muted">The little picture in the browser tab, on phones' home screens and on notifications. A square picture works best; it's cropped to a square from the middle.</p>
+      <label style="margin-top:1rem">Banner picture (optional)</label>
+      <div class="actions" style="align-items:center;margin-top:0">
+        <span class="banner-preview" id="bannerPreview"></span>
+        <input type="file" id="bannerFile" accept="image/png,image/jpeg,image/webp" style="max-width:260px">
+        <button type="button" class="btn-ghost btn-sm hidden" id="bannerRemove">Remove banner</button>
+      </div>
+      <p class="small muted">A wide photo (your building, your fleet) behind your name on the sign-in page and the customer pages. It's darkened so the words stay readable.</p>
       <div id="lookMsg"></div>
       <button class="btn-block" style="margin-top:.6rem">Save look</button>
+    </form>
+    <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
+    <h2>Web address</h2>
+    <p class="small muted" style="margin-top:0">The address used in customer links, texts, emails and QR codes. Use your own, like <b>shuttle.yourdealership.com</b>. <span id="urlState"></span></p>
+    <form id="urlForm">
+      <div class="linkbox"><input name="url" placeholder="shuttle.yourbusiness.com" autocomplete="off" spellcheck="false"><button type="button" class="btn-ghost btn-sm" id="urlCheck">Check</button></div>
+      <div id="urlMsg"></div>
+      <div class="actions" style="margin-top:.5rem"><button class="btn-dark btn-sm">Save</button><button type="button" class="btn-ghost btn-sm" id="urlAuto">Use automatic</button></div>
+      <details style="margin-top:.5rem"><summary class="small">How to point your own address here</summary><ol class="small" style="padding-left:1.1rem;margin:.4rem 0">
+        <li>Add the address to your domain in Cloudflare (or move the domain's DNS to Cloudflare).</li>
+        <li>In Cloudflare: <b>Zero Trust → Networks → Tunnels</b> → this shuttle's tunnel → <b>Public hostnames → Add</b>. Enter the address and point it to <b>http://localhost:3000</b> (the site's port).</li>
+        <li>Come back here, type the address, tap <b>Check</b>, then <b>Save</b>. Staff sign in again on the new address.</li>
+      </ol></details>
     </form>
     <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
     <h2>Help &amp; suggestions (Discord)</h2>
@@ -1127,6 +1164,10 @@
   const sf = $('#setForm'); let setMap = null; let setPin = null;
   async function loadSettings() {
     const { settings } = await api('/api/me');
+    sf.querySelector(`[name=business_type][value="${settings.business_type === 'shuttle' ? 'shuttle' : 'dealership'}"]`).checked = true;
+    sf.elements.place_word.value = settings.place_word || ''; sf.elements.place_word.placeholder = settings.business_type === 'shuttle' ? 'office' : 'dealership';
+    sf.elements.request_path.value = settings.request_path || ''; $('#reqBase').textContent = `${location.host}/`;
+    sf.querySelectorAll('[name=business_type]').forEach((r) => { r.onchange = () => { sf.elements.place_word.placeholder = r.value === 'shuttle' ? 'office' : 'dealership'; }; });
     for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi', 'dropoff_wait_min', 'arrive_wait_min', 'auto_end_shift', 'auto_sign_out', 'clear_customer_info']) sf.elements[k].value = settings[k] ?? '';
     if (sf.elements.service_radius_mi.value === '') sf.elements.service_radius_mi.value = '0';
     if (!sf.elements.timezone.value) sf.elements.timezone.value = 'America/Denver';
@@ -1488,7 +1529,7 @@
     lf.elements.brand_dark.value = settings.brand_dark || '#0d0f12';
     lf.elements.brand_name.value = settings.brand_name || '';
     lf.elements.brand_name.placeholder = settings.dealer_name || '';
-    paintLogo(settings);
+    paintLogo(settings); paintImages(settings); loadUrl().catch(() => {});
   }
   // Show color changes right away on this page.
   lf.elements.brand_name.oninput = (e) => { document.documentElement.dataset.brandName = e.target.value.trim(); paintLogo({ dealer_name: e.target.placeholder, logo_v: document.documentElement.dataset.logo }); App.applyBrand(e.target.placeholder); };
@@ -1513,6 +1554,71 @@
     };
     reader.readAsDataURL(file);
   };
+  // App icon and banner: the picture is resized here, on this computer, before it's sent.
+  const loadImg = (file) => new Promise((resolve, reject) => { const url = URL.createObjectURL(file); const img = new Image(); img.onload = () => resolve(img); img.onerror = () => reject(new Error('That file isn’t a picture this browser can open.')); img.src = url; });
+  function squarePng(img, size) {
+    const c = document.createElement('canvas'); c.width = size; c.height = size;
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    c.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+    return c.toDataURL('image/png');
+  }
+  const postBrand = async (path, body) => {
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'Upload failed.'); return d;
+  };
+  function paintImages(s) {
+    $('#iconPreview').src = `/brand/icon-192.png${s.icon_v ? `?v=${s.icon_v}` : ''}`;
+    $('#iconRemove').classList.toggle('hidden', !s.icon_v);
+    $('#bannerPreview').style.backgroundImage = s.banner_v ? `url(/brand/banner.jpg?v=${s.banner_v})` : '';
+    $('#bannerPreview').classList.toggle('hidden', !s.banner_v);
+    $('#bannerRemove').classList.toggle('hidden', !s.banner_v);
+  }
+  $('#iconFile').onchange = async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    try {
+      const img = await loadImg(file);
+      if (Math.min(img.naturalWidth, img.naturalHeight) < 128) throw new Error('That picture is too small for an icon. Use one at least 512 pixels wide.');
+      const d = await postBrand('/api/brand/icon', { i512: squarePng(img, 512), i192: squarePng(img, 192), i180: squarePng(img, 180) });
+      paintImages(d.settings); App.flash($('#lookMsg'), 'App icon saved. Phones pick it up the next time they open the site.', true);
+    } catch (err) { App.flash($('#lookMsg'), err.message); }
+    e.target.value = '';
+  };
+  $('#iconRemove').onclick = async () => { const { settings } = await api('/api/brand/icon', { method: 'DELETE' }); paintImages(settings); };
+  $('#bannerFile').onchange = async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    try {
+      const img = await loadImg(file);
+      const w = Math.min(1600, img.naturalWidth); const h = Math.round(img.naturalHeight * (w / img.naturalWidth));
+      const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(img, 0, 0, w, h);
+      let q = 0.82; let data = c.toDataURL('image/jpeg', q);
+      while (data.length > 1100000 && q > 0.4) { q -= 0.12; data = c.toDataURL('image/jpeg', q); }
+      const d = await postBrand('/api/brand/banner', { data });
+      paintImages(d.settings); App.flash($('#lookMsg'), 'Banner saved.', true);
+    } catch (err) { App.flash($('#lookMsg'), err.message); }
+    e.target.value = '';
+  };
+  $('#bannerRemove').onclick = async () => { const { settings } = await api('/api/brand/banner', { method: 'DELETE' }); paintImages(settings); };
+
+  // Web address.
+  const uf = $('#urlForm');
+  async function loadUrl() {
+    const d = await api('/api/site-url');
+    uf.elements.url.value = d.url ? d.url.replace(/^https:\/\//, '') : '';
+    uf.elements.url.placeholder = (d.env_url || 'shuttle.yourbusiness.com').replace(/^https?:\/\//, '');
+    $('#urlState').innerHTML = `Links use <b>${esc(d.in_use)}</b>${d.url ? '' : d.env_url ? ' (from the .env file on the shuttle PC)' : ' (the address you opened this page with)'}.`;
+    $('#urlAuto').classList.toggle('hidden', !d.url);
+  }
+  $('#urlCheck').onclick = async () => {
+    App.flash($('#urlMsg'), 'Checking…', true);
+    try { const r = await api('/api/site-url/check', { body: { url: uf.elements.url.value } }); App.flash($('#urlMsg'), r.message, r.ok); } catch (err) { App.flash($('#urlMsg'), err.message); }
+  };
+  uf.onsubmit = async (e) => {
+    e.preventDefault();
+    try { await api('/api/site-url', { method: 'PUT', body: { url: uf.elements.url.value } }); App.flash($('#urlMsg'), 'Saved. New links, texts and QR codes use this address.', true); loadUrl(); }
+    catch (err) { App.flash($('#urlMsg'), err.message); }
+  };
+  $('#urlAuto').onclick = async () => { await api('/api/site-url', { method: 'PUT', body: { url: '' } }); App.flash($('#urlMsg'), 'Back to automatic.', true); loadUrl(); };
+
   $('#logoRemove').onclick = async () => {
     const { settings } = await api('/api/brand/logo', { method: 'DELETE' });
     document.documentElement.dataset.logo = '';
@@ -1522,7 +1628,7 @@
     e.preventDefault();
     try {
       await api('/api/settings', { method: 'PATCH', body: { look: lf.elements.look.value, brand_color: lf.elements.brand_color.value, brand_dark: lf.elements.brand_dark.value, brand_name: lf.elements.brand_name.value.trim().slice(0, 60) } });
-      App.flash($('#lookMsg'), lf.elements.look.value === 'corwin' ? 'Saved. Everyone now gets the Corwin look.' : 'Saved. Everyone gets the Classic look.', true);
+      App.flash($('#lookMsg'), lf.elements.look.value === 'corwin' ? 'Saved. Everyone now gets the Branded look.' : 'Saved. Everyone gets the Classic look.', true);
       try { localStorage.removeItem('shuttle.look'); } catch { /* ignore */ }
       setTimeout(() => location.reload(), 900);
     } catch (err) { App.flash($('#lookMsg'), err.message); }

@@ -163,7 +163,7 @@
     let state;
     if (!navigator.geolocation) state = ['off', '📡 This phone can’t share location.', ''];
     else if (gpsProblemBlocked()) state = ['warn', '📡 Location is blocked on this phone. Allow location for this site in your phone’s settings, then tap Try again.', 'Try again'];
-    else if (!gpsWanted()) state = ['off', '📡 Location is off. Routes start at the dealership and nearby rides can’t find you.', 'Turn on'];
+    else if (!gpsWanted()) state = ['off', `📡 Location is off. Routes start at the ${App.place()} and nearby rides can’t find you.`, 'Turn on'];
     else if (mode === 'pause') state = ['warn', `🔋 Battery ${pct}: location paused to save battery. Plug in to share again.`, ''];
     else if (on && mode === 'slow') state = ['warn', `🔋 Battery ${pct}: sharing less often to save battery. Plug in to go back to normal.`, mayToggle() ? 'Turn off' : ''];
     else if (on) state = ['on', `📡 Sharing your location${offShift}${gpsProblem ? ` (${esc(gpsProblem)})` : ''}`, mayToggle() ? 'Turn off' : ''];
@@ -249,8 +249,8 @@
     const mine = r.driver_id === me.id;
     const step = mine && NEXT_STEP[r.status];
     const dest = r.type === 'pickup'
-      ? `Pick up at <b>${esc(r.address)}</b> → bring to dealership`
-      : `Dealership → drop off at <b>${esc(r.address)}</b>`;
+      ? `Pick up at <b>${esc(r.address)}</b> → bring to the ${App.place()}`
+      : `${App.Place()} → drop off at <b>${esc(r.address)}</b>`;
     return `
       <div class="ride ${r.rank === 1 ? 'first' : ''}" data-id="${r.id}">
         <div class="ride-top">
@@ -274,7 +274,7 @@
           ${step ? `<button class="${step[2]}" data-status="${step[0]}">${step[1]}</button>` : ''}
           ${mine && r.arrived_at && ['assigned', 'en_route'].includes(r.status) ? `<button class="btn-ghost" data-noshow data-after="${new Date(r.arrived_at).getTime() + waitMs()}" ${Date.now() < new Date(r.arrived_at).getTime() + waitMs() ? 'hidden' : ''}>Customer didn't come out</button>
             <button class="btn-ghost btn-sm" data-unarrive>Not here yet</button>` : ''}
-          <a class="btn btn-ghost" target="_blank" rel="noopener" href="${App.navUrl(nextPlace(r))}">🧭 ${nextPlace(r).dealer ? 'To dealership' : 'Navigate'}</a>
+          <a class="btn btn-ghost" target="_blank" rel="noopener" href="${App.navUrl(nextPlace(r))}">🧭 ${nextPlace(r).dealer ? `To the ${App.place()}` : 'Navigate'}</a>
           ${r.customer_phone ? `<a class="btn btn-ghost" href="${App.telLink(r.customer_phone)}" data-call-ride="${r.id}">📞 Call</a>
             <a class="btn btn-ghost" href="sms:${r.customer_phone.replace(/[^\d+]/g, '')}" data-text-ride="${r.id}" data-name="${esc(r.customer_name.split(' ')[0])}">💬 Text</a>` : ''}
           ${mine && r.status === 'assigned' ? `<button class="btn-ghost" data-release>Give back</button>` : ''}
@@ -433,12 +433,12 @@
     }
     // "Leave now → Pat 8:38 → Kim 8:50 → Back at dealership 9:28"
     // Dealership stops along the way say who gets off and on there.
-    const shortName = (x) => (x.kind === 'dealer' ? (x.label.startsWith('Back') ? 'Back at dealership' : x.label) : x.label);
+    const shortName = (x) => (x.kind === 'dealer' ? (x.label.startsWith('Back') ? `Back at the ${App.place()}` : x.label) : x.label);
     const timeline = (rt) => `<div class="timeline">
         <div class="tl-row"><span class="tl-dot tl-start"></span><b>Leave now</b><span class="muted small">${fmtTime(rt.planned_at)}</span></div>
         ${rt.stops.map((x, i) => `${x.leg_min ? `<div class="tl-leg small muted">🚐 ${x.leg_min} min · ${x.leg_mi} mi</div>` : ''}
           <div class="tl-row"><span class="tl-dot ${x.kind === 'dealer' ? 'tl-dealer' : ''}">${i + 1}</span><b>${esc(shortName(x))}${rt.seats && x.on_board != null && i < rt.stops.length - 1 ? ` <span class="seat-pill">👥 ${x.on_board}/${rt.seats}</span>` : ''}${x.late_min ? ` <span class="late small">⚠ about ${x.late_min} min late</span>` : ''}</b><span><b>${fmtTime(x.eta)}</b></span></div>`).join('')}
-        <div class="route-total" style="margin-top:.5rem">Back at the dealership about ${fmtTime(rt.finish_at)} · ${rt.total_mi} mi total</div>
+        <div class="route-total" style="margin-top:.5rem">Back at the ${App.place()} about ${fmtTime(rt.finish_at)} · ${rt.total_mi} mi total</div>
         <div class="small muted">${rt.source === 'roads' ? 'Real road driving times' : 'Estimated times (road info unavailable)'}, plus 3 min at each stop.</div></div>`;
     // How many people are checked, against the van's seats.
     function seatNote(list) {
@@ -451,7 +451,7 @@
       const all = ups + downs;
       const tone = biggest > veh.seats ? 'alert-err' : all > veh.seats ? 'alert-warn' : 'alert-ok';
       const say = biggest > veh.seats ? `Too many: a party of ${biggest} won't fit in ${veh.seats} seats. Uncheck that ride.`
-        : all > veh.seats ? `${all} passengers in all, more than ${veh.seats} seats, so the route will stop at the dealership in between to let people off.`
+        : all > veh.seats ? `${all} passengers in all, more than ${veh.seats} seats, so the route will stop at the ${App.place()} in between to let people off.`
         : `${all} passenger${all === 1 ? '' : 's'} · ${esc(veh.name)} has ${veh.seats} seats`;
       return `<div class="alert ${tone} small">👥 ${say}</div>`;
     }
@@ -466,7 +466,7 @@
       const cls = starting ? 'btn btn-green btn-lg btn-block' : 'btn btn-blue btn-lg btn-block';
       if (app === 'google') {
         return `<a class="${cls}" ${attrs} href="${App.routeUrl(rt.stops)}">🧭 ${starting ? 'Start route' : 'Open route'} in Google Maps</a>
-          <p class="small muted" style="margin:.4rem 0 0">Every stop opens in this order, for turn-by-turn directions to each customer and back to the dealership.${starting ? ' This also saves the route here.' : ''}</p>`;
+          <p class="small muted" style="margin:.4rem 0 0">Every stop opens in this order, for turn-by-turn directions to each customer and back to the ${App.place()}.${starting ? ' This also saves the route here.' : ''}</p>`;
       }
       const first = rt.stops[0];
       return `<a class="${cls}" ${attrs} href="${App.navUrl(first)}">🧭 ${starting ? 'Start' : 'Next stop'}: ${esc(shortName(first))} in ${name}</a>
@@ -582,13 +582,13 @@
       const o = current;
       const where = o.type === 'pickup'
         ? `📍 ${esc(o.address)}<br><b>${o.miles} mi from you</b> (about ${o.minutes} min)`
-        : `Customer is waiting at the dealership (<b>${o.miles} mi from you</b>, about ${o.minutes} min) → drop off at ${esc(o.address)}`;
+        : `Customer is waiting at the ${App.place()} (<b>${o.miles} mi from you</b>, about ${o.minutes} min) → drop off at ${esc(o.address)}`;
       sheet.innerHTML = `<div class="offer-head"><b>${o.rotation ? '🔄 On your way back: ride near you. Want it?' : o.type === 'pickup' ? '🚐 Ride near you. Want it?' : '🚐 Drop off waiting. Want it?'}</b><span class="offer-timer">${secondsLeft(o)}s</span></div>
         <div class="offer-who">${typeBadge(o.type)} ${o.priority === 'urgent' ? '<span class="badge b-urgent">Urgent</span>' : ''} <b>${esc(o.customer_name)}</b></div>
         <div class="small" style="margin:.3rem 0">${where}</div>
         <div class="small">🕒 ${fmtTime(o.scheduled_at)} · ${relTime(o.scheduled_at)} · ${o.passengers} passenger${o.passengers > 1 ? 's' : ''}</div>
         ${o.notes ? `<div class="small">📝 ${esc(o.notes)}</div>` : ''}
-        ${o.rotation ? '<div class="small muted">Drop off who’s on board at the dealership, then grab this one. Your route updates if you take it.</div>' : ''}
+        ${o.rotation ? `<div class="small muted">Drop off who’s on board at the ${App.place()}, then grab this one. Your route updates if you take it.</div>` : ''}
         <div class="offer-actions"><button class="btn-green btn-lg" data-offer="accept">✅ Take it</button><button class="btn-ghost btn-lg" data-offer="decline">No thanks</button></div>
         <div class="offer-msg"></div>`;
       sheet.classList.remove('hidden');
