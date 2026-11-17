@@ -19,6 +19,7 @@
     </div>
     <p class="small muted" id="findHelp" style="margin:.3rem 0 0">Rides from the last 30 days and anything booked ahead. Customer details are cleared each night once a ride is done.</p>
     <div id="results" aria-live="polite"></div>
+    <div id="waitNow" style="margin-top:.8rem"></div>
   </section>
 
   <section class="card">
@@ -107,7 +108,9 @@
     App.dealerMarker(map, App.settings); App.liveDrivers(map);
   });
 
-  App.live({ rides: refresh, drivers: refresh });
+  const waitNow = App.waitMeter($('#waitNow')); // what to tell callers about the wait
+  App.live({ rides: () => { refresh(); waitNow.refresh(); }, drivers: () => { refresh(); waitNow.refresh(); } });
+  setInterval(() => waitNow.refresh(), 60000);
   // The service advisors a BDC booking can go to (picked in the form and under Edit).
   let advisors = [];
   try { advisors = (await api('/api/advisors')).advisors; } catch { /* the form still works; the server asks for one */ }

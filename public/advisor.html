@@ -26,6 +26,7 @@
             <button class="btn-ghost btn-sm" id="shareRequest">Customer request link / QR</button>
           </div>
         </div>
+        <div id="waitNow"></div>
         <p class="small muted" style="margin-top:-.4rem">Numbered in the order the shuttle should handle them — overdue, urgent and soonest first, then closest.</p>
         <div id="typeChips"></div>
         <div id="rides"></div>
@@ -66,7 +67,9 @@
   App.dealerMarker(map, App.settings);
   const draw = App.ridesLayer(map);
   const vans = App.liveDrivers(map); // vans move every few seconds, with each driver's planned route
-  App.live({ rides: refresh, drivers: () => { vans.refresh(); refresh(); }, moved: () => vans.refresh(), foryou: forYou }); // changes show up right away
+  const waitNow = App.waitMeter($('#waitNow'));
+  App.live({ rides: () => { refresh(); waitNow.refresh(); }, drivers: () => { vans.refresh(); refresh(); waitNow.refresh(); }, moved: () => vans.refresh(), foryou: forYou }); // changes show up right away
+  setInterval(() => waitNow.refresh(), 60000);
   // Someone else (the BDC team, usually) booked a ride for one of this advisor's customers,
   // or gave them one: show it at the top until they tap Got it.
   async function forYou(data) {

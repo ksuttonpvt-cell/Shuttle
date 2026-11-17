@@ -625,3 +625,45 @@ body.spec { height: 100%; margin: 0; display: grid; grid-template-rows: auto 1fr
 .role-pick .check { margin: .1rem 0; }
 .role-pick-compact { display: inline-flex; flex-wrap: wrap; gap: .2rem .6rem; vertical-align: middle; margin: 0 .3rem; }
 .role-chip { font-size: .9rem; }
+
+/* Customer tracking: who's coming, stops before you, "your shuttle is here" */
+.drv-card { display: grid; grid-template-columns: 56px 1fr auto; gap: .8rem; align-items: center; border: 1px solid var(--line); border-radius: 14px; padding: .7rem .8rem; margin-top: .7rem; }
+.drv-photo { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; background: var(--line); }
+.drv-initial { display: grid; place-items: center; font-size: 1.5rem; font-weight: 700; color: #fff; background: linear-gradient(135deg, #7d858f, #474e56); }
+.drv-who { display: grid; min-width: 0; }
+.drv-who b { font-size: 1.15rem; }
+.drv-who span { color: var(--muted); font-size: .92rem; }
+.drv-plate { font-weight: 800; letter-spacing: .08em; border: 2px solid var(--ink, currentColor); border-radius: 6px; padding: .1rem .45rem; white-space: nowrap; font-size: 1rem; }
+.stops-line { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .7rem; margin: .4rem 0 .2rem; }
+.stops-dots { display: flex; align-items: center; gap: 4px; }
+.stops-dots i { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--muted); }
+.stops-dots i + i::before { content: none; }
+.stops-dots i.you { width: 16px; height: 16px; border-color: var(--brand, #eb0a1e); background: var(--brand, #eb0a1e); }
+.here-card { border: 2px solid var(--green-fg, #0a5a28); background: var(--green-bg, #e3f5ea); }
+.here-card h2 { margin: .4rem 0 .2rem; }
+.here-top { display: flex; justify-content: space-between; align-items: center; gap: .6rem; }
+.here-pill { background: var(--green-fg, #0a5a28); color: #fff; border-radius: 999px; padding: .2rem .7rem; font-weight: 700; font-size: .85rem; }
+.here-timer { font-size: 1.8rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.here-actions { display: grid; gap: .5rem; margin-top: .7rem; }
+@media (prefers-reduced-motion: no-preference) { .here-card { animation: here-in .5s ease-out; } @keyframes here-in { from { transform: scale(.97); opacity: .5; } } }
+
+/* Driver page: your photo, and "I'm here" */
+.me-photo { display: grid; grid-template-columns: 48px 1fr auto; gap: .7rem; align-items: center; border-top: 1px solid var(--line); margin-top: .8rem; padding-top: .7rem; }
+.me-photo img, .me-photo-none { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; }
+.me-photo-none { display: grid; place-items: center; font-weight: 700; font-size: 1.3rem; color: #fff; background: linear-gradient(135deg, #7d858f, #474e56); }
+@media (max-width: 480px) { .me-photo { grid-template-columns: 48px 1fr; } .me-photo .actions { grid-column: 1 / -1; } }
+.arrived-line { background: var(--green-bg); color: var(--green-fg); border-radius: 10px; padding: .45rem .6rem; margin-top: .3rem; font-variant-numeric: tabular-nums; }
+.cust-reply { font-weight: 700; }
+
+/* Shuttle wait meter (advisor desk, BDC, request page) */
+.wait-meter { display: grid; gap: .3rem; border-radius: 12px; padding: .6rem .75rem; margin: 0 0 .8rem; border: 1px solid var(--line); font-size: .92rem; }
+.wait-meter > span { color: var(--muted); font-size: .85rem; }
+.wait-top { display: flex; justify-content: space-between; align-items: baseline; gap: .3rem .8rem; flex-wrap: wrap; }
+.wait-vans { font-size: .85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.wait-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.wait-bar i { display: block; height: 100%; border-radius: 3px; }
+.wait-ok { background: var(--green-bg); } .wait-ok .wait-bar i { background: var(--green-fg); }
+.wait-warn { background: var(--amber-bg); } .wait-warn .wait-bar i { background: #c27400; }
+.wait-err { background: var(--red-bg, #fdecee); } .wait-err .wait-bar i { background: #c4121f; }
+.wait-closed { color: var(--muted); }
+.arrived-note { color: var(--green-fg); font-weight: 600; }

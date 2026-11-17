@@ -67,8 +67,10 @@ const DEFAULT_SETTINGS = {
   sms_booked: '1',
   sms_en_route: '1',
   sms_cancelled: '1',
+  sms_arrived: '1',
+  arrive_wait_min: '5',     // how long a driver waits after "I'm here" before they can mark a no-show
 };
-const YES_NO_SETTINGS = ['public_requests', 'customer_actions', 'staff_signup', 'driver_gps_toggle', 'ride_offers', 'easter_egg', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
+const YES_NO_SETTINGS = ['public_requests', 'customer_actions', 'staff_signup', 'driver_gps_toggle', 'ride_offers', 'easter_egg', 'sms_booked', 'sms_en_route', 'sms_cancelled', 'sms_arrived'];
 
 function createApp(db, opts = {}) {
   const app = express();
@@ -98,7 +100,8 @@ function createApp(db, opts = {}) {
     }
     next();
   });
-  app.use((req, res, next) => (req.path === '/api/brand/logo' || req.path === '/api/vehicles/import' ? next() : express.json({ limit: '100kb' })(req, res, next)));
+  app.use((req, res, next) => (req.path === '/api/brand/logo' || req.path === '/api/vehicles/import' ? next()
+    : express.json({ limit: /^\/api\/(me|users\/\d+)\/photo$/.test(req.path) ? '300kb' : '100kb' })(req, res, next)));
   // Live numbers for Admin → Server.
   const stats = opts.stats || createStats({ timers: !opts.noTimers });
   const logbook = opts.logbook || createLogbook();
@@ -226,6 +229,7 @@ function createApp(db, opts = {}) {
     last_loc_at: u.last_loc_at, created_at: u.created_at, reset_requested_at: u.reset_requested_at || null,
     signup_at: u.signup_at || null, signup_note: u.signup_note || null,
     team: u.team || null, home: homeOf(u), roles: rolesOf(u), can: canList(u), start_page: u.start_page || null,
+    photo_url: u.photo ? `/api/users/${u.id}/photo?v=${u.photo_v || 1}` : null,
     super_admin: u.role === 'admin' && !!u.super_admin,
   });
   // BDC team members are advisors (same access) with their own page.
@@ -332,6 +336,12 @@ function createApp(db, opts = {}) {
       return `${dealer}: ${driver} is on the way${veh ? ` in a ${veh}` : ''}${ride.vehicle_plate ? ` (plate ${ride.vehicle_plate})` : ''}. Track: ${trackUrl}`;
     }
     if (event === 'cancelled') return `${dealer}: your shuttle ride for ${fmtWhen(ride.scheduled_at)} has been cancelled.${call}`;
+    if (event === 'arrived') {
+      const veh = [ride.vehicle_color, ride.vehicle_make_model].filter(Boolean).join(' ') || ride.vehicle_name;
+      const driver = ride.driver_name ? ride.driver_name.split(' ')[0] : 'Your driver';
+      const where = ride.type === 'pickup' ? 'is here' : 'is out front at the dealership';
+      return `${dealer}: ${driver} ${where}${veh ? ` in the ${veh}` : ''}${ride.vehicle_plate ? ` (plate ${ride.vehicle_plate})` : ''}. Tap when you're coming out: ${trackUrl}`;
+    }
     return null;
   }
   const smsLog = (rideId, event, to, body, status, error) =>
@@ -720,6 +730,90 @@ function createApp(db, opts = {}) {
     }
     if (!user.active) q('DELETE FROM sessions WHERE user_id = ?').run(user.id);
     res.json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(user.id)) });
+  });
+
+  // ---------- driver photos ----------
+  // A small JPEG the phone makes from the camera or a picture (the page shrinks it first).
+  // Customers see it on their tracking page; staff see it in the staff list.
+  function sendPhoto(res, photo) {
+    const m = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(photo || '');
+    if (!m) return bad(res, 'No photo.', 404);
+    res.type('image/jpeg').set('Cache-Control', 'private, max-age=86400').send(Buffer.from(m[1], 'base64'));
+  }
+  function savePhoto(userId, image, res) {
+    if (image === null) { q('UPDATE users SET photo = NULL, photo_v = NULL WHERE id = ?').run(userId); return true; }
+    const m = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(String(image || ''));
+    if (!m) { bad(res, 'Pick a photo.'); return false; }
+    const bytes = Buffer.from(m[1], 'base64');
+    if (bytes.length > 150 * 1024) { bad(res, 'That photo is too big. Try another one.'); return false; }
+    if (!(bytes[0] === 0xff && bytes[1] === 0xd8)) { bad(res, 'Pick a photo.'); return false; }
+    q('UPDATE users SET photo = ?, photo_v = COALESCE(photo_v, 0) + 1 WHERE id = ?').run(`data:image/jpeg;base64,${bytes.toString('base64')}`, userId);
+    return true;
+  }
+  app.get('/api/users/:id/photo', requireRole(), (req, res) => sendPhoto(res, (q('SELECT photo FROM users WHERE id = ?').get(Number(req.params.id)) || {}).photo));
+  app.post('/api/me/photo', requireRole('driver'), (req, res) => {
+    if (!savePhoto(req.user.id, req.body && req.body.image, res)) return;
+    res.json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)) });
+  });
+  app.delete('/api/me/photo', requireRole(), (req, res) => { savePhoto(req.user.id, null); res.json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)) }); });
+  app.post('/api/users/:id/photo', requireRole('admin'), (req, res) => {
+    const u = q('SELECT id FROM users WHERE id = ?').get(Number(req.params.id));
+    if (!u) return bad(res, 'User not found.', 404);
+    if (!savePhoto(u.id, req.body && req.body.image === null ? null : req.body && req.body.image, res)) return;
+    res.json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(u.id)) });
+  });
+
+  // ---------- "I'm here" ----------
+  // The driver taps it at the pick-up spot (the customer's address, or the dealership for a
+  // drop off). The customer gets a text (if texting is on) and their tracking page shows
+  // "Your shuttle is here" with a wait timer. Tapping it again undoes it.
+  app.post('/api/rides/:id/arrived', requireRole('driver'), atomic((req, res) => {
+    const ride = q('SELECT * FROM rides WHERE id = ?').get(Number(req.params.id));
+    if (!ride) return bad(res, 'Ride not found.', 404);
+    if (ride.driver_id !== req.user.id && req.user.role !== 'admin') return bad(res, 'Take this ride first.', 403);
+    if (!['assigned', 'en_route'].includes(ride.status)) return bad(res, 'This ride isn’t waiting for a pick up.', 409);
+    if (req.body && req.body.undo) {
+      q('UPDATE rides SET arrived_at = NULL, customer_reply = NULL, customer_reply_at = NULL, updated_at = ? WHERE id = ?').run(now(), ride.id);
+    } else {
+      if (ride.arrived_at) return res.json({ ride: q(`${RIDE_SELECT} WHERE r.id = ?`).get(ride.id) });
+      q(`UPDATE rides SET arrived_at = ?, customer_reply = NULL, customer_reply_at = NULL, status = 'en_route',
+         en_route_at = COALESCE(en_route_at, ?), updated_at = ? WHERE id = ?`).run(now(), now(), now(), ride.id);
+      notifyCustomer(ride.id, 'arrived', baseUrl(req));
+    }
+    res.json({ ride: q(`${RIDE_SELECT} WHERE r.id = ?`).get(ride.id) });
+  }));
+
+  // ---------- how long is the wait right now? ----------
+  // A rough "a shuttle can get to you in about N minutes", for the request page and the
+  // advisor and BDC desks. Each van on shift is free when its planned route ends (or after
+  // ~20 min per open ride without one); rides already waiting take the first free vans;
+  // then it's the drive from the dealership (or the free van) to the customer.
+  const AVG_RIDE_MS = 20 * 60000;
+  const driveMin = (a, b) => (a && b ? Math.max(3, Math.round(((distanceKm(a, b) * KM_TO_MI * 1.35) / 28) * 60)) : 10);
+  function estimateWait(point) {
+    const vans = q(`SELECT u.* FROM users u WHERE ${IS_DRIVER()} AND u.active = 1 AND u.on_duty = 1`).all();
+    if (!vans.length) return { on_duty: 0, out: 0, wait_min: null, level: 'closed' };
+    const t0 = Date.now(); const dealer = dealerOrigin();
+    const free = vans.map((d) => {
+      const open = q("SELECT COUNT(*) AS n FROM rides WHERE driver_id = ? AND status IN ('assigned','en_route','onboard')").get(d.id).n;
+      const rt = open ? liveRoute(d) : null;
+      const t = rt && rt.finish_at ? Math.max(t0, new Date(rt.finish_at).getTime()) : t0 + open * AVG_RIDE_MS;
+      return { t, from: open ? dealer : (freshSpot(d) || dealer), busy: open > 0 };
+    });
+    const waiting = q("SELECT COUNT(*) AS n FROM rides WHERE driver_id IS NULL AND status = 'requested' AND scheduled_at <= ?")
+      .get(new Date(t0 + 30 * 60000).toISOString()).n;
+    for (let i = 0; i < waiting; i++) { const f = free.reduce((a, b) => (b.t < a.t ? b : a)); f.t = Math.max(f.t, t0) + AVG_RIDE_MS; f.from = dealer; f.busy = true; }
+    const target = point || dealer;
+    const best = Math.min(...free.map((f) => (f.t - t0) / 60000 + driveMin(f.from, target)));
+    const wait = Math.max(5, Math.ceil(best / 5) * 5);
+    return { on_duty: vans.length, out: free.filter((f) => f.busy).length, wait_min: wait, level: wait <= 15 ? 'quiet' : wait <= 30 ? 'busy' : 'very_busy' };
+  }
+  app.get('/api/wait', (req, res) => {
+    const lat = Number(req.query.lat); const lng = Number(req.query.lng);
+    const point = req.query.type !== 'dropoff' && Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180
+      ? { lat: Math.round(lat * 100) / 100, lng: Math.round(lng * 100) / 100 } : null;
+    res.type('json').set('Cache-Control', 'no-store')
+      .send(briefly(`wait|${ridesVersion}|${point ? `${point.lat},${point.lng}` : '-'}`, 15000, () => JSON.stringify(estimateWait(point))));
   });
 
   // ---------- vehicles ----------
@@ -1399,6 +1493,7 @@ function createApp(db, opts = {}) {
         updates.vehicle_id = null;
         if (['assigned', 'en_route'].includes(ride.status)) updates.status = 'requested';
       }
+      if (updates.driver_id !== ride.driver_id) { updates.arrived_at = null; updates.customer_reply = null; updates.customer_reply_at = null; }
     }
     if (b.advisor_id !== undefined && b.advisor_id !== '' && role !== 'driver') { // move the customer to another advisor
       const a = serviceAdvisor(num(b.advisor_id));
@@ -1557,6 +1652,21 @@ function createApp(db, opts = {}) {
     }
     let position = null;
     if (ride.status === 'requested' || ride.status === 'assigned') position = queuePositions().get(ride.id) ?? null;
+    // Who's coming: the driver's photo, and how many stops they make before this customer.
+    let driverPhoto = null; let stopsBefore = null;
+    if (ride.driver_id && ['assigned', 'en_route', 'onboard'].includes(ride.status)) {
+      const d = q('SELECT * FROM users WHERE id = ?').get(ride.driver_id);
+      if (d && d.photo) driverPhoto = `/api/public/track/${encodeURIComponent(ride.track_token)}/photo?v=${d.photo_v || 1}`;
+      const stops = d && liveRoute(d)?.stops;
+      if (stops) {
+        const onboard = ride.status === 'onboard';
+        const mine = (x) => (x.kind === 'dealer'
+          ? ((onboard ? x.drop_ids : x.load_ids) || []).includes(ride.id) && (onboard ? ride.type === 'pickup' : ride.type === 'dropoff')
+          : x.ride_id === ride.id && (onboard ? x.kind === 'dropoff' : x.kind === 'pickup'));
+        const at = stops.findIndex(mine);
+        if (at >= 0) stopsBefore = at;
+      }
+    }
     res.json({
       ride: {
         type: ride.type, status: ride.status, customer_first_name: ride.customer_name.split(' ')[0],
@@ -1568,6 +1678,10 @@ function createApp(db, opts = {}) {
       driver_location: driverLoc,
       eta, eta_estimated: etaEstimated,
       queue_position: position,
+      driver_photo: driverPhoto, stops_before: stopsBefore,
+      arrived_at: ['assigned', 'en_route'].includes(ride.status) ? ride.arrived_at : null,
+      arrive_wait_min: Number(s.arrive_wait_min) || 5,
+      customer_reply: ride.arrived_at ? ride.customer_reply : null,
       can_change: s.customer_actions !== '0' && ['requested', 'assigned', 'en_route'].includes(ride.status),
       dealer: { name: s.dealer_name, address: s.dealer_address, phone: s.dealer_phone, lat: Number(s.dealer_lat), lng: Number(s.dealer_lng) },
     });
@@ -1647,6 +1761,27 @@ function createApp(db, opts = {}) {
     if (ids.length) quietly(push.notifyUsers([...new Set(ids)], { title, body, tag: `ride-${ride.id}`, url: '/driver' }));
     live.soon('rides', 300);
   };
+  // "I'm coming out" / "I need 5 more minutes", after the driver says they're here.
+  app.post('/api/public/track/:token/reply', atomic((req, res) => {
+    const ride = trackedRide(req, res); if (!ride) return;
+    const answer = String((req.body && req.body.answer) || '');
+    if (!['coming', 'need5'].includes(answer)) return bad(res, 'Pick an answer.');
+    if (!ride.arrived_at || !['assigned', 'en_route'].includes(ride.status)) return bad(res, 'Your driver isn’t there yet. We’ll let you know when they are.', 409);
+    const key = `reply|${ride.id}`;
+    if (limits.count(key, 3600000) >= 4) return bad(res, 'Your driver already knows. Please call the dealership if anything changes.', 429);
+    limits.hit(key, 3600000);
+    q('UPDATE rides SET customer_reply = ?, customer_reply_at = ?, updated_at = ? WHERE id = ?').run(answer, now(), now(), ride.id);
+    const first = ride.customer_name.split(' ')[0];
+    tellStaff(ride, answer === 'coming' ? `👋 ${first} is coming out` : `⏳ ${first} needs 5 more minutes`, rideLine(ride));
+    res.json({ ok: true, message: answer === 'coming' ? 'Thanks! Your driver knows you’re on your way out.' : 'Thanks! We told your driver you need 5 more minutes.' });
+  }));
+  // The driver's photo for the customer, only while the ride is open.
+  app.get('/api/public/track/:token/photo', (req, res) => {
+    const ride = trackedRide(req, res); if (!ride) return;
+    const d = ride.driver_id && ['assigned', 'en_route', 'onboard'].includes(ride.status) ? q('SELECT photo FROM users WHERE id = ?').get(ride.driver_id) : null;
+    sendPhoto(res, d && d.photo);
+  });
+
   const LATE = { 5: 'about 5 minutes', 10: 'about 10 minutes', 15: 'about 15 minutes', 20: '20 minutes or more' };
   app.post('/api/public/track/:token/late', atomic((req, res) => {
     const ride = trackedRide(req, res); if (!ride) return;
@@ -1710,6 +1845,11 @@ function createApp(db, opts = {}) {
       if (k === 'auto_end_shift' || k === 'auto_sign_out' || k === 'clear_customer_info' || k === 'backup_time') {
         v = v.trim();
         if (v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) return bad(res, 'Pick a time, like 8:00 PM, or leave it empty to turn it off.');
+      }
+      if (k === 'arrive_wait_min') {
+        const n = Number(v);
+        if (!Number.isInteger(n) || n < 1 || n > 30) return bad(res, 'The waiting time at a pick up must be 1 to 30 minutes.');
+        v = String(n);
       }
       if (k === 'dropoff_wait_min') {
         const n = Number(v);

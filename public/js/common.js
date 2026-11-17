@@ -62,6 +62,55 @@ const App = (() => {
   window.addEventListener('online', () => { /* the next refresh clears the banner */ });
   window.addEventListener('offline', () => connection(false));
 
+  // "How long is the shuttle wait right now?" A small meter for the desks and the request page.
+  // el gets filled in; returns { refresh(point) } to update it (e.g. once an address is picked).
+  function waitMeter(el, { point = null, type = 'pickup', customer = false } = {}) {
+    let at = point; let kind = type;
+    const LEVEL = { quiet: ['ok', 'Shuttle is free'], busy: ['warn', 'Shuttle is busy'], very_busy: ['err', 'Shuttle is very busy'] };
+    async function refresh(p = at, t = kind) {
+      at = p; kind = t;
+      const qs = new URLSearchParams({ type: kind });
+      if (at && at.lat != null) { qs.set('lat', at.lat); qs.set('lng', at.lng); }
+      let w; try { w = await api(`/api/wait?${qs}`); } catch { return; }
+      if (w.level === 'closed') {
+        el.innerHTML = customer ? '' : '<div class="wait-meter wait-closed"><b>No shuttle on shift right now</b><span>Rides you book will wait for the next driver.</span></div>';
+        el.hidden = customer; return;
+      }
+      const [tone, label] = LEVEL[w.level];
+      const pct = Math.min(100, Math.round((w.out / Math.max(1, w.on_duty)) * 100));
+      el.hidden = false;
+      el.innerHTML = `<div class="wait-meter wait-${tone}">
+        <div class="wait-top"><b>${customer ? `We can get to you in about ${w.wait_min} min` : `${label}: about ${w.wait_min} min`}</b>
+          ${customer ? '' : `<span class="wait-vans">${w.out} of ${w.on_duty} van${w.on_duty === 1 ? '' : 's'} out</span>`}</div>
+        <div class="wait-bar" aria-hidden="true"><i style="width:${Math.max(8, pct)}%"></i></div>
+        <span>${customer ? 'Based on where the shuttles are right now. It can change a little.' : `A ${kind === 'dropoff' ? 'drop off' : 'pick up'} booked now would start in about ${w.wait_min} minutes.`}</span>
+      </div>`;
+    }
+    refresh();
+    return { refresh };
+  }
+
+  // Pick a photo (camera or library) and shrink it to a small square JPEG for the server.
+  function pickPhoto() {
+    return new Promise((resolve, reject) => {
+      const input = document.createElement('input');
+      input.type = 'file'; input.accept = 'image/*';
+      input.onchange = () => {
+        const file = input.files && input.files[0]; if (!file) return resolve(null);
+        const url = URL.createObjectURL(file); const img = new Image();
+        img.onload = () => {
+          const side = Math.min(img.naturalWidth, img.naturalHeight); const size = Math.min(320, side);
+          const c = document.createElement('canvas'); c.width = size; c.height = size;
+          c.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+          URL.revokeObjectURL(url); resolve(c.toDataURL('image/jpeg', 0.82));
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That file isn’t a photo this phone can open. Try another one.')); };
+        img.src = url;
+      };
+      input.click();
+    });
+  }
+
   // Ensures the visitor is signed in with one of the given roles (admin always allowed).
   async function requireUser(...roles) {
     const { user, settings, base_url, version } = await api('/api/me');
@@ -690,7 +739,7 @@ const App = (() => {
 
   return {
     whatsNew, esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
-    brandMark, applyBrand, stepper, tacoRain, live, liveState, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
+    brandMark, applyBrand, stepper, pickPhoto, waitMeter, tacoRain, live, liveState, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
 })();

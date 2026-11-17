@@ -94,6 +94,19 @@
       </div>
       <div id="shiftMsg"></div>
       ${!usable.length ? '<p class="small muted">No vehicles are set up yet — ask an admin to add one.</p>' : ''}`;
+    // Your photo: customers see it with your first name and the van's plate.
+    $('#shift').insertAdjacentHTML('beforeend', `<div class="me-photo">
+      ${me.photo_url ? `<img src="${esc(me.photo_url)}" alt="Your photo">` : `<div class="me-photo-none" aria-hidden="true">${esc(me.name[0])}</div>`}
+      <div class="small">${me.photo_url ? 'Customers see this photo with your first name.' : '<b>Add your photo</b> so customers know who to look for.'}</div>
+      <div class="actions" style="margin:0"><button type="button" class="btn-ghost btn-sm" id="photoBtn">${me.photo_url ? 'Change' : 'Add photo'}</button>${me.photo_url ? '<button type="button" class="btn-ghost btn-sm" id="photoDel">Remove</button>' : ''}</div>
+    </div><div id="photoMsg"></div>`);
+    $('#photoBtn').onclick = async () => {
+      try {
+        const image = await App.pickPhoto(); if (!image) return;
+        ({ user: me } = await api('/api/me/photo', { body: { image } })); drawShift();
+      } catch (err) { App.flash($('#photoMsg'), err.message); }
+    };
+    if ($('#photoDel')) $('#photoDel').onclick = async () => { ({ user: me } = await api('/api/me/photo', { method: 'DELETE' })); drawShift(); };
     if (me.on_duty) {
       $('#endShift').onclick = async () => { ({ user: me } = await api('/api/driver/shift', { body: { on_duty: false } })); wake.update(); drawShift(); route.clearLocal(); refresh(); };
       if ($('#wakeBtn')) $('#wakeBtn').onclick = () => { wake.set(!wake.wanted); drawShift(); };
@@ -225,6 +238,13 @@
     const toDealer = (r.type === 'pickup' && r.status === 'onboard') || (r.type === 'dropoff' && r.status !== 'onboard') || r.lat == null && r.type === 'pickup' && r.status === 'onboard';
     return toDealer ? { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng), address: App.settings.dealer_address, dealer: true } : r;
   }
+  // "I'm here": how long the driver has waited, and when they can mark a no-show.
+  const waitMs = () => (Number(App.settings.arrive_wait_min) || 5) * 60000;
+  const waited = (iso) => { const s = Math.max(0, Math.round((Date.now() - new Date(iso)) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  setInterval(() => {
+    document.querySelectorAll('[data-waited]').forEach((el) => { el.textContent = waited(el.dataset.waited); });
+    document.querySelectorAll('[data-noshow]').forEach((el) => { el.hidden = Date.now() < Number(el.dataset.after); });
+  }, 1000);
   function rideHtml(r, big = false) {
     const mine = r.driver_id === me.id;
     const step = mine && NEXT_STEP[r.status];
@@ -245,10 +265,15 @@
           ${r.notes ? `<div>📝 ${esc(r.notes)}</div>` : ''}
           ${r.driver_name && !mine ? `<div>🚐 ${esc(r.driver_name)}</div>` : ''}
           ${r.reasons ? `<div class="small">Why this order: ${esc(r.reasons.join(' · '))}</div>` : ''}
+          ${mine && r.arrived_at && ['assigned', 'en_route'].includes(r.status) ? `<div class="arrived-line">📍 You're here · waiting <b data-waited="${esc(r.arrived_at)}">${waited(r.arrived_at)}</b>
+            ${r.customer_reply ? `<div class="cust-reply">${r.customer_reply === 'coming' ? '👋 Customer is coming out' : '⏳ Customer needs 5 more minutes'} <span class="small muted">(${relTime(r.customer_reply_at)})</span></div>` : '<div class="small muted">We told the customer you\'re here.</div>'}</div>` : ''}
         </div>
         <div class="actions">
           ${!r.driver_id ? `<button class="btn-dark" data-claim>Take this ride</button>` : ''}
+          ${mine && ['assigned', 'en_route'].includes(r.status) && !r.arrived_at ? `<button class="btn-green" data-arrived>📍 I'm here</button>` : ''}
           ${step ? `<button class="${step[2]}" data-status="${step[0]}">${step[1]}</button>` : ''}
+          ${mine && r.arrived_at && ['assigned', 'en_route'].includes(r.status) ? `<button class="btn-ghost" data-noshow data-after="${new Date(r.arrived_at).getTime() + waitMs()}" ${Date.now() < new Date(r.arrived_at).getTime() + waitMs() ? 'hidden' : ''}>Customer didn't come out</button>
+            <button class="btn-ghost btn-sm" data-unarrive>Not here yet</button>` : ''}
           <a class="btn btn-ghost" target="_blank" rel="noopener" href="${App.navUrl(nextPlace(r))}">🧭 ${nextPlace(r).dealer ? 'To dealership' : 'Navigate'}</a>
           ${r.customer_phone ? `<a class="btn btn-ghost" href="${App.telLink(r.customer_phone)}">📞 Call</a>
             <a class="btn btn-ghost" href="sms:${r.customer_phone.replace(/[^\d+]/g, '')}">💬 Text</a>` : ''}
@@ -658,6 +683,14 @@
       if (btn.hasAttribute('data-claim')) await api(`/api/rides/${id}`, { method: 'PATCH', body: { driver_id: me.id } });
       else if (btn.hasAttribute('data-release')) await api(`/api/rides/${id}`, { method: 'PATCH', body: { driver_id: null } });
       else if (btn.dataset.status) await api(`/api/rides/${id}`, { method: 'PATCH', body: { status: btn.dataset.status } });
+      else if (btn.hasAttribute('data-arrived')) await api(`/api/rides/${id}/arrived`, { body: {} });
+      else if (btn.hasAttribute('data-unarrive')) await api(`/api/rides/${id}/arrived`, { body: { undo: true } });
+      else if (btn.hasAttribute('data-noshow')) {
+        const r = rides.find((x) => x.id === id);
+        const mins = r && r.arrived_at ? Math.max(1, Math.round((Date.now() - new Date(r.arrived_at)) / 60000)) : null;
+        if (!confirm(`Cancel ${r ? r.customer_name : 'this ride'} as a no-show? The advisor will see it.`)) return;
+        await api(`/api/rides/${id}`, { method: 'PATCH', body: { status: 'cancelled', cancel_reason: `No-show: customer didn't come out${mins ? ` (driver waited ${mins} min)` : ''}` } });
+      }
       else if (btn.hasAttribute('data-cancel')) { if (!(await App.cancelRide(rides.find((x) => x.id === id)))) return; }
       else return;
       refresh();

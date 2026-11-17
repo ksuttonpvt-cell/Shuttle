@@ -181,6 +181,9 @@
       <label>Drop-off waiting time (minutes)</label>
       <input name="dropoff_wait_min" type="number" min="0" max="240" step="1" style="max-width:200px">
       <p class="small muted" style="margin:.25rem 0 0">Drop offs leave at least this long after they're booked, unless an advisor marks them urgent (with a reason). Use 0 for no wait.</p>
+      <label>Wait at a pick up (minutes)</label>
+      <input name="arrive_wait_min" type="number" min="1" max="30" step="1" style="max-width:200px">
+      <p class="small muted" style="margin:.25rem 0 0">After a driver taps “I'm here”, the customer sees a timer for this long. Then the driver can cancel the ride as a no-show.</p>
       <label>End all driver shifts automatically at</label>
       <input name="auto_end_shift" type="time" style="max-width:200px">
       <p class="small muted" style="margin:.25rem 0 0">Every evening at this time, drivers still on duty are taken off shift (they stop getting new-ride alerts and their vehicle is freed). Rides they're finishing stay with them. Clear the time to turn this off.</p>
@@ -219,6 +222,7 @@
       <p class="small" style="margin-bottom:.2rem"><b>Text the customer automatically when:</b></p>
       <label class="check"><input type="checkbox" name="sms_booked"> their ride is booked (with a tracking link)</label>
       <label class="check"><input type="checkbox" name="sms_en_route"> the driver is on the way (driver's name, vehicle, plate)</label>
+      <label class="check"><input type="checkbox" name="sms_arrived"> the driver is here (“I'm here”, with a button to say they're coming out)</label>
       <label class="check"><input type="checkbox" name="sms_cancelled"> their ride is cancelled</label>
       <div class="actions"><button class="btn-dark btn-sm">Save text settings</button></div>
       <div id="smsMsg"></div>
@@ -550,6 +554,12 @@
         <label>Email (their sign-in)</label><input name="email" type="email" value="${esc(u.email)}" required>
         <label>Mobile phone</label><input name="phone" type="tel" value="${esc(u.phone || '')}">
         <label>Roles</label>${rolePicker(rolesOfU(u), { start: u.start_page, lockAdmin: u.id === me.id })}
+        <label>Photo <span class="small muted">(customers see it when this person drives)</span></label>
+        <div class="me-photo" style="border:0;margin:0;padding:0" data-photo-row>
+          ${u.photo_url ? `<img src="${esc(u.photo_url)}" alt="">` : `<div class="me-photo-none" aria-hidden="true">${esc(u.name[0])}</div>`}
+          <div class="small muted">${u.photo_url ? 'Drivers can change their own photo on the driver page.' : 'No photo yet.'}</div>
+          <div class="actions" style="margin:0"><button type="button" class="btn-ghost btn-sm" data-photo>${u.photo_url ? 'Change' : 'Add photo'}</button>${u.photo_url ? '<button type="button" class="btn-ghost btn-sm" data-photo-del>Remove</button>' : ''}</div>
+        </div>
         ${me.super_admin && u.role === 'admin' ? `<label class="check" style="margin-top:.6rem"><input type="checkbox" name="super_admin" ${u.super_admin ? 'checked' : ''} ${u.id === me.id ? 'disabled' : ''}> ⭐ Super admin: can open the Server page (updates, restart, backups, logs)</label>` : ''}
         <div class="msg"></div>
         <div class="actions"><button>Save</button><button type="button" class="btn-ghost" data-close>Close</button></div>
@@ -565,6 +575,13 @@
       <p class="small muted" style="margin:.4rem 0 0">${u.active ? 'Disabling signs them out everywhere and stops them signing in. Their past rides stay in reports.' : 'This account is disabled and can’t sign in.'}</p>`);
     const f = $('[data-details]', m);
     wireRolePicker(f);
+    // Photo: saved straight away (not with the Save button).
+    const photoSave = async (image) => {
+      try { const r = await api(`/api/users/${u.id}/photo`, { body: { image } }); Object.assign(u, r.user); m.close(); loadUsers(); editUser(r.user); }
+      catch (err) { App.flash($('.msg', m), err.message); }
+    };
+    $('[data-photo]', m).onclick = async () => { try { const img = await App.pickPhoto(); if (img) photoSave(img); } catch (err) { App.flash($('.msg', m), err.message); } };
+    if ($('[data-photo-del]', m)) $('[data-photo-del]', m).onclick = () => photoSave(null);
     f.onsubmit = async (ev) => {
       ev.preventDefault();
       const body = Object.fromEntries(new FormData(f));
@@ -960,7 +977,7 @@
   const smsF = $('#smsForm');
   async function loadSms() {
     const [{ settings }, s] = await Promise.all([api('/api/me'), api('/api/sms')]);
-    for (const k of ['sms_booked', 'sms_en_route', 'sms_cancelled']) smsF.elements[k].checked = settings[k] === '1';
+    for (const k of ['sms_booked', 'sms_en_route', 'sms_arrived', 'sms_cancelled']) smsF.elements[k].checked = settings[k] === '1';
     $('#smsInfo').innerHTML = s.configured
       ? `✅ Texting is set up. Messages come from <b>${esc(s.from)}</b>.`
       : `⚠️ <b>Texting isn't set up yet</b>, so no texts are sent. To turn it on, create an account at twilio.com, get a phone number, then add these three lines to the <code>.env</code> file on the server and restart the site:
@@ -974,7 +991,7 @@
   }
   smsF.onsubmit = async (e) => {
     e.preventDefault();
-    const body = {}; for (const k of ['sms_booked', 'sms_en_route', 'sms_cancelled']) body[k] = smsF.elements[k].checked ? '1' : '0';
+    const body = {}; for (const k of ['sms_booked', 'sms_en_route', 'sms_arrived', 'sms_cancelled']) body[k] = smsF.elements[k].checked ? '1' : '0';
     try { await api('/api/settings', { method: 'PATCH', body }); App.flash($('#smsMsg'), 'Saved.', true); }
     catch (err) { App.flash($('#smsMsg'), err.message); }
   };
@@ -988,7 +1005,7 @@
   const sf = $('#setForm'); let setMap = null; let setPin = null;
   async function loadSettings() {
     const { settings } = await api('/api/me');
-    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi', 'dropoff_wait_min', 'auto_end_shift', 'auto_sign_out', 'clear_customer_info']) sf.elements[k].value = settings[k] ?? '';
+    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi', 'dropoff_wait_min', 'arrive_wait_min', 'auto_end_shift', 'auto_sign_out', 'clear_customer_info']) sf.elements[k].value = settings[k] ?? '';
     if (sf.elements.service_radius_mi.value === '') sf.elements.service_radius_mi.value = '0';
     if (!sf.elements.timezone.value) sf.elements.timezone.value = 'America/Denver';
     sf.elements.public_requests.checked = settings.public_requests === '1';

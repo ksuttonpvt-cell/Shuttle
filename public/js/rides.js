@@ -158,6 +158,7 @@ const Rides = (() => {
           ${r.customer_phone ? `<div>📞 <a href="${App.telLink(r.customer_phone)}">${esc(r.customer_phone)}</a></div>` : ''}
           ${r.priority === 'urgent' && r.urgent_reason ? `<div class="urgent-why">🚨 Urgent: ${esc(r.urgent_reason)}</div>` : ''}
           ${r.notes ? `<div>📝 ${esc(r.notes)}</div>` : ''}
+          ${r.arrived_at && ['assigned', 'en_route'].includes(r.status) ? `<div class="arrived-note">📍 Driver is there since ${fmtTime(r.arrived_at)}${r.customer_reply ? ` · ${r.customer_reply === 'coming' ? '👋 customer is coming out' : '⏳ customer needs 5 more min'}` : ''}</div>` : ''}
           <div>👤 Advisor: ${esc(r.advisor_name || (r.source === 'customer' ? 'Customer request' : '—'))}${r.booked_by_name && r.booked_by !== r.advisor_id ? ` <span class="muted">· 📞 booked by ${esc(r.booked_by_name.split(' ')[0])}${r.booked_by_team === 'bdc' ? ' (BDC)' : ''}</span>` : ''}
             ${r.driver_name ? ` · 🚐 ${esc(r.driver_name)}${r.vehicle_name ? ' in ' + esc(r.vehicle_name) : ''}` : ''}${!r.driver_id && r.offered_to ? ` · ⏳ Offered to ${esc(r.offered_to)}, waiting for an answer` : ''}</div>
         </div>
