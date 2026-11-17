@@ -127,4 +127,164 @@ async function planRoute({ start, via = null, stops, end = null, router = null, 
   return { legs, path, source, loads, peak: Math.max(startLoad, ...loads) };
 }
 
-module.exports = { planRoute, peakLoad, createOsrmRouter, estimateMatrix, bestOrder, KM_TO_MI, STOP_MINUTES };
+// ---------- trip planning with dealership stops along the way ----------
+// A shuttle trip is more than a shortest loop: picked-up customers are done once they're
+// at the dealership, drop-off customers have to be collected there first, some rides are
+// due sooner or are urgent, and the van has a seat limit. planTrip looks for the order
+// that's best for everyone, and may stop at the dealership in the middle of a trip, to
+// let picked-up customers off and collect drop-off customers who are ready, before going
+// out again.
+//
+// Each ride: { id, type: 'pickup'|'dropoff', lat, lng, people, onboard, due (ms), urgent, name, address }.
+// Picked-up customers already on board have no stop of their own: they get off at the
+// next dealership stop.
+const EARLY_MIN = 10;   // don't plan to arrive more than this early; the driver waits instead
+const LATE_WEIGHT = 3;  // a minute late counts like three extra minutes of driving…
+const URGENT_WEIGHT = 3; // …and three times that for an urgent ride
+const RIDE_WEIGHT = 0.5; // extra minutes a customer rides around (beyond the direct trip)
+
+function makeRng(seed) { let x = seed >>> 0 || 1; return () => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; }; }
+
+async function planTrip({ start, dealer, rides, router = null, capacity = null, now = Date.now(), sequence = null, log = () => {}, budgetMs = 250 }) {
+  const stopRides = rides.filter((r) => !(r.type === 'pickup' && r.onboard) && r.lat != null);
+  const riding = rides.filter((r) => r.type === 'pickup' && r.onboard); // already in the van, heading to the dealership
+  const points = [start, dealer, ...stopRides];
+  const D = 1;
+  let m = null; let source = 'estimate';
+  if (router) {
+    try {
+      m = await router.matrix(points);
+      if (!m.seconds || m.seconds.some((row) => row.some((v) => v == null))) throw new Error('a stop could not be reached by road');
+      source = 'roads';
+    } catch (e) { log(`Road routing unavailable, using an estimate: ${e.message}`); m = null; }
+  }
+  if (!m) m = estimateMatrix(points);
+  const sec = m.seconds;
+  const atDealer = distanceKm(start, dealer) < 0.25;
+  const STOP = STOP_MINUTES * 60;
+  const dueSec = (r) => (r.due == null ? null : (r.due - now) / 1000);
+  const idxOf = new Map(stopRides.map((r, i) => [r, i + 2]));
+
+  // Walk through a plan; returns its cost and, with detail, every stop's times and loads.
+  function run(tokens, detail = false) {
+    const seq = [...tokens, D];
+    let t = 0; let at = 0; let cost = 0; let late = 0; let ride = 0; let bad = 0;
+    let load = 0; let peak = 0;
+    const inVan = new Map(); // ride -> time it got in
+    for (const r of riding) { inVan.set(r, 0); load += r.people; }
+    for (const r of stopRides) if (r.type === 'dropoff' && r.onboard) { inVan.set(r, 0); load += r.people; }
+    peak = load;
+    const out = [];
+    const over = () => { if (capacity && load > capacity) bad += (load - capacity) * 1e9; if (load > peak) peak = load; };
+    over();
+    const nextDealerAfter = (pos) => { for (let k = pos + 1; k < seq.length; k++) if (seq[k] === D) return k; return seq.length; };
+    const dealerVisit = (pos, arrive) => {
+      const off = []; const on = [];
+      for (const [r, since] of [...inVan]) {
+        if (r.type !== 'pickup') continue;
+        inVan.delete(r); load -= r.people; off.push(r);
+        ride += Math.max(0, arrive - since - sec[idxOf.get(r) ?? D][D]);
+      }
+      const until = nextDealerAfter(pos);
+      for (let k = pos + 1; k < until; k++) {
+        const r = seq[k] !== D && points[seq[k]];
+        if (r && r.type === 'dropoff' && !r.onboard && !inVan.has(r)) on.push(r);
+      }
+      let depart = arrive + (off.length || on.length ? STOP : 0);
+      for (const r of on) { const d = dueSec(r); if (d != null) depart = Math.max(depart, d - EARLY_MIN * 60); }
+      for (const r of on) {
+        inVan.set(r, depart); load += r.people;
+        const d = dueSec(r); if (d != null) late += Math.max(0, depart - d) * (r.urgent ? URGENT_WEIGHT : 1); // waiting in the lobby
+      }
+      over();
+      return { off, on, depart };
+    };
+    if (atDealer) { const v = dealerVisit(-1, 0); t = v.depart; if (detail && (v.on.length)) out.push({ kind: 'dealer', point: dealer, arrive: 0, depart: t, seconds: 0, meters: 0, off: v.off, on: v.on, load, startVisit: true }); }
+    for (let k = 0; k < seq.length; k++) {
+      const to = seq[k];
+      const drive = sec[at][to]; const meters = m.meters[at][to];
+      const arrive = t + drive;
+      if (to === D) {
+        const v = dealerVisit(k, arrive);
+        t = v.depart;
+        if (detail) out.push({ kind: 'dealer', point: dealer, arrive, depart: t, seconds: drive, meters, off: v.off, on: v.on, load, last: k === seq.length - 1 });
+      } else {
+        const r = points[to];
+        let when = arrive;
+        if (r.type === 'pickup') {
+          const d = dueSec(r);
+          if (d != null) { when = Math.max(arrive, d - EARLY_MIN * 60); late += Math.max(0, when - d) * (r.urgent ? URGENT_WEIGHT : 1); }
+          inVan.set(r, when); load += r.people;
+        } else {
+          if (!inVan.has(r)) bad += 1e10; // a drop-off customer must be collected at the dealership first
+          else { ride += Math.max(0, when - inVan.get(r) - sec[D][to]); inVan.delete(r); load -= r.people; }
+        }
+        over();
+        t = when + STOP;
+        if (detail) out.push({ kind: r.type, ride: r, point: r, arrive: when, depart: t, seconds: drive, meters, load });
+      }
+      at = to;
+    }
+    cost = bad + t + LATE_WEIGHT * late + RIDE_WEIGHT * ride;
+    return detail ? { cost, stops: out, peak, finish: t } : cost;
+  }
+
+  const ids = stopRides.map((_, i) => i + 2);
+  let best;
+  if (sequence) {
+    best = sequence.map((x) => (x === 0 ? D : idxOf.get(stopRides.find((r) => r.id === x)))).filter((x) => x != null);
+  } else {
+    // Starting points: soonest due first; quickest loop; and both with a dealership stop
+    // before the first drop off. Then improve with small changes, many times over.
+    const withCollect = (order) => {
+      if (atDealer) return order;
+      const i = order.findIndex((x) => points[x].type === 'dropoff' && !points[x].onboard);
+      return i < 0 ? order : [...order.slice(0, i), D, ...order.slice(i)];
+    };
+    const byDue = ids.slice().sort((a, b) => (dueSec(points[a]) ?? 1e12) - (dueSec(points[b]) ?? 1e12) || (points[b].urgent - points[a].urgent));
+    const loop = bestOrder(sec, [0], ids, D);
+    const seeds = [withCollect(byDue), withCollect(loop), withCollect(byDue.filter((x) => points[x].type === 'pickup').concat([D], byDue.filter((x) => points[x].type === 'dropoff')))];
+    const clean = (T) => { const o = []; for (const x of T) if (!(x === D && (o.length ? o[o.length - 1] === D : atDealer))) o.push(x); while (o.length && o[o.length - 1] === D) o.pop(); return o; };
+    const improve = (T) => {
+      let cur = clean(T); let c = run(cur);
+      for (let changed = true; changed;) {
+        changed = false;
+        const L = cur.length;
+        const tryIt = (cand) => { cand = clean(cand); const cc = run(cand); if (cc + 1e-6 < c) { cur = cand; c = cc; changed = true; return true; } return false; };
+        outer: for (let i = 0; i < L; i++) {
+          for (let j = 0; j <= L; j++) { // move one stop
+            if (j === i || j === i + 1) continue;
+            const a = cur.slice(); const [x] = a.splice(i, 1); a.splice(j > i ? j - 1 : j, 0, x);
+            if (tryIt(a)) break outer;
+          }
+          for (let j = i + 1; j < L; j++) { // swap two / turn a stretch around
+            const a = cur.slice(); [a[i], a[j]] = [a[j], a[i]]; if (tryIt(a)) break outer;
+            const b = [...cur.slice(0, i), ...cur.slice(i, j + 1).reverse(), ...cur.slice(j + 1)]; if (tryIt(b)) break outer;
+          }
+        }
+        if (!changed) for (let i = 0; i <= cur.length && !changed; i++) tryIt([...cur.slice(0, i), D, ...cur.slice(i)]); // an extra dealership stop
+        if (!changed) for (let i = 0; i < cur.length && !changed; i++) if (cur[i] === D) tryIt([...cur.slice(0, i), ...cur.slice(i + 1)]);
+      }
+      return { order: cur, cost: c };
+    };
+    let top = { order: null, cost: Infinity };
+    for (const sd of seeds) { const r = improve(sd); if (r.cost < top.cost) top = r; }
+    const rng = makeRng(ids.length * 7919 + 17);
+    const until = Date.now() + budgetMs;
+    for (let n = 0; n < 60 && Date.now() < until && ids.length > 2; n++) { // shake the best plan a little and improve again
+      const a = top.order.slice();
+      for (let k = 0; k < 3; k++) { const i = Math.floor(rng() * a.length); const j = Math.floor(rng() * a.length); [a[i], a[j]] = [a[j], a[i]]; }
+      const r = improve(a); if (r.cost + 1e-6 < top.cost) top = r;
+    }
+    best = top.order || [];
+  }
+  const plan = run(best, true);
+  const seqPts = [start, ...plan.stops.filter((x) => !x.startVisit).map((x) => x.point)];
+  let path = seqPts.map((p) => [p.lat, p.lng]);
+  if (source === 'roads') {
+    try { path = await router.path(seqPts); } catch (e) { log(`Road path unavailable: ${e.message}`); }
+  }
+  return { stops: plan.stops, peak: plan.peak, finish: plan.finish, path, source, startsAtDealer: atDealer, sequence: best.map((x) => (x === D ? 0 : points[x].id)) };
+}
+
+module.exports = { planRoute, planTrip, peakLoad, createOsrmRouter, estimateMatrix, bestOrder, KM_TO_MI, STOP_MINUTES };

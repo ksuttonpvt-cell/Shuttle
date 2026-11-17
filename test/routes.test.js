@@ -105,11 +105,13 @@ test('drivers plan, save and share routes; maps get live positions', async () =>
   let r = await dana('/api/route', { body: { ride_ids: [east.id, elis.id] } });
   assert.equal(r.status, 400); assert.match(r.data.error, /Eli Driver/);
 
-  // Preview: a drop off that isn't on board yet means a dealership stop first, and the route ends there.
+  // Preview: a drop off that isn't on board yet is collected at the dealership before it's
+  // delivered, and the route ends there.
   r = await dana('/api/route', { body: { ride_ids: [east.id, west.id, home.id], from: { lat: 40.03, lng: -105.2 } } });
   assert.equal(r.status, 200);
   const rt = r.data.route;
-  assert.equal(rt.stops[0].kind, 'dealer');
+  const homeAt = rt.stops.findIndex((x) => x.ride_id === home.id);
+  assert.ok(rt.stops.slice(0, homeAt).some((x) => x.kind === 'dealer' && x.load_ids.includes(home.id)), 'collected at the dealership first');
   assert.equal(rt.stops.at(-1).kind, 'dealer');
   assert.equal(rt.stops.filter((x) => x.ride_id).length, 3);
   assert.ok(rt.total_mi > 0 && rt.total_min > 0);
@@ -202,5 +204,74 @@ test('routes start where the van is now, not where the phone was hours ago, and 
     assert.deepEqual(now.path.slice(1), saved.path.slice(1), 'and the rest of the route is unchanged');
     const live = (await a('/api/drivers/live')).data.drivers.find((x) => x.id === dr.id);
     assert.deepEqual(live.route.path[0], [mid.lat, mid.lng], 'admin and advisor maps too');
+  } finally { srv.close(); }
+});
+
+test('trip planning: urgent and due-soon rides first, dealership stops along the way, no showing up early', async () => {
+  const { planTrip } = require('../src/routing');
+  const now = Date.now(); const min = (x) => now + x * 60000;
+  const names = (p) => p.stops.map((x) => (x.kind === 'dealer' ? 'D' : x.ride.name));
+  // Like the driver's screenshot: an urgent pick up due soon goes before a long drop off trip.
+  let p = await planTrip({ start: DEALER, dealer: DEALER, now, capacity: 3, rides: [
+    { id: 1, type: 'dropoff', name: 'Far', lat: 39.961, lng: -105.51, people: 1, onboard: true, due: min(-5) },
+    { id: 2, type: 'pickup', name: 'Urgent', lat: 39.978, lng: -105.135, people: 1, due: min(24), urgent: true },
+  ] });
+  assert.equal(names(p)[0], 'Urgent');
+  assert.ok(p.stops[0].arrive < 24 * 60, 'the urgent customer is picked up on time');
+  // Pick ups out east, drop offs out west: bring the pick ups in, collect the drop offs, go west.
+  p = await planTrip({ start: DEALER, dealer: DEALER, now, capacity: 4, rides: [
+    { id: 1, type: 'pickup', name: 'A', lat: 40.02, lng: -105.10, people: 2, due: min(10) },
+    { id: 2, type: 'pickup', name: 'B', lat: 40.03, lng: -105.09, people: 1, due: min(15) },
+    { id: 3, type: 'dropoff', name: 'C', lat: 40.02, lng: -105.30, people: 2, due: min(45) },
+    { id: 4, type: 'dropoff', name: 'E', lat: 40.04, lng: -105.29, people: 1, due: min(50) },
+  ] });
+  const n = names(p);
+  const mid = n.indexOf('D');
+  assert.ok(mid > 0 && mid < n.length - 1, `a dealership stop in the middle: ${n.join(' → ')}`);
+  assert.deepEqual(n.slice(0, mid).sort(), ['A', 'B'], 'pick ups first');
+  assert.deepEqual(p.stops[mid].off.map((r) => r.name).sort(), ['A', 'B'], 'they get off at the dealership');
+  assert.deepEqual(p.stops[mid].on.map((r) => r.name).sort(), ['C', 'E'], 'and the drop-off customers get on');
+  assert.ok(p.peak <= 4);
+  // A pick up due in two hours: plan to arrive about 10 minutes before, not now.
+  p = await planTrip({ start: DEALER, dealer: DEALER, now, rides: [{ id: 1, type: 'pickup', name: 'Later', lat: EAST.lat, lng: EAST.lng, people: 1, due: min(120) }] });
+  assert.ok(Math.abs(p.stops[0].arrive / 60 - 110) < 1, `arrives ~10 min early, not ${Math.round(p.stops[0].arrive / 60)} min from now`);
+  // Same trip again keeps the given order (the one the driver previewed), dealership stop included.
+  p = await planTrip({ start: DEALER, dealer: DEALER, now, sequence: [2, 0, 1], rides: [
+    { id: 1, type: 'dropoff', name: 'C', lat: 40.02, lng: -105.30, people: 1, due: min(30) },
+    { id: 2, type: 'pickup', name: 'A', lat: 40.02, lng: -105.10, people: 1, due: min(10) },
+  ] });
+  assert.deepEqual(names(p), ['A', 'D', 'C', 'D']);
+});
+
+test('a dealership stop drops off the route once its customers are off and on', async () => {
+  const db = openDb(':memory:');
+  ensureAdmin(db, { email: 'boss@trip.test', password: 'adminpass1', name: 'Boss' });
+  const app = createApp(db, { noTimers: true });
+  const srv = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const client = () => { let cookie = ''; return async (p, { method, body } = {}) => {
+    const res = await fetch(base + p, { method: method || (body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    const set = res.headers.get('set-cookie'); if (set) cookie = set.split(';')[0];
+    return { status: res.status, data: await res.json().catch(() => null) };
+  }; };
+  try {
+    const a = client(); await a('/api/login', { body: { email: 'boss@trip.test', password: 'adminpass1' } });
+    await a('/api/users', { body: { name: 'Dee', email: 'dee@trip.test', role: 'driver', password: 'driverpass1' } });
+    const v = (await a('/api/vehicles', { body: { name: 'Van', seats: 4 } })).data.vehicle;
+    const soon = (m) => new Date(Date.now() + m * 60000).toISOString();
+    const pick = (await a('/api/rides', { body: { type: 'pickup', customer_name: 'Ann', customer_phone: '3035550101', address: 'E', lat: 40.02, lng: -105.10, scheduled_at: soon(10), passengers: 3 } })).data.ride;
+    const drop = (await a('/api/rides', { body: { type: 'dropoff', customer_name: 'Cy', customer_phone: '3035550102', address: 'W', lat: 40.02, lng: -105.30, scheduled_at: soon(40), passengers: 3, priority: 'urgent', urgent_reason: 'Flight' } })).data.ride;
+    const d = client(); await d('/api/login', { body: { email: 'dee@trip.test', password: 'driverpass1' } });
+    await d('/api/driver/shift', { body: { on_duty: true, vehicle_id: v.id } });
+    await d('/api/driver/location', { body: DEALER });
+    const saved = (await d('/api/route', { body: { ride_ids: [pick.id, drop.id], save: true } })).data.route;
+    assert.deepEqual(saved.stops.map((x) => x.ride_id || 0), [pick.id, 0, drop.id, 0], '3 + 3 people in a 4-seat van: dealership stop in between');
+    const stopsNow = async () => (await d('/api/route')).data.route.stops.map((x) => x.ride_id || 0);
+    await d(`/api/rides/${pick.id}`, { method: 'PATCH', body: { status: 'onboard' } });
+    assert.deepEqual(await stopsNow(), [0, drop.id, 0], 'Ann is on board: next is the dealership');
+    await d(`/api/rides/${pick.id}`, { method: 'PATCH', body: { status: 'completed' } });
+    assert.deepEqual(await stopsNow(), [0, drop.id, 0], 'Ann is off, but Cy still has to get on');
+    await d(`/api/rides/${drop.id}`, { method: 'PATCH', body: { status: 'onboard' } });
+    assert.deepEqual(await stopsNow(), [drop.id, 0], 'Cy is on: the dealership stop is done');
   } finally { srv.close(); }
 });
