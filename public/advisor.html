@@ -111,7 +111,7 @@
     $('#ready').innerHTML = readyRides.map((x) => `
       <div class="ride" data-id="${x.id}">
         <div class="ride-top"><span class="ride-name">${esc(x.customer_name)}</span><span class="small muted">arrived ${App.fmtTime(x.completed_at)}</span></div>
-        <div class="ride-meta"><div>📍 ${esc(x.address)}</div>${x.customer_phone ? `<div>📞 <a href="${App.telLink(x.customer_phone)}">${esc(x.customer_phone)}</a></div>` : ''}
+        <div class="ride-meta"><div>📍 ${esc(x.address)}</div>${x.customer_phone ? `<div>📞 <a href="${App.telLink(x.customer_phone)}" data-call-ride="${x.id}">${esc(x.customer_phone)}</a></div>` : ''}
           <div>👤 Advisor: ${esc(x.advisor_name || '—')}</div></div>
         <div class="actions"><button class="btn-green" data-ready>Customer ready → book drop off</button>
           <button class="btn-ghost btn-sm" data-noreturn title="They're driving their own car home">No ride back needed</button></div>

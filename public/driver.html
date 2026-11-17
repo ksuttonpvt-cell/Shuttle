@@ -275,8 +275,8 @@
           ${mine && r.arrived_at && ['assigned', 'en_route'].includes(r.status) ? `<button class="btn-ghost" data-noshow data-after="${new Date(r.arrived_at).getTime() + waitMs()}" ${Date.now() < new Date(r.arrived_at).getTime() + waitMs() ? 'hidden' : ''}>Customer didn't come out</button>
             <button class="btn-ghost btn-sm" data-unarrive>Not here yet</button>` : ''}
           <a class="btn btn-ghost" target="_blank" rel="noopener" href="${App.navUrl(nextPlace(r))}">🧭 ${nextPlace(r).dealer ? 'To dealership' : 'Navigate'}</a>
-          ${r.customer_phone ? `<a class="btn btn-ghost" href="${App.telLink(r.customer_phone)}">📞 Call</a>
-            <a class="btn btn-ghost" href="sms:${r.customer_phone.replace(/[^\d+]/g, '')}">💬 Text</a>` : ''}
+          ${r.customer_phone ? `<a class="btn btn-ghost" href="${App.telLink(r.customer_phone)}" data-call-ride="${r.id}">📞 Call</a>
+            <a class="btn btn-ghost" href="sms:${r.customer_phone.replace(/[^\d+]/g, '')}" data-text-ride="${r.id}" data-name="${esc(r.customer_name.split(' ')[0])}">💬 Text</a>` : ''}
           ${mine && r.status === 'assigned' ? `<button class="btn-ghost" data-release>Give back</button>` : ''}
           ${mine ? `<button class="btn-ghost" data-cancel>Cancel ride</button>` : ''}
         </div>

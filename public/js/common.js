@@ -90,6 +90,33 @@ const App = (() => {
     return { refresh };
   }
 
+  // Calling or texting a customer. With the dealership number on (Admin → Phone & email),
+  // links marked data-call-ride / data-text-ride go through it instead of this phone.
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('[data-call-ride],[data-text-ride]'); if (!a || !App.settings) return;
+    const id = Number(a.dataset.callRide || a.dataset.textRide);
+    if (a.dataset.callRide && App.settings.phone_calls === 'dealership') {
+      e.preventDefault();
+      api(`/api/rides/${id}/call`, { body: {} })
+        .then((r) => App.modal(`<h2>📞 Calling…</h2><p>${esc(r.message)}</p><div class="actions"><button data-close>OK</button></div>`))
+        .catch((err) => App.modal(`<h2>The call didn't start</h2><p>${esc(err.message)}</p><div class="actions"><button data-close>OK</button></div>`));
+    } else if (a.dataset.textRide && App.settings.phone_texts === 'dealership') {
+      e.preventDefault();
+      const m = App.modal(`<h2>💬 Text ${esc(a.dataset.name || 'the customer')}</h2>
+        <p class="small muted" style="margin-top:0">Sent from the dealership number, signed with your first name. It's saved on the ride.</p>
+        <form><textarea name="body" rows="3" maxlength="480" required placeholder="e.g. I'm 5 minutes away, see you at the front door."></textarea>
+        <div class="chips" style="margin:.4rem 0">${['I\'m on my way.', 'I\'m about 5 minutes away.', 'I\'m here, out front.', 'Your car is ready.'].map((t) => `<button type="button" data-quick>${esc(t)}</button>`).join('')}</div>
+        <div class="msg"></div><div class="actions"><button>Send</button><button type="button" class="btn-ghost" data-close>Cancel</button></div></form>`);
+      const f = $('form', m);
+      m.querySelectorAll('[data-quick]').forEach((b) => { b.onclick = () => { f.elements.body.value = b.textContent; f.elements.body.focus(); }; });
+      f.onsubmit = async (ev) => {
+        ev.preventDefault();
+        try { const r = await api(`/api/rides/${id}/text`, { body: { body: f.elements.body.value } }); App.flash($('.msg', m), r.message, true); setTimeout(() => m.close(), 900); }
+        catch (err) { App.flash($('.msg', m), err.message); }
+      };
+    }
+  });
+
   // Pick a photo (camera or library) and shrink it to a small square JPEG for the server.
   function pickPhoto() {
     return new Promise((resolve, reject) => {

@@ -155,7 +155,8 @@ const Rides = (() => {
         <div class="ride-meta">
           <div>🕒 ${fmtTime(r.scheduled_at)} ${open ? '· ' + relTime(r.scheduled_at) : ''} · ${r.passengers} pax</div>
           <div>📍 ${esc(r.address)}${r.distance_mi != null ? ` · ${r.distance_mi} mi` : ''}${r.lat == null ? ' <span class="late">(no map pin)</span>' : ''}</div>
-          ${r.customer_phone ? `<div>📞 <a href="${App.telLink(r.customer_phone)}">${esc(r.customer_phone)}</a></div>` : ''}
+          ${r.customer_phone ? `<div>📞 <a href="${App.telLink(r.customer_phone)}" data-call-ride="${r.id}">${esc(r.customer_phone)}</a>
+            · <a href="sms:${r.customer_phone.replace(/[^\d+]/g, '')}" data-text-ride="${r.id}" data-name="${esc(r.customer_name.split(' ')[0])}">Text</a></div>` : ''}
           ${r.priority === 'urgent' && r.urgent_reason ? `<div class="urgent-why">🚨 Urgent: ${esc(r.urgent_reason)}</div>` : ''}
           ${r.notes ? `<div>📝 ${esc(r.notes)}</div>` : ''}
           ${r.arrived_at && ['assigned', 'en_route'].includes(r.status) ? `<div class="arrived-note">📍 Driver is there since ${fmtTime(r.arrived_at)}${r.customer_reply ? ` · ${r.customer_reply === 'coming' ? '👋 customer is coming out' : '⏳ customer needs 5 more min'}` : ''}</div>` : ''}

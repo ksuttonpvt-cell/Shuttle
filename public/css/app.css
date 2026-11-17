@@ -667,3 +667,18 @@ body.spec { height: 100%; margin: 0; display: grid; grid-template-rows: auto 1fr
 .wait-err { background: var(--red-bg, #fdecee); } .wait-err .wait-bar i { background: #c4121f; }
 .wait-closed { color: var(--muted); }
 .arrived-note { color: var(--green-fg); font-weight: 600; }
+
+/* Admin → Phone & email: groups of choices */
+.opt-group { border: 1px solid var(--line); border-radius: 12px; padding: .5rem .8rem .7rem; margin: .7rem 0 0; display: grid; gap: .15rem; }
+.opt-group legend { padding: 0 .3rem; font-size: .95rem; }
+.opt-group .check { align-items: flex-start; }
+.opt-group .check input { margin-top: .25rem; }
+
+/* Reports: busiest hours, ride log */
+.hour-row { display: grid; grid-template-columns: 4.5rem 1fr 2.5rem; gap: .6rem; align-items: center; margin: .25rem 0; font-variant-numeric: tabular-nums; }
+.hour-row b { text-align: right; }
+.log-table td, .log-table th { white-space: nowrap; font-size: .88rem; }
+
+.daily-text { white-space: pre-wrap; font-size: .85rem; line-height: 1.45; background: var(--subtle, rgba(0,0,0,.04)); border-radius: 10px; padding: .8rem; max-height: 60vh; overflow: auto; }
+/* Wide tables scroll inside their card instead of widening the page. */
+[data-pane="reports"] > *, [data-pane="reports"] .grid > *, [data-pane="server"] > *, [data-pane="comms"] > * { min-width: 0; }

@@ -1,5 +1,20 @@
 [
   {
+    "version": "2.17.0",
+    "date": "2026-11-17",
+    "title": "Phone & email your way, detailed reports, and a daily report at midnight",
+    "changes": [
+      "New Admin → Phone & email tab. Each dealership chooses how calls and texts work: staff use their own phones, or a dealership number so customers only ever see the dealership.",
+      "With a dealership number, tapping Call rings the staff member's phone and connects them to the customer; tapping Text sends from the dealership number and keeps the message on the ride. You also pick which number customers see, and who a call to the shuttle number rings: the driver on that customer's ride, every driver on shift, or a desk phone. Texts to the number are added to the customer's ride.",
+      "The dealership number (Twilio) is set up right on that tab, with a test call and the links to paste into Twilio. The auth token stays on the shuttle PC.",
+      "Email uses the dealership's own email system and a shared mailbox. The site won't accept a staff member's own email address. Choose the name emails come from, where replies go, and which emails are sent (password links, “your account is ready”, and new: “your ride is booked” to customers who give an email).",
+      "Reports: drivers now show shifts, time on shift, people carried, rides per hour, drive time to the pick up, wait at the pick up, no-shows and GPS gaps. New Vehicles table (shifts, time in use, GPS miles), Busiest hours, and a Ride log with every ride's times you can download.",
+      "No-shows marked by drivers (“Customer didn't come out”) are now counted in reports.",
+      "New daily report (Admin → Server → Daily reports): the shuttle's day plus how the server did: requests, server errors, response times, the slowest requests, page speed on real devices, and the most common errors in the log. It can be emailed to managers each morning.",
+      "At midnight, in this order: the day's report is saved, customer info is cleared, then the nightly backup runs, so everything is backed up at midnight (it used to be 12:30 AM)."
+    ]
+  },
+  {
     "version": "2.16.0",
     "date": "2026-11-17",
     "title": "Ride-app touches: who's coming, “I'm here”, and the wait right now",

@@ -4,7 +4,7 @@ const express = require('express');
 const QRCode = require('qrcode');
 const { hashPassword, hashPasswordAsync, verifyPasswordAsync, validatePassword, randomToken, parseCookies } = require('./auth');
 const { rankRides, distanceKm } = require('./priority');
-const { toE164, createTwilioSender } = require('./sms');
+const { toE164, createTwilioSender, xml } = require('./sms');
 const { createPush } = require('./push');
 const { planTrip, KM_TO_MI, STOP_MINUTES } = require('./routing');
 const fs = require('node:fs');
@@ -19,7 +19,7 @@ const { createLimits } = require('./limits');
 const { createMailer, ADDR_RE } = require('./mailer');
 const { createBus, coresAvailable, coresWanted } = require('./cluster');
 const { createThrottle } = require('./throttle');
-const { mergeSnapshots, TRAFFIC_TYPES } = require('./serverstats');
+const { mergeSnapshots, TRAFFIC_TYPES, percentile, BUCKETS } = require('./serverstats');
 
 // The site's version (package.json) and the "What's new" list (changelog.json).
 // Both change only with an update, which restarts the site, so they're read once.
@@ -62,7 +62,7 @@ const DEFAULT_SETTINGS = {
   brand_dark: '#0d0f12',    // Corwin look: header and banner background
   brand_name: '',           // Corwin look: name shown in the header (blank = dealership name); first word is big        // offer waiting rides to the closest free driver, who can accept or pass
   clear_customer_info: '00:00',
-  backup_time: '00:30',    // nightly database backup, after customer info is cleared ('' = off) // finished rides lose their customer details at this local time each day ('' = off)
+  backup_time: '00:00',    // nightly database backup: at midnight, right after the day's report is saved and customer info is cleared ('' = off) // finished rides lose their customer details at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
   sms_booked: '1',
   sms_en_route: '1',
@@ -100,6 +100,7 @@ function createApp(db, opts = {}) {
     }
     next();
   });
+  app.use('/api/phone/incoming', express.urlencoded({ extended: false, limit: '20kb' })); // Twilio sends forms
   app.use((req, res, next) => (req.path === '/api/brand/logo' || req.path === '/api/vehicles/import' ? next()
     : express.json({ limit: /^\/api\/(me|users\/\d+)\/photo$/.test(req.path) ? '300kb' : '100kb' })(req, res, next)));
   // Live numbers for Admin → Server.
@@ -206,6 +207,7 @@ function createApp(db, opts = {}) {
     const s = getSettings(); const out = {};
     for (const k of Object.keys(DEFAULT_SETTINGS)) out[k] = s[k];
     out.logo_v = s.brand_logo ? (s.brand_logo_v || '1') : ''; // the logo itself is served from /brand/logo
+    const p = phonePolicy(); out.phone_calls = p.calls; out.phone_texts = p.texts; // how staff call and text customers
     return out;
   }
   // Minutes a drop off waits after booking before the shuttle leaves (0 = none).
@@ -291,7 +293,26 @@ function createApp(db, opts = {}) {
   const localDate = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: tz() }).format(new Date(iso)); // YYYY-MM-DD
 
   // ---------- automatic customer texts ----------
-  const sms = opts.sms || createTwilioSender();
+  // The dealership's own number (Admin → Phone & email). The auth token stays on the server.
+  const sms = opts.sms || createTwilioSender(() => { const s = getSettings(); return { sid: s.phone_sid, token: s.phone_token, from: s.phone_number }; });
+  // How this dealership wants calls and texts to work. Anything that needs the dealership
+  // number falls back to staff's own phones until it's set up.
+  const prettyPhone = (p) => { const e = toE164(p || ''); return e && e.startsWith('+1') && e.length === 12 ? `(${e.slice(2, 5)}) ${e.slice(5, 8)}-${e.slice(8)}` : (p || ''); };
+  function phonePolicy() {
+    const s = getSettings(); const ready = !!sms.configured;
+    return {
+      ready, line: ready ? sms.from : null,
+      calls: ready && s.phone_calls === 'dealership' ? 'dealership' : 'personal',
+      texts: ready && s.phone_texts === 'dealership' ? 'dealership' : 'personal',
+      customer_sees: ready && s.phone_customer_sees === 'line' ? 'line' : 'desk',
+      inbound: ['ride_driver', 'on_shift', 'desk'].includes(s.phone_inbound) ? s.phone_inbound : 'ride_driver',
+      desk: s.phone_desk || '',
+    };
+  }
+  // The number customers are given to call or text.
+  const contactPhone = () => { const p = phonePolicy(); return p.customer_sees === 'line' ? prettyPhone(p.line) : getSettings().dealer_phone; };
+  // Which emails go out (Admin → Phone & email). Customer booking emails are off unless turned on.
+  const emailOn = (k) => { const v = getSettings()[`email_${k}`]; return k === 'booked' ? v === '1' : v !== '0'; };
 
   // ---------- driver phone notifications ----------
   const push = createPush(db, { sender: opts.pushSender });
@@ -327,7 +348,7 @@ function createApp(db, opts = {}) {
     const s = getSettings();
     const first = (ride.customer_name || '').split(' ')[0] || 'there';
     const dealer = s.dealer_name;
-    const call = s.dealer_phone ? ` Questions? Call ${s.dealer_phone}.` : '';
+    const call = contactPhone() ? ` Questions? Call ${contactPhone()}.` : '';
     const what = ride.type === 'pickup' ? 'shuttle pick up' : 'shuttle ride from the dealership';
     if (event === 'booked') return `Hi ${first}, your ${dealer} ${what} is booked for ${fmtWhen(ride.scheduled_at)}. Track your driver here: ${trackUrl}`;
     if (event === 'en_route') {
@@ -348,6 +369,7 @@ function createApp(db, opts = {}) {
     q('INSERT INTO sms_log (ride_id, event, to_number, body, status, error) VALUES (?, ?, ?, ?, ?, ?)').run(rideId, event, to, body, status, error || null);
   // Sends in the background so a slow or failed text never holds up the page.
   function notifyCustomer(rideId, event, trackBase) {
+    if (event === 'booked') emailCustomer(rideId, trackBase);
     if (!sms.configured || getSettings()[`sms_${event}`] !== '1') return null;
     const ride = q(`${RIDE_SELECT} WHERE r.id = ?`).get(rideId);
     if (!ride) return null;
@@ -479,8 +501,21 @@ function createApp(db, opts = {}) {
   // The dealership's own email account. The password is kept on the server only.
   const mailer = opts.mailer || createMailer(() => {
     const s = getSettings();
-    return s.smtp_host ? { host: s.smtp_host, port: s.smtp_port, user: s.smtp_user, pass: s.smtp_pass, from: s.smtp_from || s.smtp_user, fromName: s.smtp_from_name || s.dealer_name } : null;
+    const names = { fromName: s.email_from_name || s.smtp_from_name || s.dealer_name, replyTo: s.email_reply_to || '' };
+    return s.smtp_host ? { host: s.smtp_host, port: s.smtp_port, user: s.smtp_user, pass: s.smtp_pass, from: s.smtp_from || s.smtp_user, ...names } : names;
   });
+  // "Your ride is booked" email, for customers who gave an email address (if turned on).
+  function emailCustomer(rideId, trackBase) {
+    if (!mailer.configured || !emailOn('booked')) return;
+    const ride = q(`${RIDE_SELECT} WHERE r.id = ?`).get(rideId);
+    if (!ride || !ride.customer_email || !ADDR_RE.test(ride.customer_email)) return;
+    const s = getSettings(); const first = ride.customer_name.split(' ')[0];
+    const what = ride.type === 'pickup' ? 'shuttle pick up' : 'shuttle ride from the dealership';
+    mailer.send({ to: ride.customer_email, subject: `Your ${s.dealer_name} ${what} is booked`,
+      text: `Hi ${first},\n\nYour ${what} is booked for ${fmtWhen(ride.scheduled_at)}.\n\nFollow your driver here:\n${trackBase}/t/${ride.track_token}\n\n${contactPhone() ? `Questions? Call ${contactPhone()}.\n\n` : ''}${s.dealer_name}` })
+      .then(() => console.log(new Date().toLocaleString(), `[email] Booking email sent for ride ${ride.id}.`))
+      .catch((e) => console.error(new Date().toLocaleString(), `[email] Booking email for ride ${ride.id} failed: ${e.message}`));
+  }
   const SELF_RESET_MIN = 60; // a link sent straight to the person works for an hour
   // "Forgot password": the reset link goes straight to the person by email (and by text if
   // texting is set up and they have a phone number). If neither can be sent, admins are
@@ -491,7 +526,8 @@ function createApp(db, opts = {}) {
     const ipKey = `reset|${clientIp(req)}`;
     if (throttled(ipKey, 5)) return bad(res, 'Too many requests. Try again in 15 minutes.', 429);
     recordFailure(ipKey);
-    const auto = mailer.configured || sms.configured;
+    const mailOk = mailer.configured && emailOn('reset');
+    const auto = mailOk || sms.configured;
     res.json({ ok: true, auto });
     const user = q('SELECT * FROM users WHERE email = ? AND active = 1').get(email);
     if (!user) return;
@@ -508,7 +544,7 @@ function createApp(db, opts = {}) {
         const url = `${base}/reset/${token}`;
         const dealer = getSettings().dealer_name || 'Shuttle';
         const jobs = [];
-        if (mailer.configured) {
+        if (mailOk) {
           jobs.push(mailer.send({ to: user.email, subject: `Reset your ${dealer} shuttle password`,
             text: `Hi ${user.name.split(' ')[0]},\n\nSomeone (hopefully you) asked to reset your shuttle password. Tap this link to choose a new one:\n\n${url}\n\nIt works once, for the next hour.\n\nDidn't ask? You can ignore this email; your password stays the same.\n\n${dealer} shuttle` })
             .then(() => sentBy.push('email'), (e) => console.error(new Date().toLocaleString(), `[reset] Email to ${user.name} failed: ${e.message}`)));
@@ -532,22 +568,40 @@ function createApp(db, opts = {}) {
     })().catch((e) => console.error('Password reset failed:', e.message));
   });
 
-  // Admin → Settings → Email: set up, test, or remove the email account used for reset links.
+  const personalEmail = (addr) => (q('SELECT name FROM users WHERE lower(email) = lower(?)').get(String(addr).trim()) || {}).name || null;
+  // Admin → Phone & email → Email: set up, test, or remove the dealership's email account.
   const emailInfo = () => {
     const c = mailer.config();
-    return { configured: mailer.configured, from_env: !!(c && c.source === 'env'), host: c?.host || '', port: Number(c?.port) || 587, user: c?.user || '', from: c?.from || '', has_password: !!(c && c.pass), texting: sms.configured };
+    const s = getSettings();
+    return { configured: mailer.configured, from_env: !!(c && c.source === 'env'), host: c?.host || '', port: Number(c?.port) || 587, user: c?.user || '', from: c?.from || '', has_password: !!(c && c.pass), texting: sms.configured,
+      from_name: s.email_from_name || '', reply_to: s.email_reply_to || '', default_name: s.dealer_name || '',
+      send_reset: emailOn('reset'), send_approved: emailOn('approved'), send_booked: emailOn('booked'), report_to: s.report_email || '' };
   };
   app.get('/api/email', requireRole('admin'), (req, res) => res.json(emailInfo()));
   app.put('/api/email', requireRole('admin'), (req, res) => {
     const b = req.body || {};
     const set = (k, v) => (v ? q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v) : q('DELETE FROM settings WHERE key = ?').run(k));
     if (b.clear) { for (const k of ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_from']) set(k, ''); return res.json(emailInfo()); }
+    // Which emails go out, the name they come from, replies, and the daily report: saved on their own.
+    if (b.options) {
+      const name = str(b.from_name, 80); const reply = str(b.reply_to, 200);
+      if (reply && !ADDR_RE.test(reply)) return bad(res, 'Enter a valid reply-to address, or leave it empty.');
+      const who = reply && personalEmail(reply); if (who) return bad(res, `${reply} is ${who}'s sign-in email. Use a shared dealership mailbox for replies.`);
+      const report = String(b.report_to || '').split(/[\s,;]+/).filter(Boolean);
+      if (report.length > 5) return bad(res, 'Send the daily report to 5 addresses at most.');
+      if (report.some((a) => !ADDR_RE.test(a))) return bad(res, 'Check the daily report addresses.');
+      set('email_from_name', name || ''); set('email_reply_to', reply || ''); set('report_email', report.join(', '));
+      set('email_reset', b.send_reset ? '' : '0'); set('email_approved', b.send_approved ? '' : '0'); set('email_booked', b.send_booked ? '1' : '');
+      return res.json(emailInfo());
+    }
     const host = str(b.host, 200); const user = str(b.user, 200); const from = str(b.from, 200) || user;
     const port = Number(b.port) || 587;
     if (!host || !/^[a-z0-9.-]+$/i.test(host)) return bad(res, 'Enter the email server, like smtp.office365.com.');
     if (![25, 465, 587, 2525].includes(port)) return bad(res, 'Use port 587 (most common) or 465.');
     if (user && !ADDR_RE.test(user) && user.length < 2) return bad(res, 'Enter the email account to sign in with.');
     if (!from || !ADDR_RE.test(from)) return bad(res, 'Enter the email address the links come from.');
+    // A dealership mailbox (like shuttle@yourdealership.com), never a person's own email.
+    for (const addr of [from, user]) { const who = addr && ADDR_RE.test(addr) && personalEmail(addr); if (who) return bad(res, `${addr} is ${who}'s sign-in email. Use a shared dealership mailbox, like shuttle@yourdealership.com, not a person's own email.`); }
     set('smtp_host', host); set('smtp_port', String(port)); set('smtp_user', user || ''); set('smtp_from', from);
     if (b.password) set('smtp_pass', String(b.password).slice(0, 300)); // blank keeps the saved one
     console.log(new Date().toLocaleString(), `[server] ${req.user.name} set up email for reset links (${host}).`);
@@ -650,13 +704,14 @@ function createApp(db, opts = {}) {
     const role = rr.list.join(' + ');
     q('UPDATE users SET active = 1, role = ?, team = ?, extra_roles = ?, start_page = ?, signup_at = NULL, signup_note = NULL WHERE id = ?').run(rr.role, rr.team, rr.extra_roles, rr.start_page, u.id);
     console.log(new Date().toLocaleString(), `[staff] ${req.user.name} approved ${u.name} as ${role}.`);
-    if (mailer.configured) {
+    const mailOk = mailer.configured && emailOn('approved');
+    if (mailOk) {
       const dealer = getSettings().dealer_name || 'Shuttle';
       mailer.send({ to: u.email, subject: `Your ${dealer} shuttle account is ready`,
         text: `Hi ${u.name.split(' ')[0]},\n\nYour shuttle account has been approved. Sign in here with your email and the password you chose:\n\n${baseUrl(req)}/login\n\n${dealer} shuttle` })
         .catch((e) => console.error(new Date().toLocaleString(), `[staff] Approval email to ${u.name} failed: ${e.message}`));
     }
-    res.json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(u.id)), emailed: mailer.configured });
+    res.json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(u.id)), emailed: mailOk });
   });
   app.post('/api/users/:id/decline', requireRole('admin'), (req, res) => {
     const u = q('SELECT * FROM users WHERE id = ? AND signup_at IS NOT NULL AND active = 0').get(Number(req.params.id));
@@ -918,7 +973,10 @@ function createApp(db, opts = {}) {
       const taken = q('SELECT name FROM users WHERE vehicle_id = ? AND on_duty = 1 AND id <> ?').get(vehicleId, req.user.id);
       if (taken) return bad(res, `${taken.name} is already driving that vehicle.`);
     } else vehicleId = null;
+    const was = q('SELECT on_duty, vehicle_id FROM users WHERE id = ?').get(req.user.id);
     q('UPDATE users SET on_duty = ?, vehicle_id = ? WHERE id = ?').run(onDuty ? 1 : 0, vehicleId, req.user.id);
+    if (onDuty && (!was.on_duty || was.vehicle_id !== vehicleId)) openShift(req.user.id, vehicleId);
+    if (!onDuty) closeShifts('driver_id = ?', [req.user.id], 'driver');
     if (!onDuty) {
       q('UPDATE users SET route_json = NULL WHERE id = ?').run(req.user.id);
       q("UPDATE ride_offers SET status = 'expired', responded_at = ? WHERE driver_id = ? AND status = 'pending'").run(now(), req.user.id);
@@ -926,6 +984,16 @@ function createApp(db, opts = {}) {
     scheduleOfferSweep();
     res.json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)) });
   }));
+
+  // ---------- shifts (for reports) ----------
+  function openShift(userId, vehicleId) {
+    closeShifts('driver_id = ?', [userId], 'driver');
+    const v = vehicleId ? q('SELECT name FROM vehicles WHERE id = ?').get(vehicleId) : null;
+    q('INSERT INTO shifts (driver_id, vehicle_id, vehicle_name, started_at) VALUES (?, ?, ?, ?)').run(userId, vehicleId || null, v ? v.name : null, now());
+  }
+  function closeShifts(where, args, by) {
+    return q(`UPDATE shifts SET ended_at = ?, ended_by = ? WHERE ended_at IS NULL AND ${where}`).run(now(), by, ...args).changes;
+  }
 
   app.post('/api/driver/location', requireRole('driver'), (req, res) => {
     const lat = num(req.body.lat); const lng = num(req.body.lng);
@@ -944,6 +1012,15 @@ function createApp(db, opts = {}) {
         q(`INSERT INTO driver_days (driver_id, day, miles, moving_s) VALUES (?, ?, ?, ?)
            ON CONFLICT(driver_id, day) DO UPDATE SET miles = miles + excluded.miles, moving_s = moving_s + excluded.moving_s`)
           .run(u.id, localDate(now()), meters / 1609.344, mph >= 3 ? Math.round(dt) : 0);
+        q('UPDATE shifts SET miles = miles + ?, moving_s = moving_s + ? WHERE driver_id = ? AND ended_at IS NULL').run(meters / 1609.344, mph >= 3 ? Math.round(dt) : 0, u.id);
+      }
+    }
+    // How steady the phone's location was this shift: quiet for 2+ minutes counts as a gap.
+    if (u.on_duty) {
+      const sh = q('SELECT id, started_at FROM shifts WHERE driver_id = ? AND ended_at IS NULL').get(u.id);
+      if (sh) {
+        const gap = u.last_loc_at && u.last_loc_at > sh.started_at ? Math.round((Date.now() - new Date(u.last_loc_at)) / 1000) : 0;
+        q(`UPDATE shifts SET gps_points = gps_points + 1, gps_gaps = gps_gaps + ?, longest_gap_s = MAX(longest_gap_s, ?) WHERE id = ?`).run(gap >= 120 ? 1 : 0, gap, sh.id);
       }
     }
     q('UPDATE users SET last_lat = ?, last_lng = ?, last_loc_at = ?, last_heading = ?, last_speed = ?, last_battery = ? WHERE id = ?')
@@ -1323,7 +1400,7 @@ function createApp(db, opts = {}) {
     if (moved && radius > 0 && !byAdmin) {
       const mi = milesFromDealer(r.lat, r.lng);
       if (mi > radius) {
-        const phone = getSettings().dealer_phone;
+        const phone = contactPhone();
         return { error: `That address is ${mi.toFixed(1)} miles from the dealership. The shuttle only goes up to ${radius} miles. ${
           forCustomer ? `Please call the service department${phone ? ` at ${phone}` : ''} and we'll help you make other arrangements.` : '(An admin can book it if needed.)'}` };
       }
@@ -1564,7 +1641,7 @@ function createApp(db, opts = {}) {
   app.get('/api/public/info', (req, res) => {
     const s = getSettings();
     res.json({
-      dealer_name: s.dealer_name, dealer_address: s.dealer_address, dealer_phone: s.dealer_phone,
+      dealer_name: s.dealer_name, dealer_address: s.dealer_address, dealer_phone: contactPhone(),
       dealer_lat: Number(s.dealer_lat), dealer_lng: Number(s.dealer_lng), public_requests: s.public_requests === '1',
       service_radius_mi: serviceRadius(), dropoff_wait_min: dropoffWait(),
     });
@@ -1683,7 +1760,7 @@ function createApp(db, opts = {}) {
       arrive_wait_min: Number(s.arrive_wait_min) || 5,
       customer_reply: ride.arrived_at ? ride.customer_reply : null,
       can_change: s.customer_actions !== '0' && ['requested', 'assigned', 'en_route'].includes(ride.status),
-      dealer: { name: s.dealer_name, address: s.dealer_address, phone: s.dealer_phone, lat: Number(s.dealer_lat), lng: Number(s.dealer_lng) },
+      dealer: { name: s.dealer_name, address: s.dealer_address, phone: contactPhone(), lat: Number(s.dealer_lat), lng: Number(s.dealer_lng) },
     });
   });
 
@@ -1824,7 +1901,7 @@ function createApp(db, opts = {}) {
     const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Shuttle//EN', 'BEGIN:VEVENT',
       `UID:ride-${ride.id}@shuttle`, `DTSTAMP:${t(now())}`, `DTSTART:${t(start.toISOString())}`, `DTEND:${t(new Date(start.getTime() + 30 * 60000).toISOString())}`,
       `SUMMARY:${esc2(`${what} · ${s.dealer_name}`)}`, `LOCATION:${esc2(ride.type === 'pickup' ? ride.address : s.dealer_address)}`,
-      `DESCRIPTION:${esc2(`Track your driver: ${baseUrl(req)}/t/${ride.track_token}${s.dealer_phone ? `\nQuestions? Call ${s.dealer_phone}` : ''}`)}`,
+      `DESCRIPTION:${esc2(`Track your driver: ${baseUrl(req)}/t/${ride.track_token}${contactPhone() ? `\nQuestions? Call ${contactPhone()}` : ''}`)}`,
       'BEGIN:VALARM', 'TRIGGER:-PT15M', 'ACTION:DISPLAY', `DESCRIPTION:${esc2(what)}`, 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
     res.type('text/calendar').set('Content-Disposition', 'attachment; filename="shuttle-ride.ics"').set('Cache-Control', 'no-store').send(ics);
   });
@@ -1904,6 +1981,7 @@ function createApp(db, opts = {}) {
     const drivers = q("SELECT id FROM users WHERE on_duty = 1").all().map((u) => u.id);
     if (!drivers.length) return 0;
     q("UPDATE users SET on_duty = 0, vehicle_id = NULL, route_json = NULL WHERE on_duty = 1").run();
+    closeShifts('1 = 1', [], 'auto');
     const [h, m] = cutoff.split(':').map(Number);
     const label = new Date(2000, 0, 1, h, m).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     quietly(push.notifyUsers(drivers, { title: '🌙 Shift ended', body: `Your shift was ended automatically at ${label}. Start a new shift in the app if you're still driving.`, tag: 'shift-ended' }));
@@ -1941,6 +2019,7 @@ function createApp(db, opts = {}) {
     const signedOut = q('DELETE FROM sessions').run().changes;
     live.soon('drivers', 300);
     q("UPDATE users SET on_duty = 0, vehicle_id = NULL, route_json = NULL WHERE on_duty = 1").run();
+    closeShifts('1 = 1', [], 'sign-out');
     console.log(new Date().toLocaleString(), `[sign-out] Signed everyone out automatically (${signedOut} session(s)).`);
     return signedOut;
   }
@@ -2017,11 +2096,190 @@ function createApp(db, opts = {}) {
     return { tick, reset };
   })();
   app.locals.nightlyBackup = nightlyBackup.tick;
+  // Backups used to run at 12:30 AM: move them to midnight (once), so the day is backed up right away.
+  if (q("SELECT value FROM settings WHERE key = 'backup_time'").get()?.value === '00:30' && !q("SELECT 1 FROM settings WHERE key = 'backup_midnight_v1'").get()) {
+    q("UPDATE settings SET value = '00:00' WHERE key = 'backup_time'").run();
+  }
+  q("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_midnight_v1', '1')").run();
+
+  // ---------- server numbers per hour ----------
+  // Every copy of the site adds what it saw to server_hours once a minute (kept 90 days).
+  function saveServerHours() {
+    const hours = stats.drain ? stats.drain() : new Map();
+    if (!hours.size) return;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const [hour, h] of hours) {
+        const row = q('SELECT * FROM server_hours WHERE hour = ?').get(hour);
+        const buckets = row ? JSON.parse(row.buckets) : []; const routes = row ? JSON.parse(row.routes) : {};
+        h.buckets.forEach((n, i) => { buckets[i] = (buckets[i] || 0) + n; });
+        for (const [k, r] of Object.entries(h.routes)) {
+          const o = routes[k] || (Object.keys(routes).length < 120 ? (routes[k] = [0, 0, 0, 0]) : (routes.other = routes.other || [0, 0, 0, 0]));
+          o[0] += r[0]; o[1] += r[1]; o[2] = Math.max(o[2], r[2]); o[3] += r[3];
+        }
+        q(`INSERT INTO server_hours (hour, requests, s4xx, s5xx, ms_total, buckets, routes) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(hour) DO UPDATE SET requests = requests + excluded.requests, s4xx = s4xx + excluded.s4xx, s5xx = s5xx + excluded.s5xx,
+           ms_total = ms_total + excluded.ms_total, buckets = excluded.buckets, routes = excluded.routes`)
+          .run(hour, h.requests, h.s4xx, h.s5xx, h.ms, JSON.stringify(buckets), JSON.stringify(routes));
+      }
+      q('DELETE FROM server_hours WHERE hour < ?').run(new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 13));
+      db.exec('COMMIT');
+    } catch (e) { try { db.exec('ROLLBACK'); } catch { /* already done */ } throw e; }
+  }
+  app.locals.saveServerHours = saveServerHours;
+  if (!opts.noTimers) setInterval(() => { try { saveServerHours(); } catch (e) { console.error('Saving server numbers failed:', e.message); } }, 60000).unref();
+
+  // ---------- the daily report ----------
+  // One report per day, built just after midnight for the day before (before customer info is
+  // cleared and the backup runs, so it's in that night's backup): the shuttle's day, and how the
+  // server did (requests, errors, response times, page speed on real devices, drivers' GPS).
+  // No customer names, phone numbers or addresses go in it.
+  function buildDailyReport(day) {
+    const r1 = (n) => Math.round(n * 10) / 10;
+    const avg = (xs) => (xs.length ? r1(xs.reduce((s, x) => s + x, 0) / xs.length) : null);
+    const mins = (a, b) => (new Date(b) - new Date(a)) / 60000;
+    const lo = new Date(new Date(day + 'T00:00:00Z').getTime() - 86400000).toISOString();
+    const hi = new Date(new Date(day + 'T00:00:00Z').getTime() + 2 * 86400000).toISOString();
+    const inDay = (iso) => iso && localDate(iso) === day;
+    // The shuttle.
+    const rides = q(`${RIDE_SELECT} WHERE r.scheduled_at >= ? AND r.scheduled_at < ?`).all(lo, hi).filter((r) => inDay(r.scheduled_at));
+    const done = rides.filter((r) => r.status === 'completed');
+    const created = (r) => r.created_at.replace(' ', 'T') + (r.created_at.includes('T') ? '' : 'Z');
+    const shiftsToday = q('SELECT s.*, u.name FROM shifts s JOIN users u ON u.id = s.driver_id WHERE s.started_at >= ? AND s.started_at < ?').all(lo, hi).filter((s) => inDay(s.started_at));
+    const byDriver = new Map();
+    for (const r of done) { if (!r.driver_name) continue; const o = byDriver.get(r.driver_name) || { name: r.driver_name, rides: 0, pickups: 0, dropoffs: 0, people: 0 }; o.rides++; o[r.type === 'pickup' ? 'pickups' : 'dropoffs']++; o.people += r.passengers || 1; byDriver.set(r.driver_name, o); }
+    for (const s of shiftsToday) { const o = byDriver.get(s.name) || { name: s.name, rides: 0, pickups: 0, dropoffs: 0, people: 0 }; o.shift_min = Math.round((o.shift_min || 0) + Math.max(0, mins(s.started_at, s.ended_at || now()))); o.miles = r1((o.miles || 0) + s.miles); o.gps_gaps = (o.gps_gaps || 0) + s.gps_gaps; o.longest_gap_min = Math.max(o.longest_gap_min || 0, Math.round(s.longest_gap_s / 60)); byDriver.set(s.name, o); }
+    const shuttle = {
+      rides: rides.length, completed: done.length, cancelled: rides.filter((r) => r.status === 'cancelled').length,
+      no_shows: rides.filter((r) => r.status === 'cancelled' && /no-show/i.test(r.cancel_reason || '')).length,
+      still_open: rides.filter((r) => OPEN_STATUSES.includes(r.status)).length,
+      pickups: rides.filter((r) => r.type === 'pickup').length, dropoffs: rides.filter((r) => r.type === 'dropoff').length,
+      people: done.reduce((n, r) => n + (r.passengers || 1), 0), urgent: rides.filter((r) => r.priority === 'urgent').length,
+      online_requests: rides.filter((r) => r.source === 'customer').length,
+      // How fast rides moved: booking to "on my way", driving to the customer, waiting there, the ride itself, and lateness.
+      avg_notice_min: avg(rides.map((r) => Math.max(0, mins(created(r), r.scheduled_at)))),
+      avg_to_pickup_min: avg(done.filter((r) => r.type === 'pickup' && r.en_route_at && (r.arrived_at || r.onboard_at)).map((r) => Math.max(0, mins(r.en_route_at, r.arrived_at || r.onboard_at)))),
+      avg_at_pickup_min: avg(done.filter((r) => r.arrived_at && r.onboard_at).map((r) => Math.max(0, mins(r.arrived_at, r.onboard_at)))),
+      avg_ride_min: avg(done.filter((r) => r.onboard_at && r.completed_at).map((r) => mins(r.onboard_at, r.completed_at))),
+      avg_late_min: avg(done.filter((r) => r.onboard_at).map((r) => Math.max(0, mins(r.scheduled_at, r.onboard_at)))),
+      on_time_pct: (() => { const t = done.filter((r) => r.onboard_at); return t.length ? Math.round((t.filter((r) => mins(r.scheduled_at, r.onboard_at) <= 10).length / t.length) * 100) : null; })(),
+      shifts: shiftsToday.length, shift_min: Math.round(shiftsToday.reduce((n, s) => n + Math.max(0, mins(s.started_at, s.ended_at || now())), 0)),
+      gps_miles: r1(shiftsToday.reduce((n, s) => n + s.miles, 0)), gps_gaps: shiftsToday.reduce((n, s) => n + s.gps_gaps, 0),
+      drivers: [...byDriver.values()].sort((a, b) => b.rides - a.rides),
+    };
+    // Texts and calls (before the nightly clear removes the log).
+    const log = q('SELECT event, status FROM sms_log').all();
+    const msgs = { sent: log.filter((l) => l.status === 'sent').length, failed: log.filter((l) => l.status === 'failed').length };
+    // The server: every UTC hour that falls on this local day.
+    const hours = q('SELECT * FROM server_hours WHERE hour >= ? AND hour < ?').all(lo.slice(0, 13), hi.slice(0, 13)).filter((h) => localDate(`${h.hour}:00:00Z`) === day);
+    const buckets = BUCKETS.map(() => 0).concat(0); const routes = {};
+    let requests = 0; let s4xx = 0; let s5xx = 0; let ms = 0; let busiest = null;
+    for (const h of hours) {
+      requests += h.requests; s4xx += h.s4xx; s5xx += h.s5xx; ms += h.ms_total;
+      JSON.parse(h.buckets).forEach((n, i) => { buckets[i] += n || 0; });
+      for (const [k, r] of Object.entries(JSON.parse(h.routes))) { const o = routes[k] || (routes[k] = [0, 0, 0, 0]); o[0] += r[0]; o[1] += r[1]; o[2] = Math.max(o[2], r[2]); o[3] += r[3]; }
+      if (!busiest || h.requests > busiest.requests) busiest = h;
+    }
+    const routeList = Object.entries(routes).map(([name, [n, t, max, err]]) => ({ name, requests: n, avg_ms: Math.round(t / n), slowest_ms: Math.round(max), errors: err }));
+    const hourLabel = (h) => new Date(`${h.hour}:00:00Z`).toLocaleTimeString('en-US', { timeZone: tz(), hour: 'numeric' });
+    // The log: errors and warnings that day, most common first.
+    const logDay = { errors: 0, warnings: 0, top_errors: [] };
+    const lf = opts.logsDir && createLogbook({ dir: opts.logsDir }).filePath(day);
+    if (lf) {
+      const seen = new Map();
+      for (const line of fs.readFileSync(lf, 'utf8').split('\n')) {
+        const m = /^\S+ \S+\s+(ERROR|WARN)\s+(.*)$/.exec(line); if (!m) continue;
+        if (m[1] === 'WARN') { logDay.warnings++; continue; }
+        logDay.errors++;
+        const key = m[2].replace(/\d+/g, '#').slice(0, 140); seen.set(key, (seen.get(key) || 0) + 1);
+      }
+      logDay.top_errors = [...seen.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([text, count]) => ({ text, count }));
+    }
+    // Page speed on real devices.
+    const readies = q('SELECT at, page, ready FROM perf WHERE at >= ? AND at < ?').all(lo, hi).filter((p) => inDay(p.at) && p.ready != null).map((p) => p.ready).sort((a, b) => a - b);
+    const pct = (xs, p) => (xs.length ? xs[Math.min(xs.length - 1, Math.floor(p * xs.length))] : null);
+    const server = {
+      requests, errors_5xx: s5xx, refused_4xx: s4xx, avg_ms: requests ? Math.round(ms / requests) : null,
+      p50_ms: percentile(buckets, 0.5), p95_ms: percentile(buckets, 0.95), slow_over_1s: buckets[5] + buckets[6], buckets,
+      busiest_hour: busiest ? { hour: hourLabel(busiest), requests: busiest.requests } : null,
+      slowest: routeList.filter((r) => r.requests >= 3 && r.name !== 'files').sort((a, b) => b.avg_ms - a.avg_ms).slice(0, 8),
+      most_errors: routeList.filter((r) => r.errors).sort((a, b) => b.errors - a.errors).slice(0, 8),
+      page_loads: readies.length, page_ready_median_ms: pct(readies, 0.5), page_ready_p90_ms: pct(readies, 0.9),
+      log: logDay, texts_and_calls: msgs,
+    };
+    const data = { day, timezone: tz(), version: APP_VERSION, shuttle, server };
+    q('INSERT INTO daily_reports (day, built_at, data) VALUES (?, ?, ?) ON CONFLICT(day) DO UPDATE SET built_at = excluded.built_at, data = excluded.data').run(day, now(), JSON.stringify(data));
+    q('DELETE FROM daily_reports WHERE day < ?').run(localDate(new Date(Date.now() - 400 * 86400000).toISOString()));
+    return data;
+  }
+  // The report as plain text (for email and download).
+  function reportText(d) {
+    const s = d.shuttle; const v = d.server; const m = (x) => (x == null ? '—' : `${x} min`); const h = (x) => `${Math.floor(x / 60)}h ${String(x % 60).padStart(2, '0')}m`;
+    const lines = [
+      `${getSettings().dealer_name || 'Shuttle'} · daily report for ${new Date(d.day + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}`, '',
+      'SHUTTLE',
+      `Rides: ${s.rides} (${s.pickups} pick ups, ${s.dropoffs} drop offs) · completed ${s.completed} · cancelled ${s.cancelled} · no-shows ${s.no_shows}${s.still_open ? ` · still open ${s.still_open}` : ''}`,
+      `People carried: ${s.people} · urgent: ${s.urgent} · online requests: ${s.online_requests}`,
+      `On time: ${s.on_time_pct == null ? '—' : `${s.on_time_pct}%`} · avg late: ${m(s.avg_late_min)} · avg drive to pick up: ${m(s.avg_to_pickup_min)} · avg wait at pick up: ${m(s.avg_at_pickup_min)} · avg ride: ${m(s.avg_ride_min)}`,
+      `Shifts: ${s.shifts} (${h(s.shift_min)}) · GPS miles: ${s.gps_miles} · GPS gaps: ${s.gps_gaps}`,
+      ...s.drivers.map((x) => `  ${x.name}: ${x.rides} rides (${x.pickups} up / ${x.dropoffs} down), ${x.people} people${x.shift_min != null ? `, ${h(x.shift_min)} on shift` : ''}${x.miles != null ? `, ${x.miles} mi` : ''}${x.gps_gaps ? `, ${x.gps_gaps} GPS gaps (longest ${x.longest_gap_min} min)` : ''}`),
+      '', 'SERVER',
+      `Requests: ${v.requests.toLocaleString()} · server errors: ${v.errors_5xx} · refused: ${v.refused_4xx} · busiest: ${v.busiest_hour ? `${v.busiest_hour.hour} (${v.busiest_hour.requests})` : '—'}`,
+      `Response time: average ${v.avg_ms ?? '—'} ms · most under ${v.p50_ms ?? '—'} ms · 95% under ${v.p95_ms ?? '—'} ms · over 1 s: ${v.slow_over_1s}`,
+      `Page loads on devices: ${v.page_loads} · ready in ${v.page_ready_median_ms ?? '—'} ms typically, ${v.page_ready_p90_ms ?? '—'} ms for the slowest 10%`,
+      `Log: ${v.log.errors} errors, ${v.log.warnings} warnings · texts & calls: ${v.texts_and_calls.sent} sent, ${v.texts_and_calls.failed} failed`,
+      ...(v.slowest.length ? ['Slowest requests:', ...v.slowest.map((r) => `  ${r.name}: ${r.avg_ms} ms average, slowest ${r.slowest_ms} ms (${r.requests}×)`)] : []),
+      ...(v.log.top_errors.length ? ['Most common errors:', ...v.log.top_errors.map((e) => `  ${e.count}× ${e.text}`)] : []),
+    ];
+    return lines.join('\n');
+  }
+  const dailyReport = (() => {
+    const LAST = 'daily_report_last';
+    const setLast = (v) => q("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(LAST, v);
+    function tick(at = new Date()) {
+      const today = localDate(at.toISOString());
+      const last = getSettings()[LAST];
+      if (!last) { setLast(today); return null; } // first run: start tonight
+      if (last === today) return null;
+      setLast(today);
+      const yesterday = localDate(new Date(new Date(today + 'T12:00:00Z').getTime() - 86400000).toISOString());
+      try { saveServerHours(); } catch { /* the hour numbers so far are enough */ }
+      const data = buildDailyReport(yesterday);
+      const to = String(getSettings().report_email || '').split(/[\s,;]+/).filter((a) => ADDR_RE.test(a));
+      if (to.length && mailer.configured) {
+        const text = reportText(data);
+        for (const addr of to) mailer.send({ to: addr, subject: `Shuttle daily report · ${yesterday}`, text }).catch((e) => console.error(new Date().toLocaleString(), `[report] Emailing the daily report to ${addr} failed: ${e.message}`));
+      }
+      console.log(new Date().toLocaleString(), `[report] Saved the daily report for ${yesterday}.`);
+      return data;
+    }
+    return { tick };
+  })();
+  app.locals.dailyReport = dailyReport.tick;
+  app.locals.buildDailyReport = buildDailyReport;
+  app.get('/api/server/daily-reports', requireRole('admin'), (req, res) => {
+    res.json({ reports: q('SELECT day, built_at, data FROM daily_reports ORDER BY day DESC LIMIT 60').all().map((r) => { const d = JSON.parse(r.data); return { day: r.day, built_at: r.built_at,
+      rides: d.shuttle.rides, completed: d.shuttle.completed, no_shows: d.shuttle.no_shows, on_time_pct: d.shuttle.on_time_pct, requests: d.server.requests, errors: d.server.errors_5xx + d.server.log.errors, p95_ms: d.server.p95_ms }; }),
+      emailed_to: getSettings().report_email || '', time: getSettings().backup_time || '' });
+  });
+  app.get('/api/server/daily-reports/:day', requireRole('admin'), (req, res) => {
+    const row = q('SELECT * FROM daily_reports WHERE day = ?').get(String(req.params.day));
+    if (!row) return bad(res, 'No report for that day.', 404);
+    const d = JSON.parse(row.data);
+    if (req.query.format === 'txt') return res.type('text/plain').set('Content-Disposition', `attachment; filename="shuttle-report-${d.day}.txt"`).send(reportText(d));
+    res.json({ report: d, built_at: row.built_at });
+  });
+  app.post('/api/server/daily-reports', requireRole('admin'), (req, res) => {
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body && req.body.day)) ? req.body.day : localDate(now());
+    try { saveServerHours(); } catch { /* fine */ }
+    res.json({ report: buildDailyReport(day) });
+  });
   app.locals.resetClearSchedule = customerWipe.reset;
   if (jobsHere) {
     setInterval(() => {
       try { autoEndShifts(); } catch (e) { console.error('Auto end of shift failed:', e.message); }
       try { autoSignOut(); } catch (e) { console.error('Auto sign-out failed:', e.message); }
+      try { dailyReport.tick(); } catch (e) { console.error('Building the daily report failed:', e.message); } // before the clear and the backup
       try { customerWipe.tick(); } catch (e) { console.error('Clearing customer info failed:', e.message); }
       try { nightlyBackup.tick(); } catch (e) { console.error('Nightly backup failed:', e.message); }
     }, 60000).unref();
@@ -2046,7 +2304,7 @@ function createApp(db, opts = {}) {
     const rides = type === 'all' ? inRange : inRange.filter((r) => r.type === type);
 
     const mins = (a, b) => (new Date(b) - new Date(a)) / 60000;
-    const isNoShow = (r) => r.status === 'cancelled' && /^customer no-show/i.test(r.cancel_reason || '');
+    const isNoShow = (r) => r.status === 'cancelled' && /no-show/i.test(r.cancel_reason || '');
     const avg = (xs) => (xs.length ? Math.round((xs.reduce((s, x) => s + x, 0) / xs.length) * 10) / 10 : null);
     function summarize(list) {
       const done = list.filter((r) => r.status === 'completed');
@@ -2063,6 +2321,10 @@ function createApp(db, opts = {}) {
         avg_wait_min: avg(waits),
         on_time_pct: timed.length ? Math.round((waits.filter((w) => w <= 10).length / timed.length) * 100) : null,
         avg_ride_min: avg(timed.filter((r) => r.completed_at).map((r) => mins(r.onboard_at, r.completed_at))),
+        passengers: done.reduce((n, r) => n + (r.passengers || 1), 0),
+        // Pick ups: driving to the customer ("on my way" to "I'm here", or to on board), and waiting there.
+        avg_to_pickup_min: avg(done.filter((r) => r.type === 'pickup' && r.en_route_at && (r.arrived_at || r.onboard_at)).map((r) => Math.max(0, mins(r.en_route_at, r.arrived_at || r.onboard_at)))),
+        avg_at_pickup_min: avg(done.filter((r) => r.arrived_at && r.onboard_at).map((r) => Math.max(0, mins(r.arrived_at, r.onboard_at)))),
         // Estimated miles (dealership <-> customer round trip) for completed rides.
         est_miles: Math.round(done.reduce((n, r) => n + (r.est_miles || 0), 0) * 10) / 10,
         // Time on rides: from "on my way" (or customer in) until the ride was complete.
@@ -2089,6 +2351,26 @@ function createApp(db, opts = {}) {
     const drivers = group((r) => r.driver_name);
     for (const [name] of gpsDriver) if (!drivers.some((d) => d.name === name)) drivers.push({ name, ...summarize([]) });
     for (const d of drivers) { const g = gpsDriver.get(d.name); d.gps_miles = g ? r1(g.miles) : 0; d.moving_min = g ? Math.round(g.moving_s / 60) : 0; }
+    // Shifts in range: hours on shift per driver and per van, and the van's GPS miles.
+    const shiftRows = q(`SELECT s.*, u.name FROM shifts s JOIN users u ON u.id = s.driver_id WHERE s.started_at < ? AND COALESCE(s.ended_at, ?) >= ?`).all(hi, now(), lo)
+      .filter((s) => localDate(s.started_at) >= from && localDate(s.started_at) <= to);
+    const shiftMin = (s) => Math.max(0, mins(s.started_at, s.ended_at || now()));
+    const shiftsBy = (key) => { const m = new Map(); for (const s of shiftRows) { const k = key(s); if (!k) continue; const o = m.get(k) || { shifts: 0, min: 0, miles: 0, gaps: 0 }; o.shifts++; o.min += shiftMin(s); o.miles += s.miles; o.gaps += s.gps_gaps; m.set(k, o); } return m; };
+    const byDriverShift = shiftsBy((s) => s.name);
+    for (const d of drivers) {
+      const sh = byDriverShift.get(d.name);
+      d.shifts = sh ? sh.shifts : 0; d.on_shift_min = sh ? Math.round(sh.min) : 0; d.gps_gaps = sh ? sh.gaps : 0;
+      d.rides_per_hour = sh && sh.min >= 30 ? Math.round((d.completed / (sh.min / 60)) * 10) / 10 : null;
+    }
+    if (type === 'all') for (const [name] of byDriverShift) if (!drivers.some((d) => d.name === name)) { const sh = byDriverShift.get(name); drivers.push({ name, ...summarize([]), gps_miles: 0, moving_min: 0, shifts: sh.shifts, on_shift_min: Math.round(sh.min), gps_gaps: sh.gaps, rides_per_hour: null }); }
+    const vehicles = group((r) => r.vehicle_name);
+    const byVanShift = shiftsBy((s) => s.vehicle_name);
+    if (type === 'all') for (const [name] of byVanShift) if (!vehicles.some((v) => v.name === name)) vehicles.push({ name, ...summarize([]) }); // pick up / drop off filter: only vans with those rides
+    for (const v of vehicles) { const sh = byVanShift.get(v.name); v.shifts = sh ? sh.shifts : 0; v.on_shift_min = sh ? Math.round(sh.min) : 0; v.gps_miles = sh ? r1(sh.miles) : 0; }
+    // Busiest hours (local time the ride was for).
+    const hourOf = (iso) => Number(new Intl.DateTimeFormat('en-GB', { timeZone: tz(), hour: '2-digit', hourCycle: 'h23' }).format(new Date(iso)));
+    const hours = Array.from({ length: 24 }, (_, h) => ({ hour: h, pickups: 0, dropoffs: 0 }));
+    for (const r of rides) hours[hourOf(r.scheduled_at)][r.type === 'pickup' ? 'pickups' : 'dropoffs']++;
     // Cities.
     const cities = group((r) => r.city || 'Unknown');
     // Advisor scheduling: what each advisor booked and how much notice they gave.
@@ -2111,10 +2393,200 @@ function createApp(db, opts = {}) {
       totals: { ...summarize(rides), gps_miles: r1(allGps.miles), moving_min: Math.round(allGps.s / 60) },
       days,
       drivers: drivers.sort((a, b) => b.rides - a.rides || b.gps_miles - a.gps_miles),
+      vehicles: vehicles.sort((a, b) => b.rides - a.rides || b.gps_miles - a.gps_miles), hours,
+      totals_shifts: { shifts: shiftRows.length, on_shift_min: Math.round(shiftRows.reduce((n, s) => n + shiftMin(s), 0)) },
       advisors,
       cities: cities.sort((a, b) => b.rides - a.rides),
       cancel_reasons: [...reasons.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
     });
+  });
+
+  // ---------- the dealership phone number ----------
+  // Admin → Phone & email. Each dealership picks:
+  //  - calls: staff call customers from their own phones, or through the dealership number
+  //    (the site rings the staff member's phone, then connects them; the customer sees the
+  //    dealership number and nobody's own number);
+  //  - texts: from staff's own phones, or from the dealership number (sent from the site);
+  //  - which number customers are given (the service desk, or the shuttle number);
+  //  - where calls and texts to the shuttle number go.
+  const phoneHooks = (req) => ({ voice: `${baseUrl(req)}/api/phone/incoming/voice`, sms: `${baseUrl(req)}/api/phone/incoming/sms` });
+  function phoneInfo(req) {
+    const c = sms.config ? sms.config() : null; const p = phonePolicy(); const s = getSettings();
+    return {
+      configured: p.ready, from_env: !!(c && c.source === 'env'), number: p.line ? prettyPhone(p.line) : (s.phone_number || ''),
+      sid_hint: c && c.sid ? `…${String(c.sid).slice(-4)}` : '', has_token: !!(c && c.token) || !!s.phone_token,
+      calls: s.phone_calls === 'dealership' ? 'dealership' : 'personal', texts: s.phone_texts === 'dealership' ? 'dealership' : 'personal',
+      customer_sees: s.phone_customer_sees === 'line' ? 'line' : 'desk', inbound: p.inbound, desk: s.phone_desk || '', desk_number: s.dealer_phone || '',
+      in_effect: { calls: p.calls, texts: p.texts, customer_sees: p.customer_sees }, hooks: phoneHooks(req),
+    };
+  }
+  app.get('/api/phone', requireRole('admin'), (req, res) => res.json(phoneInfo(req)));
+  app.put('/api/phone', requireRole('admin'), (req, res) => {
+    const b = req.body || {};
+    const set = (k, v) => (v ? q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v) : q('DELETE FROM settings WHERE key = ?').run(k));
+    if (b.clear) { for (const k of ['phone_sid', 'phone_token', 'phone_number']) set(k, ''); console.log(new Date().toLocaleString(), `[phone] ${req.user.name} removed the dealership number.`); return res.json(phoneInfo(req)); }
+    if (b.account) { // the Twilio account and number
+      const sid = str(b.sid, 64) || getSettings().phone_sid; const number = toE164(b.number || ''); // blank SID keeps the saved one
+      if (!sid || !/^AC[0-9a-f]{32}$/i.test(sid)) return bad(res, 'The Account SID starts with AC and has 34 letters and numbers. Find it on your Twilio console home page.');
+      if (!number) return bad(res, 'Enter the dealership phone number from Twilio, like (303) 555-0100.');
+      if (b.token && !/^[0-9a-f]{32}$/i.test(String(b.token).trim())) return bad(res, 'The Auth Token has 32 letters and numbers. Find it next to the Account SID.');
+      if (!b.token && !getSettings().phone_token) return bad(res, 'Enter the Auth Token.');
+      set('phone_sid', sid); set('phone_number', number);
+      if (b.token) set('phone_token', String(b.token).trim()); // blank keeps the saved one
+      console.log(new Date().toLocaleString(), `[phone] ${req.user.name} set up the dealership number ${prettyPhone(number)}.`);
+      return res.json(phoneInfo(req));
+    }
+    // How calls and texts work.
+    const pick = (v, ok, dflt) => (ok.includes(v) ? v : dflt);
+    const desk = String(b.desk || '').trim();
+    if (desk && !toE164(desk)) return bad(res, 'Enter the desk phone as a 10-digit number, or leave it empty.');
+    if (b.inbound === 'desk' && !desk) return bad(res, 'Enter the desk phone that calls should ring.');
+    set('phone_calls', pick(b.calls, ['personal', 'dealership'], 'personal'));
+    set('phone_texts', pick(b.texts, ['personal', 'dealership'], 'personal'));
+    set('phone_customer_sees', pick(b.customer_sees, ['desk', 'line'], 'desk'));
+    set('phone_inbound', pick(b.inbound, ['ride_driver', 'on_shift', 'desk'], 'ride_driver'));
+    set('phone_desk', desk ? toE164(desk) : '');
+    live.soon('drivers', 300); // staff pages pick up the change
+    res.json(phoneInfo(req));
+  });
+  app.post('/api/phone/test-call', requireRole('admin'), async (req, res) => {
+    if (!sms.configured) return bad(res, 'Set up the dealership number first.');
+    const to = toE164(req.body && req.body.to) || toE164(req.user.phone || '');
+    if (!to) return bad(res, 'Enter your mobile number.');
+    try {
+      await sms.call(to, `<Response><Say>This is a test call from the ${xml(getSettings().dealer_name || '')} shuttle website. Calls through the dealership number are working. Goodbye.</Say></Response>`);
+      smsLog(null, 'test-call', to, 'Test call', 'sent');
+      res.json({ ok: true, message: 'Calling you now.' });
+    } catch (e) { smsLog(null, 'test-call', to, 'Test call', 'failed', e.message); bad(res, `Twilio said: ${e.message}`, 502); }
+  });
+
+  // Staff call a customer through the dealership number: their own phone rings first.
+  const rideForContact = (req, res) => {
+    const ride = q(`${RIDE_SELECT} WHERE r.id = ?`).get(Number(req.params.id));
+    if (!ride) { bad(res, 'Ride not found.', 404); return null; }
+    if (!toE164(ride.customer_phone || '')) { bad(res, 'This ride has no customer phone number.'); return null; }
+    return ride;
+  };
+  app.post('/api/rides/:id/call', requireRole('driver', 'advisor'), async (req, res) => {
+    const p = phonePolicy();
+    if (p.calls !== 'dealership') return bad(res, 'Calls go from your own phone at this dealership.', 409);
+    const ride = rideForContact(req, res); if (!ride) return;
+    const mine = toE164(req.user.phone || '');
+    if (!mine) return bad(res, 'Your mobile number isn’t on file. Ask an admin to add it under Staff & logins, so the call can ring you.');
+    const key = `call|${req.user.id}`;
+    if (limits.count(key, 3600000) >= 30) return bad(res, 'That’s a lot of calls this hour. Try again later.', 429);
+    limits.hit(key, 3600000);
+    const first = ride.customer_name.split(' ')[0];
+    const twiml = `<Response><Say>Connecting you to ${xml(first)}. They will see the dealership number.</Say><Dial callerId="${xml(p.line)}" timeout="30"><Number>${xml(toE164(ride.customer_phone))}</Number></Dial><Say>The customer did not answer. Goodbye.</Say></Response>`;
+    try {
+      await sms.call(mine, twiml);
+      smsLog(ride.id, 'call', toE164(ride.customer_phone), `Call from ${req.user.name} through the dealership number`, 'sent');
+      res.json({ ok: true, message: `Your phone will ring in a moment. Answer it and you'll be connected to ${first}. They'll see the dealership number.` });
+    } catch (e) {
+      smsLog(ride.id, 'call', toE164(ride.customer_phone), `Call from ${req.user.name}`, 'failed', e.message);
+      bad(res, `The call didn't go through: ${e.message}`, 502);
+    }
+  });
+  // Staff text a customer from the dealership number; it's kept on the ride.
+  app.post('/api/rides/:id/text', requireRole('driver', 'advisor'), async (req, res) => {
+    const p = phonePolicy();
+    if (p.texts !== 'dealership') return bad(res, 'Texts go from your own phone at this dealership.', 409);
+    const ride = rideForContact(req, res); if (!ride) return;
+    const body = str(req.body && req.body.body, 480);
+    if (!body || body.length < 2) return bad(res, 'Type a message.');
+    const key = `stafftext|${req.user.id}`;
+    if (limits.count(key, 3600000) >= 40) return bad(res, 'That’s a lot of texts this hour. Try again later.', 429);
+    limits.hit(key, 3600000);
+    const to = toE164(ride.customer_phone);
+    const msg = `${body}\n– ${req.user.name.split(' ')[0]}, ${getSettings().dealer_name}`;
+    try {
+      await sms.send(to, msg);
+      smsLog(ride.id, 'staff', to, msg, 'sent');
+      const line = `[${fmtWhen(now())}] Text to customer from ${req.user.name.split(' ')[0]}: ${body}`;
+      q('UPDATE rides SET notes = ?, updated_at = ? WHERE id = ?').run(ride.notes ? `${ride.notes}\n${line}` : line, now(), ride.id);
+      res.json({ ok: true, message: 'Sent from the dealership number.' });
+    } catch (e) { smsLog(ride.id, 'staff', to, msg, 'failed', e.message); bad(res, `The text didn't send: ${e.message}`, 502); }
+  });
+
+  // Calls and texts TO the dealership number (Twilio sends them here; signed, or refused).
+  function twilioOk(req, res) {
+    const ok = sms.checkSignature && sms.checkSignature(`${baseUrl(req)}${req.originalUrl}`, req.body || {}, req.get('X-Twilio-Signature'));
+    if (!ok) { res.status(403).type('text/plain').send('Not allowed.'); return false; }
+    return true;
+  }
+  const digits10 = (p) => String(p || '').replace(/\D/g, '').slice(-10);
+  function openRideFor(phone) {
+    const d = digits10(phone); if (d.length < 10) return null;
+    return q(`${RIDE_SELECT} WHERE r.status IN ('requested','assigned','en_route','onboard') AND r.customer_phone IS NOT NULL ORDER BY
+              CASE r.status WHEN 'onboard' THEN 0 WHEN 'en_route' THEN 1 WHEN 'assigned' THEN 2 ELSE 3 END, r.scheduled_at`).all()
+      .find((r) => digits10(r.customer_phone) === d) || null;
+  }
+  app.post('/api/phone/incoming/voice', (req, res) => {
+    if (!twilioOk(req, res)) return;
+    const p = phonePolicy(); const s = getSettings(); const caller = req.body.From;
+    const ride = openRideFor(caller);
+    const onShift = () => q(`SELECT phone FROM users u WHERE ${IS_DRIVER()} AND u.active = 1 AND u.on_duty = 1`).all().map((u) => toE164(u.phone)).filter(Boolean).slice(0, 5);
+    const driverPhone = ride && ride.driver_phone ? toE164(ride.driver_phone) : null;
+    let first = []; let then = [];
+    if (p.inbound === 'ride_driver') { first = driverPhone ? [driverPhone] : (p.desk ? [p.desk] : onShift()); then = driverPhone && p.desk ? [p.desk] : []; }
+    else if (p.inbound === 'on_shift') { first = onShift(); then = p.desk ? [p.desk] : []; if (!first.length) { first = then; then = []; } }
+    else { first = p.desk ? [p.desk] : onShift(); }
+    const dial = (nums) => (nums.length ? `<Dial timeout="20">${nums.map((n) => `<Number>${xml(n)}</Number>`).join('')}</Dial>` : '');
+    const sorry = `<Say>Sorry, nobody from the ${xml(s.dealer_name || '')} shuttle could answer right now.${s.dealer_phone ? ` Please call the service department at ${xml(s.dealer_phone)}.` : ''} Goodbye.</Say>`;
+    smsLog(ride ? ride.id : null, 'incoming-call', toE164(caller) || String(caller || '').slice(0, 20), `Call to the dealership number${ride ? ` (${ride.customer_name})` : ''}`, first.length ? 'sent' : 'skipped', first.length ? null : 'Nobody to ring');
+    res.type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?><Response>${first.length ? `<Say>Connecting you to the ${xml(s.dealer_name || '')} shuttle.</Say>` : ''}${dial(first)}${dial(then)}${sorry}</Response>`);
+  });
+  app.post('/api/phone/incoming/sms', (req, res) => {
+    if (!twilioOk(req, res)) return;
+    const from = req.body.From; const body = String(req.body.Body || '').slice(0, 600);
+    const ride = openRideFor(from);
+    if (ride) {
+      const line = `[${fmtWhen(now())}] Customer texted: ${body}`;
+      q('UPDATE rides SET notes = ?, updated_at = ? WHERE id = ?').run(ride.notes ? `${ride.notes}\n${line}` : line, now(), ride.id);
+      ridesChanged();
+      tellStaff(ride, `💬 ${ride.customer_name.split(' ')[0]} texted`, body.slice(0, 140));
+    } else {
+      const admins = q("SELECT id FROM users WHERE role = 'admin' AND active = 1").all().map((a) => a.id);
+      quietly(push.notifyUsers(admins, { title: `💬 Text to the shuttle number from ${prettyPhone(from)}`, body: body.slice(0, 140), tag: 'shuttle-line', url: '/admin#comms' }));
+    }
+    smsLog(ride ? ride.id : null, 'incoming-text', toE164(from) || String(from || '').slice(0, 20), body, 'sent');
+    res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+  });
+
+  // ---------- ride log: every ride, with its times (Reports → Ride log, and CSV) ----------
+  app.get('/api/reports/rides', requireRole('admin'), (req, res) => {
+    const isDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
+    const to = isDay(req.query.to) ? req.query.to : localDate(now());
+    const from = isDay(req.query.from) ? req.query.from : to;
+    if (from > to) return bad(res, 'The start date is after the end date.');
+    const lo = new Date(new Date(from + 'T00:00:00Z').getTime() - 86400000).toISOString();
+    const hi = new Date(new Date(to + 'T00:00:00Z').getTime() + 2 * 86400000).toISOString();
+    const type = ['pickup', 'dropoff'].includes(req.query.type) ? req.query.type : null;
+    const m = (a, b) => (a && b ? Math.round(((new Date(b) - new Date(a)) / 60000) * 10) / 10 : null);
+    const at = (iso) => (iso ? new Date(iso).toLocaleString('en-US', { timeZone: tz(), hour: 'numeric', minute: '2-digit' }) : '');
+    const created = (r) => (r.created_at ? r.created_at.replace(' ', 'T') + (r.created_at.includes('T') ? '' : 'Z') : null);
+    const rows = q(`${RIDE_SELECT} WHERE r.scheduled_at >= ? AND r.scheduled_at < ? ORDER BY r.scheduled_at`).all(lo, hi)
+      .filter((r) => { const d = localDate(r.scheduled_at); return d >= from && d <= to && (!type || r.type === type); })
+      .map((r) => ({
+        id: r.id, day: localDate(r.scheduled_at), scheduled: at(r.scheduled_at), type: r.type === 'pickup' ? 'Pick up' : 'Drop off', status: r.status,
+        customer: r.customer_name, city: r.city || '', passengers: r.passengers, driver: r.driver_name || '', vehicle: r.vehicle_name || '',
+        advisor: r.advisor_name || (r.source === 'customer' ? 'Online request' : ''), booked_by: r.booked_by_name || '',
+        booked: at(created(r)), on_the_way: at(r.en_route_at), arrived: at(r.arrived_at), on_board: at(r.onboard_at), done: at(r.completed_at),
+        notice_min: m(created(r), r.scheduled_at), to_pickup_min: r.type === 'pickup' ? m(r.en_route_at, r.arrived_at || r.onboard_at) : null,
+        waited_at_pickup_min: m(r.arrived_at, r.onboard_at), ride_min: m(r.onboard_at, r.completed_at),
+        late_min: r.onboard_at ? Math.max(0, m(r.scheduled_at, r.onboard_at)) : null, est_miles: r.est_miles != null ? Math.round(r.est_miles * 10) / 10 : null,
+        customer_reply: r.customer_reply || '', cancel_reason: r.cancel_reason || '', urgent: r.priority === 'urgent' ? 'yes' : '',
+      }));
+    if (req.query.format === 'csv') {
+      const cols = [['day', 'Day'], ['scheduled', 'Time'], ['type', 'Type'], ['status', 'Status'], ['urgent', 'Urgent'], ['customer', 'Customer'], ['city', 'City'], ['passengers', 'People'],
+        ['driver', 'Driver'], ['vehicle', 'Vehicle'], ['advisor', 'Advisor'], ['booked_by', 'Booked by'], ['booked', 'Booked at'], ['on_the_way', 'On the way'], ['arrived', 'Driver arrived'],
+        ['on_board', 'On board'], ['done', 'Done'], ['notice_min', 'Notice (min)'], ['to_pickup_min', 'Drive to pick up (min)'], ['waited_at_pickup_min', 'Wait at pick up (min)'],
+        ['ride_min', 'Ride (min)'], ['late_min', 'Late (min)'], ['est_miles', 'Ride miles (est.)'], ['customer_reply', 'Customer answer'], ['cancel_reason', 'Cancel reason']];
+      const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const csv = [cols.map(([, l]) => cell(l)).join(','), ...rows.map((r) => cols.map(([k]) => cell(r[k])).join(','))].join('\r\n');
+      return res.type('text/csv').set('Content-Disposition', `attachment; filename="shuttle-ride-log-${from}-to-${to}.csv"`).send(csv);
+    }
+    res.json({ from, to, rides: rows });
   });
 
   // ---------- customer texting (admin) ----------
@@ -2125,7 +2597,7 @@ function createApp(db, opts = {}) {
     });
   });
   app.post('/api/sms/test', requireRole('admin'), async (req, res) => {
-    if (!sms.configured) return bad(res, 'Texting is not set up yet. Add your Twilio details to the .env file first.');
+    if (!sms.configured) return bad(res, 'Set up the dealership number first (Admin → Phone & email).');
     const to = toE164(req.body.to);
     if (!to) return bad(res, 'Enter a valid mobile number.');
     const body = `Test message from the ${getSettings().dealer_name} shuttle website. Customer texts are working.`;

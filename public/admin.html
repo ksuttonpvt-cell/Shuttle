@@ -17,6 +17,7 @@
     <button data-tab="users">Staff &amp; logins</button>
     <button data-tab="vehicles">Vehicles</button>
     <button data-tab="links">QR codes &amp; links</button>
+    <button data-tab="comms">Phone &amp; email</button>
     <button data-tab="settings">Settings</button>
     <button data-tab="server" hidden>Server</button>
   </div>
@@ -153,7 +154,15 @@
     </div>
     <div class="stats" id="repStats"></div>
     <div class="card"><h2>By day</h2><div class="table-wrap" id="repDays"></div></div>
-    <div class="card"><h2>Drivers: rides, miles and time</h2><div class="table-wrap" id="repDrivers"></div></div>
+    <div class="card"><h2>Drivers: rides, miles and time</h2><div class="table-wrap" id="repDrivers"></div>
+      <p class="small muted" style="margin-bottom:0"><b>Drive to pick up</b> runs from “on my way” to “I'm here” (or the customer getting in). <b>Wait at pick up</b> runs from “I'm here” to the customer getting in. <b>GPS gaps</b> count times the driver's phone stopped sharing its location for 2+ minutes during a shift.</p></div>
+    <div class="card"><h2>Vehicles</h2><div class="table-wrap" id="repVehicles"></div></div>
+    <div class="card"><h2>Busiest hours</h2><div id="repHours"></div></div>
+    <div class="card">
+      <div class="card-head"><h2>Ride log</h2><div class="actions" style="margin:0"><button type="button" class="btn-ghost btn-sm" id="logCsv">Download ride log (CSV)</button></div></div>
+      <p class="small muted" style="margin-top:-.4rem">Every ride in the range with its times. Customer names are cleared each night once a ride is done.</p>
+      <div class="table-wrap" id="repLog"></div>
+    </div>
     <div class="grid cols-even">
       <div class="card"><h2>Cities: pick ups and drop offs</h2><div class="table-wrap" id="repCities"></div></div>
       <div class="card"><h2>Advisor scheduling</h2><div class="table-wrap" id="repAdvisors"></div>
@@ -216,23 +225,6 @@
       <button style="margin-top:1rem">Save settings</button>
     </form>
     <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
-    <h2>Customer texts</h2>
-    <div id="smsInfo" class="small muted">Loading…</div>
-    <form id="smsForm">
-      <p class="small" style="margin-bottom:.2rem"><b>Text the customer automatically when:</b></p>
-      <label class="check"><input type="checkbox" name="sms_booked"> their ride is booked (with a tracking link)</label>
-      <label class="check"><input type="checkbox" name="sms_en_route"> the driver is on the way (driver's name, vehicle, plate)</label>
-      <label class="check"><input type="checkbox" name="sms_arrived"> the driver is here (“I'm here”, with a button to say they're coming out)</label>
-      <label class="check"><input type="checkbox" name="sms_cancelled"> their ride is cancelled</label>
-      <div class="actions"><button class="btn-dark btn-sm">Save text settings</button></div>
-      <div id="smsMsg"></div>
-    </form>
-    <div id="smsTest" class="hidden">
-      <label>Send a test text to</label>
-      <div class="linkbox"><input id="smsTo" type="tel" placeholder="Your mobile number"><button type="button" class="btn-ghost btn-sm" id="smsSend">Send test</button></div>
-    </div>
-    <div id="smsLog" style="margin-top:1rem"></div>
-    <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
     <h2>Look</h2>
     <p class="small muted" style="margin-top:0">Try the <b>Corwin</b> dealership look on just this device first. When you like it, switch it on for everyone (staff pages, the customer request and tracking pages, and sign-in).</p>
     <div class="actions" style="margin:.2rem 0 .8rem">
@@ -263,28 +255,6 @@
       <button class="btn-block" style="margin-top:.6rem">Save look</button>
     </form>
     <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
-    <h2>Email for password resets</h2>
-    <p class="small muted" style="margin-top:0">With an email account here, “Forgot password?” sends the reset link straight to the person in seconds, instead of waiting for an admin. <span id="emState"></span></p>
-    <form id="emForm">
-      <label>Email provider</label>
-      <select name="preset"><option value="">Pick one…</option><option value="smtp.office365.com|587">Microsoft 365 / Outlook</option><option value="smtp.gmail.com|587">Gmail / Google Workspace</option><option value="other">Other</option></select>
-      <div class="grid cols-2" style="gap:.5rem">
-        <div><label>Email server</label><input name="host" placeholder="smtp.office365.com" autocomplete="off"></div>
-        <div><label>Port</label><input name="port" type="number" value="587" style="max-width:120px"></div>
-      </div>
-      <label>Email account (sign-in)</label><input name="user" type="email" autocomplete="off" placeholder="shuttle@yourdealership.com">
-      <label>Password <span class="small muted" id="emPwState"></span></label><input name="password" type="password" autocomplete="new-password" placeholder="For Gmail and many Microsoft 365 accounts, use an app password">
-      <label>Send links from</label><input name="from" type="email" autocomplete="off" placeholder="Same as the account">
-      <div id="emMsg"></div>
-      <div class="actions" style="margin-top:.5rem"><button>Save</button><button type="button" class="btn-ghost" id="emTest">Send a test to me</button><button type="button" class="btn-ghost hidden" id="emRemove">Remove</button></div>
-      <details style="margin-top:.5rem"><summary class="small">Setup help</summary><ul class="small" style="padding-left:1.1rem;margin:.4rem 0">
-        <li><b>Microsoft 365:</b> server smtp.office365.com, port 587, the mailbox's address and password. Your IT admin may need to turn on “Authenticated SMTP” for that mailbox. If the account uses two-step sign-in, make an app password.</li>
-        <li><b>Gmail:</b> server smtp.gmail.com, port 587. Turn on 2-step verification, then make an <b>app password</b> (Google Account → Security → App passwords) and paste it here.</li>
-        <li>The password stays on the shuttle PC. It's never shown again or sent to anyone's browser.</li>
-        <li>If texting (Twilio) is set up, people with a phone number on file get the link by text too.</li>
-      </ul></details>
-    </form>
-    <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
     <h2>Help &amp; suggestions (Discord)</h2>
     <p class="small muted" style="margin-top:0">Everyone on staff has a <b>💬 Help</b> button at the top. Messages show up here, and in a Discord channel if you add its webhook.</p>
     <form id="fbForm">
@@ -305,6 +275,120 @@
     <div id="eggMsg"></div>
     <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
     <p class="small muted">Software updates, backups, the server log and restart are on the <b>Server</b> tab.</p>
+  </section>
+
+
+  <!-- Phone & email -->
+  <section data-pane="comms" class="grid hidden" style="max-width:760px">
+    <div class="card">
+      <h2>Calls &amp; texts with customers</h2>
+      <p class="small muted" style="margin-top:0">Choose how your team calls and texts customers. Staff can use their own phones, or the dealership's number so customers only ever see the dealership. <span id="phState"></span></p>
+      <form id="phPolicy">
+        <fieldset class="opt-group"><legend>When staff tap <b>Call</b> on a ride</legend>
+          <label class="check"><input type="radio" name="calls" value="personal"> Their own phone calls the customer</label>
+          <label class="check"><input type="radio" name="calls" value="dealership" data-needs-line> The site rings their phone, then connects them. <span class="muted">The customer sees the dealership number.</span></label>
+        </fieldset>
+        <fieldset class="opt-group"><legend>When staff tap <b>Text</b> on a ride</legend>
+          <label class="check"><input type="radio" name="texts" value="personal"> Their own phone's messages app opens</label>
+          <label class="check"><input type="radio" name="texts" value="dealership" data-needs-line> They type it on the site and it's sent from the dealership number <span class="muted">(saved on the ride)</span></label>
+        </fieldset>
+        <fieldset class="opt-group"><legend>Number customers see on their tracking page and in texts</legend>
+          <label class="check"><input type="radio" name="customer_sees" value="desk"> The service desk <span class="muted" id="phDeskNum"></span></label>
+          <label class="check"><input type="radio" name="customer_sees" value="line" data-needs-line> The dealership shuttle number</label>
+        </fieldset>
+        <fieldset class="opt-group"><legend>When a customer calls the dealership shuttle number, ring</legend>
+          <label class="check"><input type="radio" name="inbound" value="ride_driver"> The driver on their ride <span class="muted">(if they have one; otherwise the desk phone, or drivers on shift)</span></label>
+          <label class="check"><input type="radio" name="inbound" value="on_shift"> Every driver on shift <span class="muted">(first to answer)</span></label>
+          <label class="check"><input type="radio" name="inbound" value="desk"> A desk phone</label>
+          <label>Desk phone <span class="muted">(also rings if nobody else answers)</span></label>
+          <input name="desk" type="tel" placeholder="(303) 555-0100" style="max-width:240px">
+          <p class="small muted" style="margin:.3rem 0 0">Texts to the shuttle number are added to that customer's ride, and the driver and advisor get a notification.</p>
+        </fieldset>
+        <div id="phPolicyMsg"></div>
+        <button style="margin-top:.6rem">Save</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Dealership phone number</h2>
+      <p class="small muted" style="margin-top:0">A phone number from <b>Twilio</b> (about $1–2 a month, plus about 1¢ a text and 1–2¢ a minute for calls). Everything above that uses the dealership number starts working once it's here. <span id="phNumState"></span></p>
+      <form id="phForm">
+        <label>Account SID</label><input name="sid" autocomplete="off" placeholder="AC…" spellcheck="false">
+        <label>Auth Token <span class="small muted" id="phTokState"></span></label><input name="token" type="password" autocomplete="new-password" placeholder="32 letters and numbers">
+        <label>Dealership phone number (from Twilio)</label><input name="number" type="tel" placeholder="(303) 555-0123" style="max-width:240px">
+        <div id="phMsg"></div>
+        <div class="actions" style="margin-top:.5rem"><button>Save</button><button type="button" class="btn-ghost" id="phCall">Test call to me</button><button type="button" class="btn-ghost hidden" id="phRemove">Remove</button></div>
+      </form>
+      <div id="phHooks" class="hidden" style="margin-top:.8rem">
+        <p class="small" style="margin:0 0 .3rem"><b>So calls and texts to the number reach you:</b> in Twilio, open the number (Phone Numbers → Manage → Active numbers) and paste these:</p>
+        <label class="small">“A call comes in” (Webhook, HTTP POST)</label><div class="linkbox"><input readonly id="phHookVoice"><button type="button" class="btn-ghost btn-sm" data-copy="phHookVoice">Copy</button></div>
+        <label class="small">“A message comes in” (Webhook, HTTP POST)</label><div class="linkbox"><input readonly id="phHookSms"><button type="button" class="btn-ghost btn-sm" data-copy="phHookSms">Copy</button></div>
+      </div>
+      <details style="margin-top:.6rem"><summary class="small">Setup help</summary><ul class="small" style="padding-left:1.1rem;margin:.4rem 0">
+        <li>Make an account at twilio.com and buy a local number with <b>Voice</b> and <b>SMS</b>.</li>
+        <li>The Account SID and Auth Token are on the Twilio console's home page.</li>
+        <li>For texting in the US, Twilio asks you to register the number for business texting (A2P 10DLC). Their console walks you through it.</li>
+        <li>Staff need a mobile number on file (Staff &amp; logins → Edit) for calls through the dealership number to ring them.</li>
+        <li>The Auth Token stays on the shuttle PC. It's never shown again or sent to anyone's browser.</li>
+      </ul></details>
+    </div>
+
+    <div class="card">
+    <h2>Automatic customer texts</h2>
+    <div id="smsInfo" class="small muted">Loading…</div>
+    <form id="smsForm">
+      <p class="small" style="margin-bottom:.2rem"><b>Text the customer automatically when:</b></p>
+      <label class="check"><input type="checkbox" name="sms_booked"> their ride is booked (with a tracking link)</label>
+      <label class="check"><input type="checkbox" name="sms_en_route"> the driver is on the way (driver's name, vehicle, plate)</label>
+      <label class="check"><input type="checkbox" name="sms_arrived"> the driver is here (“I'm here”, with a button to say they're coming out)</label>
+      <label class="check"><input type="checkbox" name="sms_cancelled"> their ride is cancelled</label>
+      <div class="actions"><button class="btn-dark btn-sm">Save text settings</button></div>
+      <div id="smsMsg"></div>
+    </form>
+    <div id="smsTest" class="hidden">
+      <label>Send a test text to</label>
+      <div class="linkbox"><input id="smsTo" type="tel" placeholder="Your mobile number"><button type="button" class="btn-ghost btn-sm" id="smsSend">Send test</button></div>
+    </div>
+    
+    </div>
+
+    <div class="card">
+    <h2>Email account</h2>
+    <p class="small muted" style="margin-top:0">Use a <b>shared dealership mailbox</b> (like shuttle@yourdealership.com) from your own email system, never a person's own email. The site won't accept an address that belongs to someone on staff. <span id="emState"></span></p>
+    <form id="emForm">
+      <label>Email provider</label>
+      <select name="preset"><option value="">Pick one…</option><option value="smtp.office365.com|587">Microsoft 365 / Outlook</option><option value="smtp.gmail.com|587">Gmail / Google Workspace</option><option value="other">Other</option></select>
+      <div class="grid cols-2" style="gap:.5rem">
+        <div><label>Email server</label><input name="host" placeholder="smtp.office365.com" autocomplete="off"></div>
+        <div><label>Port</label><input name="port" type="number" value="587" style="max-width:120px"></div>
+      </div>
+      <label>Email account (sign-in)</label><input name="user" type="email" autocomplete="off" placeholder="shuttle@yourdealership.com">
+      <label>Password <span class="small muted" id="emPwState"></span></label><input name="password" type="password" autocomplete="new-password" placeholder="For Gmail and many Microsoft 365 accounts, use an app password">
+      <label>Send emails from</label><input name="from" type="email" autocomplete="off" placeholder="Same as the account">
+      <div id="emMsg"></div>
+      <div class="actions" style="margin-top:.5rem"><button>Save</button><button type="button" class="btn-ghost" id="emTest">Send a test to me</button><button type="button" class="btn-ghost hidden" id="emRemove">Remove</button></div>
+      <details style="margin-top:.5rem"><summary class="small">Setup help</summary><ul class="small" style="padding-left:1.1rem;margin:.4rem 0">
+        <li><b>Microsoft 365:</b> server smtp.office365.com, port 587, the mailbox's address and password. Your IT admin may need to turn on “Authenticated SMTP” for that mailbox. If the account uses two-step sign-in, make an app password.</li>
+        <li><b>Gmail:</b> server smtp.gmail.com, port 587. Turn on 2-step verification, then make an <b>app password</b> (Google Account → Security → App passwords) and paste it here.</li>
+        <li>The password stays on the shuttle PC. It's never shown again or sent to anyone's browser.</li>
+        <li>If the dealership number is set up, people with a phone number on file get password links by text too.</li>
+      </ul></details>
+    </form>
+      <form id="emOpts" style="margin-top:1rem">
+        <h3 style="margin:0 0 .2rem">What gets emailed</h3>
+        <label>Name emails come from</label><input name="from_name" maxlength="80" placeholder="">
+        <label>Replies go to <span class="small muted">(optional, a shared mailbox)</span></label><input name="reply_to" type="email" placeholder="service@yourdealership.com">
+        <label class="check" style="margin-top:.6rem"><input type="checkbox" name="send_reset"> Password reset links (“Forgot password?”)</label>
+        <label class="check"><input type="checkbox" name="send_approved"> “Your account is ready” when an admin approves a new person</label>
+        <label class="check"><input type="checkbox" name="send_booked"> “Your ride is booked” to customers who give an email address (with their tracking link)</label>
+        <label>Daily shuttle &amp; server report to <span class="small muted">(up to 5 addresses, comma between)</span></label><input name="report_to" placeholder="manager@yourdealership.com">
+        <div id="emOptsMsg"></div>
+        <button class="btn-dark btn-sm" style="margin-top:.6rem">Save</button>
+      </form>
+    </div>
+
+    <div class="card"><h2>Recent texts &amp; calls</h2><div id="smsLog"><p class="small muted">Nothing yet.</p></div>
+      <p class="small muted" style="margin-bottom:0">Cleared every night with the other customer details.</p></div>
   </section>
 
   <!-- Server -->
@@ -388,10 +472,15 @@
           <div style="flex:1"><label>Nightly backup at</label><input name="backup_time" type="time" style="max-width:180px"></div>
           <button class="btn-ghost btn-sm">Save</button>
         </form>
-        <p class="small muted" style="margin:.2rem 0 .6rem">Nightly backups run after customer info is cleared and are kept 14 days. “Back up now” copies are removed at the next midnight clear, so they don't keep customer details.</p>
+        <p class="small muted" style="margin:.2rem 0 .6rem">At midnight, in this order: the day's report is saved, customer info is cleared, then the nightly backup runs (so the report is in it). Nightly backups are kept 14 days. “Back up now” copies are removed at the next midnight clear, so they don't keep customer details.</p>
         <div id="srvBackupMsg"></div>
         <div class="table-wrap" id="srvBackups"></div>
       </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Daily reports</h2><button type="button" class="btn-ghost btn-sm" id="drBuild">Build today's so far</button></div>
+      <p class="small muted" style="margin-top:-.4rem">Saved every night at midnight for the day before: the shuttle's day (rides, people, on time, drive and wait times, shifts, GPS gaps) and the server's (requests, errors, response times, slowest requests, page speed on devices, the most common errors). No customer names, numbers or addresses. <span id="drEmail"></span></p>
+      <div class="table-wrap" id="drList"></div>
     </div>
     <div class="card">
       <div class="card-head"><h2>Server log</h2>
@@ -918,9 +1007,15 @@
     ['no_shows', 'No-shows'], ['avg_wait_min', 'Avg wait', (v) => dash(v, ' min')], ['on_time_pct', 'On time', (v) => dash(v, '%')],
     ['avg_ride_min', 'Avg ride', (v) => dash(v, ' min')], ['est_miles', 'Ride miles (est.)', mi]];
   const dayCols = [...statCols, ['gps_miles', 'GPS miles', mi], ['moving_min', 'Time driving', hm], ['ride_time_min', 'Time on rides', hm]];
-  const driverCols = [['rides', 'Rides'], ['pickups', 'Pick ups'], ['dropoffs', 'Drop offs'], ['completed', 'Completed'],
+  const driverCols = [['shifts', 'Shifts'], ['on_shift_min', 'On shift', hm], ['rides', 'Rides'], ['pickups', 'Pick ups'], ['dropoffs', 'Drop offs'], ['completed', 'Completed'],
+    ['passengers', 'People carried'], ['rides_per_hour', 'Rides / hour'],
     ['gps_miles', 'GPS miles', mi], ['est_miles', 'Ride miles (est.)', mi], ['moving_min', 'Time driving', hm], ['ride_time_min', 'Time on rides', hm],
-    ['avg_wait_min', 'Avg wait', (v) => dash(v, ' min')], ['on_time_pct', 'On time', (v) => dash(v, '%')]];
+    ['avg_to_pickup_min', 'Drive to pick up', (v) => dash(v, ' min')], ['avg_at_pickup_min', 'Wait at pick up', (v) => dash(v, ' min')], ['avg_ride_min', 'Avg ride', (v) => dash(v, ' min')],
+    ['avg_wait_min', 'Avg wait', (v) => dash(v, ' min')], ['on_time_pct', 'On time', (v) => dash(v, '%')], ['no_shows', 'No-shows'], ['gps_gaps', 'GPS gaps']];
+  const vehicleCols = [['shifts', 'Shifts'], ['on_shift_min', 'In use', hm], ['gps_miles', 'GPS miles', mi], ['rides', 'Rides'], ['completed', 'Completed'], ['passengers', 'People carried'], ['est_miles', 'Ride miles (est.)', mi]];
+  const logCols = [['scheduled', 'Time'], ['type', 'Type'], ['status', 'Status'], ['customer', 'Customer'], ['driver', 'Driver'], ['vehicle', 'Vehicle'], ['advisor', 'Advisor'],
+    ['on_the_way', 'On the way'], ['arrived', 'Arrived'], ['on_board', 'On board'], ['done', 'Done'], ['to_pickup_min', 'Drive (min)'], ['waited_at_pickup_min', 'Wait (min)'],
+    ['ride_min', 'Ride (min)'], ['late_min', 'Late (min)']];
   const cityCols = [['pickups', 'Pick ups'], ['dropoffs', 'Drop offs'], ['rides', 'Total'], ['completed', 'Completed'], ['est_miles', 'Ride miles (est.)', mi]];
   const advisorCols = [['pickups', 'Pick ups'], ['dropoffs', 'Drop offs'], ['rides', 'Total'], ['customer_ready', 'Customer ready'],
     ['avg_notice_min', 'Avg notice', hm], ['ahead_pct', 'Booked 30+ min ahead', (v) => dash(v, '%')], ['cancelled', 'Cancelled'], ['no_shows', 'No-shows']];
@@ -935,12 +1030,24 @@
     catch (err) { $('#repStats').innerHTML = `<div class="alert alert-err">${esc(err.message)}</div>`; return; }
     for (const [k, n] of Object.entries(report.type_counts)) $(`#repChips [data-count="${k}"]`).textContent = `(${n})`;
     const t = report.totals;
-    $('#repStats').innerHTML = [[t.rides, 'Rides'], [`${t.pickups} / ${t.dropoffs}`, 'Pick ups / drop offs'], [t.completed, 'Completed'],
+    const ts = report.totals_shifts || { shifts: 0, on_shift_min: 0 };
+    $('#repStats').innerHTML = [[t.rides, 'Rides'], [`${t.pickups} / ${t.dropoffs}`, 'Pick ups / drop offs'], [t.completed, 'Completed'], [t.passengers, 'People carried'],
+      [ts.shifts, 'Shifts'], [hm(ts.on_shift_min), 'Time on shift'], [dash(t.avg_to_pickup_min, ' min'), 'Avg drive to pick up'], [dash(t.avg_at_pickup_min, ' min'), 'Avg wait at pick up'],
       [t.cancelled, 'Cancelled'], [t.no_shows, 'No-shows'], [dash(t.avg_wait_min, ' min'), 'Average wait'], [dash(t.on_time_pct, '%'), 'On time'],
       [mi(t.gps_miles), 'GPS miles driven'], [mi(t.est_miles), 'Ride miles (estimated)'], [hm(t.moving_min), 'Time driving'], [hm(t.ride_time_min), 'Time on rides']]
       .map(([n, l]) => `<div class="stat"><b>${n}</b><span>${l}</span></div>`).join('');
     $('#repDays').innerHTML = statTable([...report.days].reverse(), (r) => dayName(r.day), 'Day', dayCols);
     $('#repDrivers').innerHTML = statTable(report.drivers, (r) => r.name, 'Driver', driverCols);
+    $('#repVehicles').innerHTML = statTable(report.vehicles || [], (r) => r.name, 'Vehicle', vehicleCols);
+    // Busiest hours: a bar per hour that had rides (pick ups and drop offs stacked).
+    const hrs = (report.hours || []).filter((h) => h.pickups + h.dropoffs);
+    const topH = Math.max(1, ...hrs.map((h) => h.pickups + h.dropoffs));
+    const hLabel = (h) => new Date(2000, 0, 1, h).toLocaleTimeString([], { hour: 'numeric' });
+    $('#repHours').innerHTML = hrs.length ? hrs.map((h) => `<div class="hour-row"><span>${hLabel(h.hour)}</span>
+        <div class="mini-bar" aria-hidden="true"><i class="mb-up" style="width:${(h.pickups / topH) * 100}%"></i><i class="mb-down" style="width:${(h.dropoffs / topH) * 100}%"></i></div>
+        <b>${h.pickups + h.dropoffs}</b></div>`).join('') + '<div class="chart-legend small"><span><i class="sw sw-up"></i>Pick ups</span><span><i class="sw sw-down"></i>Drop offs</span></div>'
+      : '<div class="empty">No rides in this range.</div>';
+    loadRideLog();
     const topCity = Math.max(1, ...report.cities.map((c) => c.rides));
     $('#repCities').innerHTML = statTable(report.cities, (r) => r.name, 'City', cityCols,
       (r) => `<div class="mini-bar" aria-hidden="true"><i class="mb-up" style="width:${(r.pickups / topCity) * 100}%"></i><i class="mb-down" style="width:${(r.dropoffs / topCity) * 100}%"></i></div>`)
@@ -953,6 +1060,21 @@
       : '<div class="empty">No cancelled rides in this range. 🎉</div>';
   }
   loaders.reports = loadReport;
+  let rideLog = [];
+  async function loadRideLog() {
+    try { rideLog = (await api(`/api/reports/rides?from=${rf.elements.from.value}&to=${rf.elements.to.value}&type=${repChips.value}`)).rides; }
+    catch (err) { $('#repLog').innerHTML = `<div class="alert alert-err">${esc(err.message)}</div>`; return; }
+    const shown = rideLog.slice(-300).reverse();
+    $('#repLog').innerHTML = shown.length ? `<table class="log-table"><tr><th>Day</th>${logCols.map(([, l]) => `<th>${l}</th>`).join('')}</tr>
+      ${shown.map((r) => `<tr><td>${dayName(r.day)}</td>${logCols.map(([k]) => `<td>${esc(r[k] ?? '') || '—'}</td>`).join('')}</tr>`).join('')}</table>
+      ${rideLog.length > 300 ? `<p class="small muted">Showing the latest 300 of ${rideLog.length}. Download the CSV for all of them.</p>` : ''}` : '<div class="empty">No rides in this range.</div>';
+  }
+  $('#logCsv').onclick = async () => {
+    const r = await fetch(`/api/reports/rides?from=${rf.elements.from.value}&to=${rf.elements.to.value}&type=${repChips.value}&format=csv`, { credentials: 'same-origin' });
+    if (!r.ok) return alert('Could not make the file. Try again.');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob());
+    a.download = `shuttle-ride-log-${rf.elements.from.value}-to-${rf.elements.to.value}.csv`; a.click();
+  };
   rf.onsubmit = (e) => { e.preventDefault(); loadReport(); };
   $$('[data-range]').forEach((b) => b.onclick = () => { setRange(Number(b.dataset.range)); loadReport(); });
   $('#repCsv').onclick = () => {
@@ -964,6 +1086,7 @@
     const csv = [
       ...section('By day', 'Day', report.days, dayCols),
       ...section('Drivers', 'Driver', report.drivers, driverCols),
+      ...section('Vehicles', 'Vehicle', report.vehicles || [], vehicleCols),
       ...section('Cities', 'City', report.cities, cityCols),
       ...section('Advisor scheduling', 'Booked by', report.advisors, advisorCols),
     ].join('\n');
@@ -979,15 +1102,14 @@
     const [{ settings }, s] = await Promise.all([api('/api/me'), api('/api/sms')]);
     for (const k of ['sms_booked', 'sms_en_route', 'sms_arrived', 'sms_cancelled']) smsF.elements[k].checked = settings[k] === '1';
     $('#smsInfo').innerHTML = s.configured
-      ? `✅ Texting is set up. Messages come from <b>${esc(s.from)}</b>.`
-      : `⚠️ <b>Texting isn't set up yet</b>, so no texts are sent. To turn it on, create an account at twilio.com, get a phone number, then add these three lines to the <code>.env</code> file on the server and restart the site:
-        <pre class="small" style="background:var(--subtle);padding:.6rem;border-radius:8px;overflow:auto">TWILIO_ACCOUNT_SID=AC...\nTWILIO_AUTH_TOKEN=...\nTWILIO_FROM=+13035550123</pre>`;
+      ? `✅ Texts come from the dealership number <b>${esc(s.from)}</b>.`
+      : '⚠️ <b>No dealership number yet</b>, so no automatic texts are sent. Add one above.';
     $('#smsTest').classList.toggle('hidden', !s.configured);
-    $('#smsLog').innerHTML = s.log.length ? `<h3>Recent texts</h3><div class="table-wrap"><table><tr><th>When</th><th>To</th><th>Type</th><th>Result</th></tr>
+    $('#smsLog').innerHTML = s.log.length ? `<div class="table-wrap"><table><tr><th>When</th><th>Who</th><th>What</th><th>Result</th></tr>
       ${s.log.map((l) => `<tr title="${esc(l.body || '')}"><td class="small">${fmtTime(l.created_at.replace(' ', 'T') + (l.created_at.endsWith('Z') ? '' : 'Z'))}</td>
-        <td>${esc(l.customer_name || '')}<br><span class="small muted">${esc(l.to_number || '')}</span></td><td>${esc({ booked: 'Booked', en_route: 'On the way', cancelled: 'Cancelled', test: 'Test' }[l.event] || l.event)}</td>
+        <td>${esc(l.customer_name || '')}<br><span class="small muted">${esc(l.to_number || '')}</span></td><td>${esc({ booked: 'Text: booked', en_route: 'Text: on the way', arrived: 'Text: I\'m here', cancelled: 'Text: cancelled', test: 'Test text', 'test-call': 'Test call', staff: 'Text from staff', call: 'Call from staff', 'incoming-call': 'Call in', 'incoming-text': 'Text in' }[l.event] || l.event)}</td>
         <td>${l.status === 'sent' ? '<span class="badge s-completed">Sent</span>' : `<span class="badge s-cancelled">${esc(l.status)}</span><div class="small">${esc(l.error || '')}</div>`}</td></tr>`).join('')}
-      </table></div>` : '';
+      </table></div>` : '<p class="small muted">Nothing yet.</p>';
   }
   smsF.onsubmit = async (e) => {
     e.preventDefault();
@@ -1329,7 +1451,27 @@
   }, 2000);
 
   const serverVisible = () => !$('[data-pane="server"]').classList.contains('hidden') && !document.hidden;
-  loaders.server = () => { loadPerf().catch((err) => { $('#perfOut').textContent = err.message; }); loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
+  // Daily reports (saved at midnight).
+  async function loadDaily() {
+    const d = await api('/api/server/daily-reports');
+    $('#drEmail').innerHTML = d.emailed_to ? `Emailed to <b>${esc(d.emailed_to)}</b>.` : 'Set who gets it by email in <b>Phone &amp; email</b>.';
+    $('#drList').innerHTML = d.reports.length ? `<table><tr><th>Day</th><th>Rides</th><th>Completed</th><th>No-shows</th><th>On time</th><th>Requests</th><th>Errors</th><th>95% under</th><th></th></tr>
+      ${d.reports.map((r) => `<tr><td><b>${dayName(r.day)}</b></td><td>${r.rides}</td><td>${r.completed}</td><td>${r.no_shows}</td><td>${dash(r.on_time_pct, '%')}</td>
+        <td>${r.requests.toLocaleString()}</td><td>${r.errors ? `<span class="late">${r.errors}</span>` : 0}</td><td>${dash(r.p95_ms, ' ms')}</td>
+        <td class="nowrap"><button class="btn-ghost btn-sm" data-dr-view="${r.day}">View</button> <a class="btn btn-ghost btn-sm" href="/api/server/daily-reports/${r.day}?format=txt">Download</a></td></tr>`).join('')}</table>`
+      : '<div class="empty">The first report is saved tonight at midnight. “Build today\'s so far” shows one now.</div>';
+  }
+  $('#drBuild').onclick = async (e) => {
+    e.target.disabled = true;
+    try { const { report } = await api('/api/server/daily-reports', { body: {} }); await loadDaily(); showDaily(report.day); } catch (err) { alert(err.message); }
+    e.target.disabled = false;
+  };
+  async function showDaily(day) {
+    const r = await fetch(`/api/server/daily-reports/${day}?format=txt`, { credentials: 'same-origin' });
+    App.modal(`<h2>Daily report · ${dayName(day)}</h2><pre class="daily-text">${esc(await r.text())}</pre><div class="actions"><a class="btn" href="/api/server/daily-reports/${day}?format=txt">Download</a><button type="button" class="btn-ghost" data-close>Close</button></div>`);
+  }
+  $('#drList').addEventListener('click', (e) => { const b = e.target.closest('[data-dr-view]'); if (b) showDaily(b.dataset.drView); });
+  loaders.server = () => { loadDaily().catch(() => {}); loadPerf().catch((err) => { $('#perfOut').textContent = err.message; }); loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
   setInterval(() => { if (serverVisible()) { loadServer().catch(() => {}); if ($('#srvLive').checked) loadLog().catch(() => {}); } }, 5000);
   setInterval(() => { if (serverVisible()) loadChecks(); }, 60000);
 
@@ -1395,7 +1537,63 @@
     $('#emPwState').textContent = d.has_password ? '(saved; leave empty to keep it)' : '';
     $('#emRemove').classList.toggle('hidden', !d.configured || d.from_env);
     for (const el of emF.elements) if (d.from_env && el.tagName !== 'BUTTON' && el.type !== 'button') el.disabled = true;
+    const o = $('#emOpts').elements;
+    o.from_name.value = d.from_name; o.from_name.placeholder = d.default_name; o.reply_to.value = d.reply_to; o.report_to.value = d.report_to;
+    o.send_reset.checked = d.send_reset; o.send_approved.checked = d.send_approved; o.send_booked.checked = d.send_booked;
   }
+  $('#emOpts').onsubmit = async (e) => {
+    e.preventDefault(); const o = e.target.elements;
+    try {
+      await api('/api/email', { method: 'PUT', body: { options: true, from_name: o.from_name.value, reply_to: o.reply_to.value, report_to: o.report_to.value, send_reset: o.send_reset.checked, send_approved: o.send_approved.checked, send_booked: o.send_booked.checked } });
+      App.flash($('#emOptsMsg'), 'Saved.', true); loadEmail();
+    } catch (err) { App.flash($('#emOptsMsg'), err.message); }
+  };
+
+  // ---------- phone: how calls and texts work, and the dealership number ----------
+  const phP = $('#phPolicy'); const phF = $('#phForm');
+  async function loadPhone() {
+    const d = await api('/api/phone');
+    for (const k of ['calls', 'texts', 'customer_sees', 'inbound']) { const el = phP.querySelector(`[name=${k}][value="${d[k]}"]`); if (el) el.checked = true; }
+    phP.elements.desk.value = d.desk ? d.desk.replace(/^\+1(\d{3})(\d{3})(\d{4})$/, '($1) $2-$3') : '';
+    $('#phDeskNum').textContent = d.desk_number ? `(${d.desk_number}, from Settings)` : '(set the dealership phone in Settings)';
+    phP.querySelectorAll('[data-needs-line]').forEach((el) => { el.closest('label').classList.toggle('muted', !d.configured); });
+    $('#phState').innerHTML = d.configured ? '' : '<b>The dealership-number choices start working once a number is added below.</b> Until then everyone uses their own phone.';
+    $('#phNumState').innerHTML = d.configured ? `<b>✅ ${esc(d.number)}</b>${d.from_env ? ' (in the .env file on the server PC)' : ''}` : '<b>Not set up.</b>';
+    phF.elements.sid.value = ''; phF.elements.sid.placeholder = d.sid_hint ? `Saved (${d.sid_hint}); enter again to change` : 'AC…';
+    phF.elements.token.value = ''; $('#phTokState').textContent = d.has_token ? '(saved; leave empty to keep it)' : '';
+    phF.elements.number.value = d.number || '';
+    for (const el of phF.elements) if (d.from_env && el.tagName !== 'BUTTON' && el.type !== 'button') el.disabled = true;
+    $('#phRemove').classList.toggle('hidden', !d.configured || d.from_env);
+    $('#phCall').classList.toggle('hidden', !d.configured);
+    $('#phHooks').classList.toggle('hidden', !d.configured);
+    $('#phHookVoice').value = d.hooks.voice; $('#phHookSms').value = d.hooks.sms;
+  }
+  phP.onsubmit = async (e) => {
+    e.preventDefault(); const f = new FormData(phP);
+    try {
+      const d = await api('/api/phone', { method: 'PUT', body: { calls: f.get('calls'), texts: f.get('texts'), customer_sees: f.get('customer_sees'), inbound: f.get('inbound'), desk: f.get('desk') } });
+      const waiting = !d.configured && (d.calls === 'dealership' || d.texts === 'dealership' || d.customer_sees === 'line');
+      App.flash($('#phPolicyMsg'), waiting ? 'Saved. The dealership-number choices start once the number is set up below.' : 'Saved.', true); loadPhone();
+    } catch (err) { App.flash($('#phPolicyMsg'), err.message); }
+  };
+  phF.onsubmit = async (e) => {
+    e.preventDefault(); const f = phF.elements;
+    try { await api('/api/phone', { method: 'PUT', body: { account: true, sid: f.sid.value, token: f.token.value, number: f.number.value } }); App.flash($('#phMsg'), 'Saved. Try a test call or text.', true); loadPhone(); loadSms(); }
+    catch (err) { App.flash($('#phMsg'), err.message); }
+  };
+  $('#phCall').onclick = async () => {
+    try { const r = await api('/api/phone/test-call', { body: {} }); App.flash($('#phMsg'), r.message, true); } catch (err) { App.flash($('#phMsg'), err.message); }
+    loadSms();
+  };
+  $('#phRemove').onclick = async () => {
+    if (!confirm('Remove the dealership number? Staff go back to their own phones and automatic texts stop.')) return;
+    await api('/api/phone', { method: 'PUT', body: { clear: true } }); loadPhone(); loadSms();
+  };
+  $('[data-pane="comms"]').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-copy]'); if (!b) return;
+    const el = $('#' + b.dataset.copy);
+    try { await navigator.clipboard.writeText(el.value); b.textContent = 'Copied'; } catch { el.select(); }
+  });
   emF.elements.preset.onchange = () => { const v = emF.elements.preset.value; if (v && v !== 'other') { const [h, p] = v.split('|'); emF.elements.host.value = h; emF.elements.port.value = p; } };
   emF.onsubmit = async (e) => {
     e.preventDefault();
@@ -1451,7 +1649,8 @@
     } catch (err) { App.flash($('#eggMsg'), err.message); e.target.checked = !e.target.checked; }
   };
   $('#eggTry').onclick = () => App.tacoRain(10);
-  loaders.settings = () => { loadSms(); loadLook(); loadEgg(); loadFeedback(); loadEmail().catch(() => {}); return loadSettings(); };
+  loaders.settings = () => { loadLook(); loadEgg(); loadFeedback(); return loadSettings(); };
+  loaders.comms = () => { loadSms(); loadPhone().catch(() => {}); return loadEmail().catch(() => {}); };
   sf.onsubmit = async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(sf));

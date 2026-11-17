@@ -120,7 +120,7 @@ test('Admin → Server: status, logs, backups and restart are admin-only and wor
   assert.ok(s.requests.last_hour > 0, 'requests counted');
   assert.ok(s.database.size_mb >= 0);
   assert.equal(s.log_counts.error, 1);
-  assert.equal(s.backups.time, '00:30');
+  assert.equal(s.backups.time, '00:00');
 
   const checks = (await admin('/api/server/checks')).data;
   assert.equal(checks.database.ok, true);

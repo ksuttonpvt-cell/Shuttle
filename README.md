@@ -152,6 +152,10 @@ Then right-click the task and choose **Run**. Also go to **Settings → System �
 - If Settings shows an update problem mentioning sign-in or authentication, open PowerShell in the app folder and run `git pull` once. Git will ask you to sign in to GitHub and remember it.
 - To turn automatic updates off, add `AUTO_UPDATE=0` to `.env`. To change how often it checks, set `UPDATE_CHECK_MINUTES`.
 
+**Phone & email:** in Admin → Phone & email, choose whether staff call and text customers from their own phones or through a dealership number (Twilio, set up on that tab), which number customers see, and who calls to the shuttle number ring. Email uses the dealership's own mailbox (never a person's own address); pick which emails go out and who gets the daily report.
+
+**Reports:** drivers (shifts, hours, people carried, drive and wait times), vehicles, busiest hours and a downloadable ride log. Admin → Server → Daily reports keeps one report per day (shuttle + server: errors, response times, page speed), saved at midnight before the nightly backup.
+
 **Customer tracking like a ride app:** customers see the driver's photo, van and plate, how many stops come first, and a “Your shuttle is here” alert with a wait timer when the driver taps **I'm here**. Advisors, BDC and the request page show how long the shuttle wait is right now. Set the wait at a pick up in Admin → Settings.
 
 **Several roles:** tick every role a person has in Admin → Staff & logins (for example Service advisor + Shuttle driver). They get every page for those roles, with links in the top bar, and you can choose which page they open to.
