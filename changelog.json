@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.14.1",
+    "date": "2026-11-17",
+    "title": "Updates show up with one reload, or none",
+    "changes": [
+      "After an update, screens switch to the new version by themselves: right away when a page is just opened, not on screen, or nobody has used it for 2 minutes. No more reloading several times.",
+      "Pages left open all day (advisor desk, driver phones) find out about an update the moment the site comes back after updating.",
+      "If someone is in the middle of something (a window open, typing, a half-filled ride form), the page waits and shows “A newer version is ready” instead. One tap on Reload gets the new version."
+    ]
+  },
+  {
     "version": "2.14.0",
     "date": "2026-11-17",
     "title": "The BDC desk",

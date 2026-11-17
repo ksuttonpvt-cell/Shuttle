@@ -406,7 +406,7 @@ function createApp(db, opts = {}) {
   });
 
   app.get('/healthz', (req, res) => { q('SELECT 1').get(); res.json({ ok: true }); });
-  app.get('/api/events', requireRole(), (req, res) => live.handler(req, res, req.user));
+  app.get('/api/events', requireRole(), (req, res) => live.handler(req, res, req.user, { build: buildId() }));
   app.locals.live = live;
 
   app.get('/api/me', (req, res) => {
@@ -2398,6 +2398,23 @@ function createApp(db, opts = {}) {
   const FONT_PRELOAD = ['/vendor/fonts/barlow/barlow-latin-400-normal.woff2', '/vendor/fonts/barlow/barlow-latin-700-normal.woff2']
     .map((f) => `<link rel="preload" href="${f}" as="font" type="font/woff2" crossorigin>`).join('');
   const MAP_HINT = '<link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin><link rel="dns-prefetch" href="https://tile.openstreetmap.org">';
+  // One short id for everything the browser runs (pages, scripts, styles). Each page
+  // carries it, and the live connection says the current one, so a page left open
+  // through an update knows it's out of date.
+  let build = null;
+  function buildId() {
+    if (build) return build;
+    const h = crypto.createHash('sha1');
+    const walk = (dir) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+        const f = path.join(dir, e.name);
+        if (e.isDirectory()) { if (!['vendor', 'icons'].includes(e.name)) walk(f); } else if (/\.(html|js|css|json)$/.test(e.name)) h.update(e.name).update(fs.readFileSync(f));
+      }
+    };
+    try { walk(pub); } catch { /* keep what we have */ }
+    build = h.update(APP_VERSION).digest('hex').slice(0, 10);
+    return build;
+  }
   const pageCache = new Map();
   const page = (file) => (req, res, next) => {
     let html = pageCache.get(file);
@@ -2415,7 +2432,7 @@ function createApp(db, opts = {}) {
     const logo = s.brand_logo ? (s.brand_logo_v || '1') : '';
     const name = String(s.brand_name || s.dealer_name || '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
     res.set('Cache-Control', 'no-store').type('html')
-      .send(html.replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-brand-name="${name}" data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" style="--brand:${color};--brand-dark:${dark}">`));
+      .send(html.replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-brand-name="${name}" data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" data-build="${buildId()}" style="--brand:${color};--brand-dark:${dark}">`));
   };
   app.get('/', (req, res) => {
     if (!req.user) return res.redirect('/login');
