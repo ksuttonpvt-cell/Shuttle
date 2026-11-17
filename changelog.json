@@ -1,5 +1,18 @@
 [
   {
+    "version": "2.10.0",
+    "date": "2026-11-17",
+    "title": "Rotation near the dealership, right destinations, full check-up",
+    "changes": [
+      "Rotation: a driver coming back to the dealership with customers on board (next stop the dealership, or within 3 miles of it) is offered a ride waiting within 3 miles of them. Drop off, then grab the next one. Taking it updates their route automatically.",
+      "A trip that passes the dealership with picked-up customers on board stops to let them off before going on.",
+      "Navigate on a ride goes where the driver needs to go next: the dealership when a picked-up customer is on board or a drop-off customer is still waiting there.",
+      "Re-planning a route always includes customers already in the van, so they're never forgotten.",
+      "Browsers that visit over https always come back over https.",
+      "Full check-up after this week's updates: 68 automated tests, every page in every role and look, races, 1,933 odd requests, live site through Cloudflare, and a 1,000-person load test."
+    ]
+  },
+  {
     "version": "2.9.0",
     "date": "2026-11-16",
     "title": "Smarter routes: dealership stops along the way, urgent rides first",

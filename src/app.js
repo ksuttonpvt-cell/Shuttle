@@ -86,6 +86,8 @@ function createApp(db, opts = {}) {
     if (/"scheme"\s*:\s*"https"/.test(visitor) || forwarded === 'https') {
       Object.defineProperty(req, 'protocol', { value: 'https' });
       Object.defineProperty(req, 'secure', { value: true });
+      // Browsers that have visited over https always come back over https (no http step).
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000');
     }
     next();
   });
@@ -867,6 +869,7 @@ function createApp(db, opts = {}) {
     const ROTATION_KM = 3 / KM_TO_MI;
     drivers = drivers.map((d) => {
       if (d.load <= 1) return d; // free, or only finishing one ride
+      if (!d.riding || d.load >= 4) return null; // rotation is for a van coming back with customers on board
       const here = { lat: d.last_lat, lng: d.last_lng };
       const next = d.route_json ? liveRoute(d)?.stops?.[0] : null;
       const back = (next && next.kind === 'dealer') || distanceKm(here, dealer) <= ROTATION_KM;
