@@ -91,7 +91,7 @@
   $('#bookBtn').onclick = () => {
     const m = App.modal('<h2>Book a shuttle ride</h2><form id="bdcRide"></form>');
     $('.modal', m).style.maxWidth = '620px';
-    Rides.newRideForm($('#bdcRide', m), (ride) => { m.close(); $('#find').value = ride.customer_name; search(); loadList(); });
+    Rides.newRideForm($('#bdcRide', m), (ride) => { m.close(); $('#find').value = ride.customer_name; search(); loadList(); }, { advisors });
   };
 
   const refresh = () => { loadList().catch(() => {}); if (lastQ) search().catch(() => {}); };
@@ -108,6 +108,10 @@
   });
 
   App.live({ rides: refresh, drivers: refresh });
+  // The service advisors a BDC booking can go to (picked in the form and under Edit).
+  let advisors = [];
+  try { advisors = (await api('/api/advisors')).advisors; } catch { /* the form still works; the server asks for one */ }
+  Rides.setAdvisors(advisors);
   await loadList();
   App.poll(refresh, 30000); // a backup in case an instant update is missed
   $('#find').focus();

@@ -30,6 +30,17 @@ const Rides = (() => {
       <div data-urgent-wrap ${r.priority === 'urgent' ? '' : 'hidden'}><label>Why is it urgent? *</label><input name="urgent_reason" maxlength="300" value="${esc(r.urgent_reason)}" placeholder="e.g. Customer has a flight at 2 PM"></div>`;
   }
 
+  // "Which service advisor is this customer with?" (BDC books rides for advisors).
+  function advisorPick(advisors, current = '', required = true) {
+    if (!advisors || !advisors.length) return '';
+    return `<label>Service advisor${required ? ' *' : ''}</label>
+      <select name="advisor_id" ${required ? 'required' : ''}>
+        <option value="">— Pick the customer's advisor —</option>
+        ${advisors.map((a) => `<option value="${a.id}" ${a.id === Number(current) ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}
+      </select>
+      <div class="small muted">They get a notification that this ride is theirs.</div>`;
+  }
+
   // Wires up map + address search inside a form. Returns a reset function.
   function wireForm(form) {
     const map = App.makeMap($('[data-map]', form), { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng) }, 12);
@@ -65,7 +76,7 @@ const Rides = (() => {
 
   // New-ride form for advisors, one question at a time:
   // ride type -> customer -> location -> time & people -> urgent or regular (+ notes, review).
-  function stepFormHtml() {
+  function stepFormHtml({ advisors = null } = {}) {
     const when = new Date(Date.now() + 30 * 60000);
     return `
       <div class="progress" data-progress></div>
@@ -85,6 +96,7 @@ const Rides = (() => {
         <label>Customer name *</label><input name="customer_name" required autocomplete="off">
         <label>Mobile phone</label><input name="customer_phone" type="tel" autocomplete="off" placeholder="For the tracking link and texts">
         <label>Email</label><input name="customer_email" type="email" autocomplete="off">
+        ${advisorPick(advisors)}
       </section>
       <section data-step="where" data-title="Location" hidden>
         <h3 class="step-q" data-addr-label>Where are we picking them up?</h3>
@@ -123,6 +135,7 @@ const Rides = (() => {
     f.priority = (pr instanceof RadioNodeList ? pr.value === 'urgent' : pr.checked) ? 'urgent' : 'normal';
     f.scheduled_at = new Date(f.scheduled_at).toISOString();
     if (!f.lat) { f.lat = null; f.lng = null; }
+    if (f.advisor_id === undefined || f.advisor_id === '') delete f.advisor_id; else f.advisor_id = Number(f.advisor_id);
     return f;
   }
 
@@ -145,7 +158,7 @@ const Rides = (() => {
           ${r.customer_phone ? `<div>📞 <a href="${App.telLink(r.customer_phone)}">${esc(r.customer_phone)}</a></div>` : ''}
           ${r.priority === 'urgent' && r.urgent_reason ? `<div class="urgent-why">🚨 Urgent: ${esc(r.urgent_reason)}</div>` : ''}
           ${r.notes ? `<div>📝 ${esc(r.notes)}</div>` : ''}
-          <div>👤 Advisor: ${esc(r.advisor_name || (r.source === 'customer' ? 'Customer request' : '—'))}
+          <div>👤 Advisor: ${esc(r.advisor_name || (r.source === 'customer' ? 'Customer request' : '—'))}${r.booked_by_name && r.booked_by !== r.advisor_id ? ` <span class="muted">· 📞 booked by ${esc(r.booked_by_name.split(' ')[0])}${r.booked_by_team === 'bdc' ? ' (BDC)' : ''}</span>` : ''}
             ${r.driver_name ? ` · 🚐 ${esc(r.driver_name)}${r.vehicle_name ? ' in ' + esc(r.vehicle_name) : ''}` : ''}${!r.driver_id && r.offered_to ? ` · ⏳ Offered to ${esc(r.offered_to)}, waiting for an answer` : ''}</div>
         </div>
         ${App.cancelNote(r)}
@@ -186,8 +199,10 @@ const Rides = (() => {
     });
   }
 
+  let advisorList = null; // set by pages that let people pick the advisor (BDC)
+  function setAdvisors(list) { advisorList = list; }
   function edit(ride, refresh) {
-    const m = App.modal(`<h2>Edit ride</h2><form>${formHtml(ride)}<div class="msg"></div>
+    const m = App.modal(`<h2>Edit ride</h2><form>${advisorList ? advisorPick(advisorList, ride.advisor_id, false) : ''}${formHtml(ride)}<div class="msg"></div>
       <div class="actions"><button>Save changes</button><button type="button" class="btn-ghost" data-close>Close</button></div></form>`);
     $('.modal', m).style.maxWidth = '560px';
     const form = $('form', m);
@@ -200,10 +215,10 @@ const Rides = (() => {
   }
 
   // The step-by-step "new ride" form, used on the advisor and BDC pages.
-  function newRideForm(form, onAdded = () => {}) {
+  function newRideForm(form, onAdded = () => {}, { advisors = null } = {}) {
     // New ride form, one step at a time:
     // pick up or drop off -> customer name & phone -> location -> time & people -> urgent or not.
-    form.innerHTML = `${Rides.stepFormHtml()}
+    form.innerHTML = `${Rides.stepFormHtml({ advisors })}
       <div id="formMsg"></div>
       <div class="step-nav">
         <button type="button" class="btn-ghost" data-back>← Back</button>
@@ -242,8 +257,10 @@ const Rides = (() => {
         }
         if (step === 'priority') {
           const f = Rides.formData(form);
+          const adv = advisors && advisors.find((a) => a.id === f.advisor_id);
           $('[data-summary]', form).innerHTML = `<b>Review</b>
             <div>${f.type === 'pickup' ? '⬆ Pick up' : '⬇ Drop off'} · <b>${esc(f.customer_name)}</b>${f.customer_phone ? ` · ${esc(f.customer_phone)}` : ''}</div>
+            ${adv ? `<div>👤 Advisor: <b>${esc(adv.name)}</b></div>` : ''}
             <div>📍 ${esc(f.address)}${f.lat ? '' : ' <span class="late">(no map pin)</span>'}</div>
             <div data-review-time>🕒 ${App.fmtTime(f.scheduled_at)} · ${f.passengers || 1} ${Number(f.passengers) === 1 ? 'person' : 'people'}</div>`;
           reviewTime();
@@ -265,12 +282,13 @@ const Rides = (() => {
         form.elements.scheduled_at.value = App.toLocalInput(new Date(Date.now() + 30 * 60000));
         form.querySelectorAll('[data-choose]').forEach((x) => x.classList.remove('picked'));
         steps.reset(); // ready for the next ride
-        App.flash($('#formMsg'), moved ? `Added ${ride.customer_name}. Drop off set for ${App.fmtTime(moved)} (${waitMin}-minute wait).` : `Added ${ride.customer_name}.`, true);
+        const forWho = ride.advisor_name && advisors ? ` ${ride.advisor_name.split(' ')[0]} has been told.` : '';
+        App.flash($('#formMsg'), (moved ? `Added ${ride.customer_name}. Drop off set for ${App.fmtTime(moved)} (${waitMin}-minute wait).` : `Added ${ride.customer_name}.`) + forWho, true);
         onAdded(ride);
         App.share({ title: `Shuttle tracking for ${ride.customer_name}`, url: ride.track_url, phone: ride.customer_phone, email: ride.customer_email, message: App.rideMessage(ride) });
       } catch (err) { App.flash($('#formMsg'), err.message); }
     };
   }
 
-  return { formHtml, stepFormHtml, wireForm, formData, card, bind, edit, newRideForm };
+  return { formHtml, stepFormHtml, wireForm, formData, card, bind, edit, newRideForm, setAdvisors };
 })();

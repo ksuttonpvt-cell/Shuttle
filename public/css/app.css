@@ -615,3 +615,7 @@ body.spec { height: 100%; margin: 0; display: grid; grid-template-rows: auto 1fr
 .bdc-find-row { display: flex; flex-wrap: wrap; gap: .5rem; }
 .bdc-find-row input { flex: 1 1 240px; min-width: 0; font-size: 1.15rem; padding: .8rem 1rem; }
 .bdc-say { margin: .35rem 0; padding: .45rem .6rem; border-radius: 8px; background: var(--blue-bg); font-size: .92rem; }
+
+/* "A ride was booked for you" notes on the advisor desk */
+.for-you { display: flex; gap: .8rem; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: .8rem; }
+.flash-ride { outline: 3px solid var(--blue, #2563eb); outline-offset: 2px; transition: outline-color .4s; }

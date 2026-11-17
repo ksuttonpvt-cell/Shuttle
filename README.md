@@ -152,7 +152,7 @@ Then right-click the task and choose **Run**. Also go to **Settings → System �
 - If Settings shows an update problem mentioning sign-in or authentication, open PowerShell in the app folder and run `git pull` once. Git will ask you to sign in to GitHub and remember it.
 - To turn automatic updates off, add `AUTO_UPDATE=0` to `.env`. To change how often it checks, set `UPDATE_CHECK_MINUTES`.
 
-**BDC team:** give BDC staff the **BDC** role. They get their own page (`/bdc`) to find a customer's ride by name, phone or RO number, book rides ahead and text tracking links; they have an advisor's access without driver controls.
+**BDC team:** give BDC staff the **BDC** role. They get their own page (`/bdc`) to find a customer's ride by name, phone or RO number, book rides ahead for a service advisor they pick (the advisor is notified and the ride shows as theirs) and text tracking links; they have an advisor's access without driver controls.
 
 **New staff accounts:** new people can tap **Ask for an account** on the sign-in page. An admin approves each one (and picks the role) from the top of **Staff & logins**; nobody can ask to be an admin. Turn it off in **Admin → Settings**.
 

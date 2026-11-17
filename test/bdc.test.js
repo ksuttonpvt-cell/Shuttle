@@ -39,9 +39,10 @@ test('BDC team: their own page, booking, and finding a customer by name, phone o
   assert.equal(home.headers.get('location'), '/bdc', 'signing in lands on the BDC page');
   assert.equal((await fetch(`${base}/bdc`)).status, 200);
 
-  // Book rides: today, and for an appointment next week.
+  // Book rides: today, and for an appointment next week, for a service advisor.
+  const adv = (await a('/api/users', { body: { name: 'Sam Advisor', email: 'sam@bdc.test', role: 'advisor', password: 'advpass123' } })).data.user;
   const soon = (min) => new Date(Date.now() + min * 60000).toISOString();
-  const ride = (name, phone, when, extra = {}) => b('/api/rides', { body: { type: 'pickup', customer_name: name, customer_phone: phone, address: '1 Main St', lat: 40.01, lng: -105.27, scheduled_at: when, passengers: 1, ...extra } });
+  const ride = (name, phone, when, extra = {}) => b('/api/rides', { body: { type: 'pickup', customer_name: name, customer_phone: phone, address: '1 Main St', lat: 40.01, lng: -105.27, scheduled_at: when, passengers: 1, advisor_id: adv.id, ...extra } });
   assert.equal((await ride('Maria Lopez', '(303) 555-0142', soon(45), { ro_number: 'RO-88123' })).status, 201);
   assert.equal((await ride('Dan Brooks', '720.555.0199', soon(7 * 24 * 60))).status, 201);
 
@@ -70,4 +71,59 @@ test('BDC team: their own page, booking, and finding a customer by name, phone o
   // Moving someone off the BDC team.
   const moved = await a(`/api/users/${made.data.user.id}`, { method: 'PATCH', body: { role: 'advisor' } });
   assert.deepEqual([moved.data.user.team, moved.data.user.home], [null, '/advisor']);
+});
+
+test('BDC picks the service advisor; the advisor is told and sees it as theirs', async () => {
+  const a = client(); await a('/api/login', { body: { email: 'boss@bdc.test', password: 'adminpass1' } });
+  const mk = async (name, email, role) => (await a('/api/users', { body: { name, email, role, password: 'password123' } })).data.user;
+  const bdc = await mk('Cal Desk', 'cal@bdc.test', 'bdc');
+  const kim = await mk('Kim Service', 'kim@bdc.test', 'advisor');
+  const lee = await mk('Lee Service', 'lee@bdc.test', 'advisor');
+  const b = client(); await b('/api/login', { body: { email: 'cal@bdc.test', password: 'password123' } });
+  const k = client(); await k('/api/login', { body: { email: 'kim@bdc.test', password: 'password123' } });
+
+  // The list has service advisors only: not the BDC team.
+  const list = (await b('/api/advisors')).data.advisors;
+  assert.ok(list.some((x) => x.id === kim.id) && list.some((x) => x.id === lee.id));
+  assert.ok(!list.some((x) => x.id === bdc.id), 'BDC people are not advisors to pick');
+
+  // Kim's desk is open: listen for the "for you" pop-up.
+  const ctrl = new AbortController();
+  const cookieK = (await fetch(`${base}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'kim@bdc.test', password: 'password123' }) })).headers.get('set-cookie').split(';')[0];
+  const es = await fetch(`${base}/api/events`, { headers: { Cookie: cookieK }, signal: ctrl.signal });
+  const reader = es.body.getReader(); let got = '';
+  const heard = (async () => { const dec = new TextDecoder(); while (!got.includes('event: foryou')) { const { value, done } = await reader.read(); if (done) break; got += dec.decode(value); } })().catch(() => {});
+
+  const body = { type: 'dropoff', customer_name: 'Pat Caller', customer_phone: '303-555-0100', address: '2 Pine St', lat: 40.02, lng: -105.25, scheduled_at: new Date(Date.now() + 3600000).toISOString(), passengers: 1 };
+  assert.equal((await b('/api/rides', { body })).status, 400, 'BDC must pick an advisor');
+  assert.equal((await b('/api/rides', { body: { ...body, advisor_id: bdc.id } })).status, 400, 'not a BDC person');
+  assert.equal((await b('/api/rides', { body: { ...body, advisor_id: 99999 } })).status, 400);
+  const made = await b('/api/rides', { body: { ...body, advisor_id: kim.id } });
+  assert.equal(made.status, 201);
+  const r = made.data.ride;
+  assert.equal(r.advisor_id, kim.id);
+  assert.equal(r.advisor_name, 'Kim Service');
+  assert.equal(r.booked_by, bdc.id);
+  assert.deepEqual([r.booked_by_name, r.booked_by_team], ['Cal Desk', 'bdc']);
+
+  await Promise.race([heard, new Promise((res) => setTimeout(res, 3000))]);
+  ctrl.abort();
+  assert.match(got, /event: foryou/, 'the advisor desk heard about it');
+  assert.match(got, /Cal \(BDC\) booked a drop off for you/);
+
+  // It's under "My customers only" for Kim.
+  const mine = (await k('/api/rides?scope=open&mine=1')).data.rides.map((x) => x.id);
+  assert.ok(mine.includes(r.id));
+
+  // BDC moves it to Lee from Edit.
+  const moved = await b(`/api/rides/${r.id}`, { method: 'PATCH', body: { advisor_id: lee.id } });
+  assert.equal(moved.status, 200);
+  assert.equal(moved.data.ride.advisor_id, lee.id);
+  assert.equal((await b(`/api/rides/${r.id}`, { method: 'PATCH', body: { advisor_id: bdc.id } })).status, 400);
+  assert.ok(!(await k('/api/rides?scope=open&mine=1')).data.rides.some((x) => x.id === r.id));
+
+  // A service advisor booking for themselves: no booked-by line.
+  const own = await k('/api/rides', { body });
+  assert.equal(own.status, 201);
+  assert.deepEqual([own.data.ride.advisor_id, own.data.ride.booked_by], [kim.id, null]);
 });

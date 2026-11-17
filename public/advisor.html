@@ -10,6 +10,7 @@
 <body>
 <header id="topbar"></header>
 <main class="wrap">
+  <div id="forYou" aria-live="polite"></div>
   <div class="grid cols-2">
     <section class="card">
       <div class="card-head"><h2>New shuttle ride</h2></div>
@@ -65,7 +66,24 @@
   App.dealerMarker(map, App.settings);
   const draw = App.ridesLayer(map);
   const vans = App.liveDrivers(map); // vans move every few seconds, with each driver's planned route
-  App.live({ rides: refresh, drivers: () => { vans.refresh(); refresh(); }, moved: () => vans.refresh() }); // changes show up right away
+  App.live({ rides: refresh, drivers: () => { vans.refresh(); refresh(); }, moved: () => vans.refresh(), foryou: forYou }); // changes show up right away
+  // Someone else (the BDC team, usually) booked a ride for one of this advisor's customers,
+  // or gave them one: show it at the top until they tap Got it.
+  async function forYou(data) {
+    if (!data || data.catchUp || !data.ride_id) return;
+    await refresh().catch(() => {});
+    const box = document.createElement('div');
+    box.className = 'alert alert-ok for-you';
+    box.innerHTML = `<div><b>${esc(data.title)}</b><div class="small">${esc(data.what)}</div></div>
+      <div class="actions" style="margin:0"><button class="btn-sm btn-blue" data-show>Show it</button><button class="btn-sm btn-ghost" data-ok>Got it</button></div>`;
+    $('[data-ok]', box).onclick = () => box.remove();
+    $('[data-show]', box).onclick = () => {
+      box.remove();
+      const el = document.querySelector(`#rides [data-id="${data.ride_id}"]`);
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('flash-ride'); setTimeout(() => el.classList.remove('flash-ride'), 2500); }
+    };
+    $('#forYou').prepend(box);
+  }
   let rides = []; let drivers = []; let cancelledRides = []; let readyRides = [];
   const chips = App.typeChips($('#typeChips'), 'shuttle.advisorType', () => refresh());
   async function refresh() {

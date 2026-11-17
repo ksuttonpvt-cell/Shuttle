@@ -238,6 +238,7 @@ function createApp(db, opts = {}) {
 
   const RIDE_SELECT = `
     SELECT r.*, a.name AS advisor_name, d.name AS driver_name, d.phone AS driver_phone,
+           bb.name AS booked_by_name, bb.team AS booked_by_team,
            v.name AS vehicle_name, v.color AS vehicle_color, v.plate AS vehicle_plate, v.make_model AS vehicle_make_model,
            c.name AS cancelled_by_name,
            (SELECT x.id FROM rides x WHERE x.return_of = r.id AND x.status <> 'cancelled' LIMIT 1) AS return_ride_id,
@@ -245,6 +246,7 @@ function createApp(db, opts = {}) {
     FROM rides r
     LEFT JOIN users c ON c.id = r.cancelled_by
     LEFT JOIN users a ON a.id = r.advisor_id
+    LEFT JOIN users bb ON bb.id = r.booked_by
     LEFT JOIN users d ON d.id = r.driver_id
     LEFT JOIN vehicles v ON v.id = r.vehicle_id`;
 
@@ -1222,8 +1224,8 @@ function createApp(db, opts = {}) {
   for (const r of q("SELECT id FROM rides WHERE city IS NULL AND est_miles IS NULL AND address <> '(cleared)'").all()) stampPlace(r.id);
 
   function insertRide(r, extra) {
-    const cols = [...RIDE_FIELDS, 'status', 'source', 'advisor_id', 'track_token', 'return_of'];
-    const vals = [...RIDE_FIELDS.map((f) => r[f] ?? null), extra.status || 'requested', extra.source, extra.advisor_id ?? null, newTrackCode(), extra.return_of ?? null];
+    const cols = [...RIDE_FIELDS, 'status', 'source', 'advisor_id', 'booked_by', 'track_token', 'return_of'];
+    const vals = [...RIDE_FIELDS.map((f) => r[f] ?? null), extra.status || 'requested', extra.source, extra.advisor_id ?? null, extra.booked_by ?? null, newTrackCode(), extra.return_of ?? null];
     const res = q(`INSERT INTO rides (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
     stampPlace(res.lastInsertRowid);
     return q(`${RIDE_SELECT} WHERE r.id = ?`).get(res.lastInsertRowid);
@@ -1297,6 +1299,21 @@ function createApp(db, opts = {}) {
     res.json({ ride: withLinks(req, ride) });
   });
 
+  // Service advisors a ride can belong to (not the BDC team), for the BDC booking form.
+  const serviceAdvisor = (id) => (id ? q("SELECT id, name FROM users WHERE id = ? AND active = 1 AND ((role = 'advisor' AND COALESCE(team, '') <> 'bdc') OR role = 'admin')").get(id) : null);
+  app.get('/api/advisors', requireRole('advisor'), (req, res) => {
+    res.json({ advisors: q("SELECT id, name FROM users WHERE active = 1 AND role = 'advisor' AND COALESCE(team, '') <> 'bdc' ORDER BY name").all() });
+  });
+  // Tell an advisor a ride was booked for them (or moved to them) by someone else: a phone
+  // notification and, if their page is open, a pop-up.
+  function tellAdvisor(advisorId, ride, by, how) {
+    const what = `${ride.customer_name} · ${fmtWhen(ride.scheduled_at)}`;
+    const who = `${by.name.split(' ')[0]}${by.team === 'bdc' ? ' (BDC)' : ''}`;
+    const title = how === 'moved' ? `📋 ${who} gave you a ${ride.type === 'pickup' ? 'pick up' : 'drop off'}` : `📞 ${who} booked a ${ride.type === 'pickup' ? 'pick up' : 'drop off'} for you`;
+    quietly(push.notifyUsers([advisorId], { title, body: `${ride.customer_name} · ${fmtWhen(ride.scheduled_at)}`, tag: `ride-${ride.id}`, url: '/advisor' }));
+    live.send('foryou', { ride_id: ride.id, title, what }, { userId: advisorId });
+  }
+
   app.post('/api/rides', requireRole('advisor'), atomic((req, res) => {
     const { r, error, adjusted } = cleanRide(req.body, {}, { byAdmin: req.user.role === 'admin' });
     if (error) return bad(res, error);
@@ -1309,9 +1326,17 @@ function createApp(db, opts = {}) {
       if (existing) return bad(res, 'A drop off is already booked for this customer.');
       returnOf = from.id;
     }
-    const ride = insertRide(r, { source: 'advisor', advisor_id: req.user.id, return_of: returnOf });
+    // Whose customer it is: the person booking, or (BDC) the advisor they picked.
+    let advisorId = req.user.id;
+    if (req.body.advisor_id != null && req.body.advisor_id !== '') {
+      const a = serviceAdvisor(num(req.body.advisor_id));
+      if (!a) return bad(res, 'Pick a service advisor from the list.');
+      advisorId = a.id;
+    } else if (req.user.team === 'bdc') return bad(res, 'Pick the service advisor this customer is with.');
+    const ride = insertRide(r, { source: 'advisor', advisor_id: advisorId, booked_by: advisorId === req.user.id ? null : req.user.id, return_of: returnOf });
     notifyCustomer(ride.id, 'booked', baseUrl(req));
     pushNewRide(ride.id);
+    if (advisorId !== req.user.id) tellAdvisor(advisorId, ride, req.user, 'booked');
     res.status(201).json({ ride: withLinks(req, ride), adjusted_to: adjusted, wait_min: adjusted ? dropoffWait() : 0 });
   }));
 
@@ -1319,7 +1344,7 @@ function createApp(db, opts = {}) {
     const ride = q('SELECT * FROM rides WHERE id = ?').get(Number(req.params.id));
     if (!ride) return bad(res, 'Ride not found.', 404);
     const b = req.body; const role = req.user.role;
-    const updates = {};
+    const updates = {}; let movedTo = null;
 
     // Details: advisors/admins can edit.
     if (role !== 'driver' && RIDE_FIELDS.some((f) => b[f] !== undefined)) {
@@ -1348,6 +1373,11 @@ function createApp(db, opts = {}) {
         updates.vehicle_id = null;
         if (['assigned', 'en_route'].includes(ride.status)) updates.status = 'requested';
       }
+    }
+    if (b.advisor_id !== undefined && b.advisor_id !== '' && role !== 'driver') { // move the customer to another advisor
+      const a = serviceAdvisor(num(b.advisor_id));
+      if (!a) return bad(res, 'Pick a service advisor from the list.');
+      if (a.id !== ride.advisor_id) { updates.advisor_id = a.id; movedTo = a.id; }
     }
     if (b.vehicle_id !== undefined && role !== 'driver') {
       const vid = num(b.vehicle_id) || null;
@@ -1398,6 +1428,7 @@ function createApp(db, opts = {}) {
     if (updates.status === 'cancelled' && ride.status !== 'cancelled' && ride.driver_id && ride.driver_id !== req.user.id) {
       quietly(push.notifyUsers([ride.driver_id], { title: '❌ Ride cancelled', body: `${rideLine(after)}${after.cancel_reason ? ` — ${after.cancel_reason}` : ''}`, tag: `ride-${after.id}` }));
     }
+    if (movedTo && movedTo !== req.user.id) tellAdvisor(movedTo, after, req.user, 'moved');
     scheduleOfferSweep(); // a driver may be free now, or a ride may need someone again
     stampPlace(ride.id);
     res.json({ ride: withLinks(req, q(`${RIDE_SELECT} WHERE r.id = ?`).get(ride.id)) });
