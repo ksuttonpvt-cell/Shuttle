@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.15.0",
+    "date": "2026-11-17",
+    "title": "People can have more than one role",
+    "changes": [
+      "In Admin → Staff & logins, tick every role a person has: Service advisor, BDC, Shuttle driver and Admin. For example, an advisor who also drives the shuttle, or a BDC person who drives.",
+      "They can use every page for their roles, with a link to each in the top bar. Pick which page they open to when they sign in.",
+      "Someone who also drives can start a shift, shows up in the driver lists, gets ride offers and can be assigned rides, and keeps their advisor or BDC desk.",
+      "Approving an account request lets you tick several roles too. The staff list shows them all, like “Advisor + Driver”."
+    ]
+  },
+  {
     "version": "2.14.1",
     "date": "2026-11-17",
     "title": "Updates show up with one reload, or none",

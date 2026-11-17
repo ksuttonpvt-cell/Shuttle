@@ -67,7 +67,8 @@ const App = (() => {
     const { user, settings, base_url, version } = await api('/api/me');
     App.baseUrl = base_url; App.version = version || null;
     if (!user) { location.href = '/login?next=' + encodeURIComponent(location.pathname); throw new Error('redirect'); }
-    if (roles.length && !roles.includes(user.role) && user.role !== 'admin') { location.href = user.home || '/' + user.role; throw new Error('redirect'); }
+    const can = user.can || [user.role]; // every role they have (several for some people)
+    if (roles.length && !roles.some((r) => can.includes(r))) { location.href = user.home || '/' + user.role; throw new Error('redirect'); }
     App.user = user; App.settings = settings;
     renderTopbar(user, settings);
     return user;
@@ -77,14 +78,21 @@ const App = (() => {
     const el = $('#topbar'); if (!el) return;
     const links = [];
     if (user.role === 'admin') links.push(['/admin', 'Admin'], ['/advisor', 'Advisor'], ['/bdc', 'BDC'], ['/driver', 'Driver']);
-    else if (user.team === 'bdc') links.push(['/bdc', 'BDC'], ['/advisor', 'Advisor desk']);
+    else {
+      // People with several roles get a link to each of their pages.
+      const roles = user.roles || [user.role];
+      const PAGE = { bdc: ['/bdc', 'BDC'], advisor: ['/advisor', 'Advisor desk'], driver: ['/driver', 'Driver'] };
+      for (const r of roles) if (PAGE[r]) links.push(PAGE[r]);
+      if (roles.includes('bdc') && !roles.includes('advisor')) links.push(PAGE.advisor); // BDC can use the advisor desk too
+      if (links.length < 2) links.length = 0;
+    }
     const nav = links.map(([href, label]) => `<a href="${href}" class="${location.pathname === href ? 'active' : ''}">${label}</a>`).join('');
     el.className = 'topbar';
     el.innerHTML = `
       <a class="brand brand-classic" href="/"><span class="logo">🚐</span><span>Shuttle<small>${esc(settings.dealer_name)}</small></span></a>
       <a class="brand brand-corwin" href="/">${brandMark(settings.dealer_name, 'Shuttle')}</a>
       <nav>${nav}<button id="helpBtn" title="Ask for help or suggest an idea">💬 Help</button><button id="themeBtn" title="Light or dark screen"></button><button id="pwBtn" title="Change password">Password</button><button id="logoutBtn">Sign out</button></nav>
-      <span class="who">${esc(user.name)} · ${esc(user.team === "bdc" ? "BDC" : user.role)}</span>
+      <span class="who">${esc(user.name)} · ${esc((user.roles || [user.role]).map((r) => ({ admin: 'Admin', advisor: 'Advisor', bdc: 'BDC', driver: 'Driver' }[r] || r)).join(' + '))}</span>
       ${App.version ? `<button type="button" id="verBtn" class="ver-pill" title="Version — see what's new">v${esc(App.version)}${seenVersion() !== App.version ? '<span class="ver-new">NEW</span>' : ''}</button>` : ''}`;
     if ($('#verBtn')) $('#verBtn').onclick = () => whatsNew();
     $('#logoutBtn').onclick = async () => { await api('/api/logout', { body: {} }); location.href = '/login'; };
