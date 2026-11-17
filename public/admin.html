@@ -192,6 +192,13 @@
       </select>
       <label class="check" style="margin-top:1rem"><input type="checkbox" name="public_requests"> Let customers request rides online (the /request page)</label>
       <label class="check"><input type="checkbox" name="staff_signup"> Let new staff ask for an account from the sign-in page (an admin approves each one)</label>
+      <h3 style="margin:1rem 0 .2rem">Driver location</h3>
+      <p class="small muted" style="margin:0 0 .3rem">Drivers' phones share their location whenever the driver page is open. On a low battery (Android phones; iPhones don't tell websites their battery level):</p>
+      <div class="grid cols-2" style="gap:.5rem">
+        <div><label for="gpsPct">Low battery is at or below</label><select id="gpsPct" name="gps_low_battery_pct">${''}</select></div>
+        <div><label for="gpsMode">Then</label><select id="gpsMode" name="gps_low_battery_mode"><option value="slow">Share less often (about every 30 s) and let the screen sleep</option><option value="pause">Pause sharing until the phone is charging</option><option value="normal">Keep sharing as normal</option></select></div>
+      </div>
+      <label class="check"><input type="checkbox" name="driver_gps_toggle"> Let drivers turn their location off themselves</label>
       <label class="check"><input type="checkbox" name="customer_actions"> Let customers say they're running late or cancel from their tracking page (the driver gets a notification)</label>
       <label class="check" style="margin-top:.6rem"><input type="checkbox" name="ride_offers"> Offer waiting rides to the closest free driver (they get a ding and can take it or pass; if they pass, it goes to the next closest)</label>
       <div id="setMsg"></div>
@@ -913,6 +920,10 @@
     sf.elements.public_requests.checked = settings.public_requests === '1';
     sf.elements.customer_actions.checked = settings.customer_actions !== '0';
     sf.elements.staff_signup.checked = settings.staff_signup !== '0';
+    sf.elements.gps_low_battery_pct.innerHTML = [10, 15, 20, 25, 30, 40, 50].map((n) => `<option value="${n}">${n}%</option>`).join('');
+    sf.elements.gps_low_battery_pct.value = settings.gps_low_battery_pct || '20';
+    sf.elements.gps_low_battery_mode.value = settings.gps_low_battery_mode || 'slow';
+    sf.elements.driver_gps_toggle.checked = settings.driver_gps_toggle === '1';
     sf.elements.ride_offers.checked = settings.ride_offers !== '0';
     const at = [Number(settings.dealer_lat), Number(settings.dealer_lng)];
     if (!setMap) {
@@ -1356,6 +1367,9 @@
     body.public_requests = sf.elements.public_requests.checked ? '1' : '0';
     body.customer_actions = sf.elements.customer_actions.checked ? '1' : '0';
     body.staff_signup = sf.elements.staff_signup.checked ? '1' : '0';
+    body.gps_low_battery_pct = sf.elements.gps_low_battery_pct.value;
+    body.gps_low_battery_mode = sf.elements.gps_low_battery_mode.value;
+    body.driver_gps_toggle = sf.elements.driver_gps_toggle.checked ? '1' : '0';
     body.ride_offers = sf.elements.ride_offers.checked ? '1' : '0';
     try { const { settings } = await api('/api/settings', { method: 'PATCH', body }); App.settings = settings; App.flash($('#setMsg'), 'Saved.', true); }
     catch (err) { App.flash($('#setMsg'), err.message); }

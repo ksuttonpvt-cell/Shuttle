@@ -589,3 +589,11 @@ html[data-look="corwin"] .cust-big { font-family: "Barlow Semi Condensed", "Barl
 .cust-late { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; margin: .6rem 0; }
 @media (max-width: 420px) { .cust-late { grid-template-columns: 1fr 1fr; } .cust-change { grid-template-columns: 1fr; } }
 .nowrap { white-space: nowrap; }
+
+/* Driver page: location sharing bar */
+.gps-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .4rem .8rem; padding: .55rem .8rem; border-radius: 12px; font-size: .9rem; font-weight: 600; border: 1px solid var(--line); background: var(--card); }
+.gps-bar:empty { display: none; }
+.gps-bar span { flex: 1; min-width: 0; }
+.gps-on { border-color: color-mix(in srgb, var(--green) 45%, transparent); background: var(--green-bg); color: var(--green-fg, var(--ink)); }
+.gps-warn { border-color: var(--amber); background: var(--amber-bg); }
+.gps-off { color: var(--muted); }

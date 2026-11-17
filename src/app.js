@@ -43,6 +43,12 @@ const DEFAULT_SETTINGS = {
   public_requests: '1',
   customer_actions: '1', // customers can say they're running late or cancel from their tracking page
   staff_signup: '1', // new staff can ask for an account from the sign-in page (an admin approves it)
+  // Driver location: always on while the driver page is open. On a low phone battery
+  // (and not charging) it can share less often or pause; drivers can't switch it off
+  // themselves unless allowed.
+  gps_low_battery_pct: '20',
+  gps_low_battery_mode: 'slow', // slow | pause | normal
+  driver_gps_toggle: '0',
   timezone: 'America/Denver',
   service_radius_mi: '15.5',
   dropoff_wait_min: '30',   // drop offs leave at least this many minutes after booking, unless urgent
@@ -62,7 +68,7 @@ const DEFAULT_SETTINGS = {
   sms_en_route: '1',
   sms_cancelled: '1',
 };
-const YES_NO_SETTINGS = ['public_requests', 'customer_actions', 'staff_signup', 'ride_offers', 'easter_egg', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
+const YES_NO_SETTINGS = ['public_requests', 'customer_actions', 'staff_signup', 'driver_gps_toggle', 'ride_offers', 'easter_egg', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
 
 function createApp(db, opts = {}) {
   const app = express();
@@ -794,6 +800,8 @@ function createApp(db, opts = {}) {
     const lat = num(req.body.lat); const lng = num(req.body.lng);
     if (lat == null || lng == null || Math.abs(lat) > 90 || Math.abs(lng) > 180) return bad(res, 'Bad location.');
     const heading = num(req.body.heading); const speed = num(req.body.speed);
+    const bl = num(req.body.battery); // 0–100 (phones that tell), with "+" when charging
+    const battery = bl != null && bl >= 0 && bl <= 100 ? `${Math.round(bl)}${req.body.charging ? '+' : ''}` : null;
     // Odometer: add the distance since the last report (on shift, gaps up to 5 minutes,
     // ignoring GPS jitter under 20 m and impossible jumps).
     const u = req.user;
@@ -807,8 +815,8 @@ function createApp(db, opts = {}) {
           .run(u.id, localDate(now()), meters / 1609.344, mph >= 3 ? Math.round(dt) : 0);
       }
     }
-    q('UPDATE users SET last_lat = ?, last_lng = ?, last_loc_at = ?, last_heading = ?, last_speed = ? WHERE id = ?')
-      .run(lat, lng, now(), heading != null && heading >= 0 && heading <= 360 ? heading : null, speed != null && speed >= 0 && speed < 100 ? speed : null, req.user.id);
+    q('UPDATE users SET last_lat = ?, last_lng = ?, last_loc_at = ?, last_heading = ?, last_speed = ?, last_battery = ? WHERE id = ?')
+      .run(lat, lng, now(), heading != null && heading >= 0 && heading <= 360 ? heading : null, speed != null && speed >= 0 && speed < 100 ? speed : null, battery, req.user.id);
     scheduleOfferSweep();
     res.json({ ok: true });
   });
@@ -882,7 +890,7 @@ function createApp(db, opts = {}) {
         at: now(),
         drivers: rows.map((u) => ({
           id: u.id, name: u.name, vehicle_name: u.vehicle_name, lat: u.last_lat, lng: u.last_lng, at: u.last_loc_at,
-          heading: u.last_heading, speed: u.last_speed, route: liveRoute(u),
+          heading: u.last_heading, speed: u.last_speed, battery: u.last_battery || null, route: liveRoute(u),
         })),
       });
     }));
@@ -1550,6 +1558,8 @@ function createApp(db, opts = {}) {
       if (k === 'look' && !['classic', 'corwin'].includes(v)) return bad(res, 'Pick Classic or Corwin.');
       if (k === 'discord_invite' && v && !/^https:\/\/(discord\.gg|(www\.)?discord\.com\/invite)\/[\w-]+$/.test(v.trim())) return bad(res, 'Use a Discord invite link like https://discord.gg/abc123.');
       if ((k === 'brand_color' || k === 'brand_dark') && !/^#[0-9a-f]{6}$/i.test(v)) return bad(res, 'Colors must look like #eb0a1e.');
+      if (k === 'gps_low_battery_pct' && !(Number.isInteger(Number(v)) && Number(v) >= 5 && Number(v) <= 50)) return bad(res, 'Pick a battery level from 5% to 50%.');
+      if (k === 'gps_low_battery_mode' && !['slow', 'pause', 'normal'].includes(v)) return bad(res, 'Pick what happens on a low battery.');
       if (k === 'timezone') { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); } catch { return bad(res, 'Unknown time zone.'); } }
       if (k === 'auto_end_shift' || k === 'auto_sign_out' || k === 'clear_customer_info' || k === 'backup_time') {
         v = v.trim();

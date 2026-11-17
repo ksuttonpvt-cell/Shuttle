@@ -516,7 +516,7 @@ const App = (() => {
         if (d.lat != null) {
           seen.add(d.id);
           const stale = !d.at || Date.now() - new Date(d.at) > 120000;
-          const popup = `<b>${esc(d.name)}</b>${d.vehicle_name ? `<br>${esc(d.vehicle_name)}` : ''}<br><span class="small">${stale ? '⚠️ ' : ''}location ${d.at ? ago(d.at) : 'unknown'}${d.speed != null && !stale ? ` · ${Math.round(d.speed * 2.237)} mph` : ''}</span>${d.route ? `<br><span class="small">${d.route.stops.filter((x) => x.ride_id).length} stop(s) planned · back about ${fmtTime(d.route.finish_at)}</span>` : ''}`;
+          const popup = `<b>${esc(d.name)}</b>${d.vehicle_name ? `<br>${esc(d.vehicle_name)}` : ''}<br><span class="small">${stale ? '⚠️ ' : ''}location ${d.at ? ago(d.at) : 'unknown'}${d.speed != null && !stale ? ` · ${Math.round(d.speed * 2.237)} mph` : ''}${d.battery ? ` · 🔋 ${esc(String(d.battery).replace('+', '% charging'))}${String(d.battery).endsWith('+') ? '' : '%'}` : ''}</span>${d.route ? `<br><span class="small">${d.route.stops.filter((x) => x.ride_id).length} stop(s) planned · back about ${fmtTime(d.route.finish_at)}</span>` : ''}`;
           let m = markers.get(d.id);
           if (!m) { m = L.marker([d.lat, d.lng], { icon: vanIcon(d, stale), zIndexOffset: 600 }).bindPopup(popup).addTo(map); markers.set(d.id, m); }
           else { m.setIcon(vanIcon(d, stale)); m.setPopupContent(popup); glide(m, [d.lat, d.lng]); }

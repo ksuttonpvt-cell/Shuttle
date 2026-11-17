@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.12.0",
+    "date": "2026-11-17",
+    "title": "Driver location always on, with a low-battery setting",
+    "changes": [
+      "The driver page shares the phone's location whenever it's open, on shift or not. Drivers can't switch it off themselves unless an admin allows it.",
+      "New in Admin → Settings → Driver location: when a phone's battery is low (you pick the level, 20% by default) and it isn't charging, share less often (about every 30 seconds), pause until it's plugged in, or keep sharing as normal. Android phones only; iPhones don't tell websites their battery level.",
+      "A bar at the top of the driver page always shows what's happening, for example “🔋 Battery 15%: sharing less often to save battery. Plug in to go back to normal.”",
+      "Admins and advisors see each driver's phone battery on the van map (🔋 15%, or charging).",
+      "During a shift the screen stays on so the phone keeps sharing, except on a low battery."
+    ]
+  },
+  {
     "version": "2.11.0",
     "date": "2026-11-17",
     "title": "New staff can ask for an account",
