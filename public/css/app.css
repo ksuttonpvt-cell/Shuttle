@@ -619,3 +619,9 @@ body.spec { height: 100%; margin: 0; display: grid; grid-template-rows: auto 1fr
 /* "A ride was booked for you" notes on the advisor desk */
 .for-you { display: flex; gap: .8rem; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: .8rem; }
 .flash-ride { outline: 3px solid var(--blue, #2563eb); outline-offset: 2px; transition: outline-color .4s; }
+
+/* Picking several roles for one person (Admin → Staff) */
+.role-pick { display: grid; gap: .15rem; margin: .2rem 0 .3rem; }
+.role-pick .check { margin: .1rem 0; }
+.role-pick-compact { display: inline-flex; flex-wrap: wrap; gap: .2rem .6rem; vertical-align: middle; margin: 0 .3rem; }
+.role-chip { font-size: .9rem; }

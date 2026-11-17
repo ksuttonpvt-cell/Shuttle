@@ -225,13 +225,37 @@ function createApp(db, opts = {}) {
     on_duty: !!u.on_duty, vehicle_id: u.vehicle_id, last_lat: u.last_lat, last_lng: u.last_lng,
     last_loc_at: u.last_loc_at, created_at: u.created_at, reset_requested_at: u.reset_requested_at || null,
     signup_at: u.signup_at || null, signup_note: u.signup_note || null,
-    team: u.team || null, home: homeOf(u),
+    team: u.team || null, home: homeOf(u), roles: rolesOf(u), can: canList(u), start_page: u.start_page || null,
     super_admin: u.role === 'admin' && !!u.super_admin,
   });
   // BDC team members are advisors (same access) with their own page.
-  const homeOf = (u) => (u.role === 'advisor' && u.team === 'bdc' ? '/bdc' : `/${u.role}`);
   const STAFF_ROLES = ['admin', 'advisor', 'driver', 'bdc'];
   const asRole = (r) => (r === 'bdc' ? { role: 'advisor', team: 'bdc' } : { role: r, team: null });
+  // Several roles: `role` (+ team) is a person's strongest role (admin, then advisor or BDC,
+  // then driver), so every admin/advisor check keeps working; the others are in extra_roles.
+  const ROLE_ORDER = ['admin', 'advisor', 'bdc', 'driver'];
+  const extrasOf = (u) => String((u && u.extra_roles) || '').split(',').filter((r) => STAFF_ROLES.includes(r));
+  const mainOf = (u) => (u.role === 'advisor' && u.team === 'bdc' ? 'bdc' : u.role);
+  const rolesOf = (u) => ROLE_ORDER.filter((r) => r === mainOf(u) || extrasOf(u).includes(r)); // as the admin picked them
+  // Can this person act as `r`? Admins can do everything; BDC has an advisor's access.
+  const canAct = (u, r) => !!u && (u.role === 'admin' || u.role === r || extrasOf(u).includes(r) || (r === 'advisor' && extrasOf(u).includes('bdc')));
+  const canList = (u) => ROLE_ORDER.filter((r) => canAct(u, r) || (r === 'bdc' && rolesOf(u).includes('bdc')));
+  const homeOf = (u) => (u.start_page && rolesOf(u).includes(u.start_page) ? `/${u.start_page}` : `/${mainOf(u)}`);
+  // A list of roles -> the columns. null = not given; { error } = a bad list.
+  function rolesFrom(b) {
+    const list = Array.isArray(b.roles) ? b.roles : b.role != null ? [b.role] : null;
+    if (!list) return null;
+    const set = [...new Set(list.map(String))];
+    if (!set.length || set.some((r) => !STAFF_ROLES.includes(r))) return { error: 'Pick at least one role.' };
+    const main = ['admin', 'advisor', 'bdc', 'driver'].find((r) => set.includes(r)); // the strongest one
+    const rr = asRole(main);
+    const extras = ROLE_ORDER.filter((r) => set.includes(r) && r !== main);
+    const start = b.start_page && set.includes(b.start_page) && set.length > 1 ? b.start_page : null;
+    return { ...rr, extra_roles: extras.join(',') || null, start_page: start, list: ROLE_ORDER.filter((r) => set.includes(r)) };
+  }
+  // SQL: is this person a driver (main or extra role)?
+  const IS_DRIVER = (a = 'u') => `(${a}.role = 'driver' OR instr(',' || COALESCE(${a}.extra_roles, '') || ',', ',driver,') > 0)`;
+  const IS_ADVISOR = (a = 'users') => `((${a}.role = 'advisor' AND COALESCE(${a}.team, '') <> 'bdc') OR instr(',' || COALESCE(${a}.extra_roles, '') || ',', ',advisor,') > 0)`;
   const str = (v, max = 500) => (v == null ? null : String(v).trim().slice(0, max) || null);
   const num = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Number(v));
   function bad(res, msg, code = 400) { return res.status(code).json({ error: msg }); }
@@ -338,7 +362,7 @@ function createApp(db, opts = {}) {
   });
   const requireRole = (...roles) => (req, res, next) => {
     if (!req.user) return bad(res, 'Please sign in.', 401);
-    if (roles.length && !roles.includes(req.user.role) && req.user.role !== 'admin') return bad(res, 'Not allowed.', 403);
+    if (roles.length && !roles.some((r) => canAct(req.user, r))) return bad(res, 'Not allowed.', 403);
     next();
   };
 
@@ -406,7 +430,7 @@ function createApp(db, opts = {}) {
   });
 
   app.get('/healthz', (req, res) => { q('SELECT 1').get(); res.json({ ok: true }); });
-  app.get('/api/events', requireRole(), (req, res) => live.handler(req, res, req.user));
+  app.get('/api/events', requireRole(), (req, res) => live.handler(req, res, req.user, { build: buildId() }));
   app.locals.live = live;
 
   app.get('/api/me', (req, res) => {
@@ -611,9 +635,10 @@ function createApp(db, opts = {}) {
   app.post('/api/users/:id/approve', requireRole('admin'), (req, res) => {
     const u = q('SELECT * FROM users WHERE id = ? AND signup_at IS NOT NULL').get(Number(req.params.id));
     if (!u) return bad(res, 'Request not found.', 404);
-    const role = STAFF_ROLES.includes(req.body && req.body.role) ? req.body.role : (u.team === 'bdc' ? 'bdc' : u.role);
-    const rr = asRole(role);
-    q('UPDATE users SET active = 1, role = ?, team = ?, signup_at = NULL, signup_note = NULL WHERE id = ?').run(rr.role, rr.team, u.id);
+    const rr = rolesFrom(req.body || {}) || rolesFrom({ role: mainOf(u) });
+    if (rr.error) return bad(res, rr.error);
+    const role = rr.list.join(' + ');
+    q('UPDATE users SET active = 1, role = ?, team = ?, extra_roles = ?, start_page = ?, signup_at = NULL, signup_note = NULL WHERE id = ?').run(rr.role, rr.team, rr.extra_roles, rr.start_page, u.id);
     console.log(new Date().toLocaleString(), `[staff] ${req.user.name} approved ${u.name} as ${role}.`);
     if (mailer.configured) {
       const dealer = getSettings().dealer_name || 'Shuttle';
@@ -634,15 +659,14 @@ function createApp(db, opts = {}) {
   app.post('/api/users', requireRole('admin'), async (req, res) => {
     const name = str(req.body.name, 100);
     const email = str(req.body.email, 200);
-    const role = req.body.role;
+    const rr = rolesFrom(req.body);
     if (!name || !email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return bad(res, 'Name and a valid email are required.');
-    if (!STAFF_ROLES.includes(role)) return bad(res, 'Pick a role.');
+    if (!rr || rr.error) return bad(res, 'Pick a role.');
     const err = validatePassword(req.body.password);
     if (err) return bad(res, err);
     if (q('SELECT id FROM users WHERE email = ?').get(email)) return bad(res, 'That email already has an account.');
-    const rr = asRole(role);
-    const r = q('INSERT INTO users (name, email, phone, role, team, password_hash) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(name, email, str(req.body.phone, 40), rr.role, rr.team, await hashPasswordAsync(req.body.password));
+    const r = q('INSERT INTO users (name, email, phone, role, team, extra_roles, start_page, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(name, email, str(req.body.phone, 40), rr.role, rr.team, rr.extra_roles, rr.start_page, await hashPasswordAsync(req.body.password));
     res.status(201).json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid)) });
   });
 
@@ -660,13 +684,15 @@ function createApp(db, opts = {}) {
     }
     if (b.name != null) user.name = str(b.name, 100) || user.name;
     if (b.phone !== undefined) user.phone = str(b.phone, 40);
-    if (b.role != null) {
-      if (!STAFF_ROLES.includes(b.role)) return bad(res, 'Pick a role.');
-      if (user.id === req.user.id && b.role !== 'admin') return bad(res, "You can't remove your own admin access.");
-      if (b.role !== 'admin' && user.super_admin && !isSuper(req.user)) return bad(res, 'Only a super admin can change a super admin.', 403);
-      const rr = asRole(b.role);
-      user.role = rr.role; user.team = rr.team;
+    const rr = rolesFrom(b);
+    if (rr) {
+      if (rr.error) return bad(res, rr.error);
+      if (user.id === req.user.id && rr.role !== 'admin') return bad(res, "You can't remove your own admin access.");
+      if (rr.role !== 'admin' && user.super_admin && !isSuper(req.user)) return bad(res, 'Only a super admin can change a super admin.', 403);
+      user.role = rr.role; user.team = rr.team; user.extra_roles = rr.extra_roles; user.start_page = rr.start_page;
       if (user.role !== 'admin') user.super_admin = 0;
+    } else if (b.start_page !== undefined) { // only the page they open to
+      user.start_page = b.start_page && rolesOf(user).includes(b.start_page) ? b.start_page : null;
     }
     if (b.super_admin != null) {
       if (!isSuper(req.user)) return bad(res, 'Only a super admin can give or remove super admin.', 403);
@@ -682,8 +708,8 @@ function createApp(db, opts = {}) {
       if (user.id === req.user.id && !b.active) return bad(res, "You can't deactivate yourself.");
       user.active = b.active ? 1 : 0;
     }
-    q('UPDATE users SET name=?, email=?, phone=?, role=?, team=?, active=?, super_admin=? WHERE id=?')
-      .run(user.name, user.email, user.phone, user.role, user.team || null, user.active, user.super_admin ? 1 : 0, user.id);
+    q('UPDATE users SET name=?, email=?, phone=?, role=?, team=?, extra_roles=?, start_page=?, active=?, super_admin=? WHERE id=?')
+      .run(user.name, user.email, user.phone, user.role, user.team || null, user.extra_roles || null, user.start_page || null, user.active, user.super_admin ? 1 : 0, user.id);
     if (user.active) q('UPDATE users SET signup_at = NULL, signup_note = NULL WHERE id = ?').run(user.id); // turned on = approved
     if (b.password) {
       const err = validatePassword(b.password);
@@ -896,7 +922,7 @@ function createApp(db, opts = {}) {
   app.get('/api/drivers/live', requireRole(), (req, res) => {
     res.type('json').send(briefly(`live|${ridesVersion}`, 2000, () => { // rebuilt at once when rides/routes/shifts change
       const rows = q(`SELECT u.*, v.name AS vehicle_name FROM users u LEFT JOIN vehicles v ON v.id = u.vehicle_id
-                      WHERE u.role = 'driver' AND u.active = 1 AND u.on_duty = 1`).all();
+                      WHERE ${IS_DRIVER()} AND u.active = 1 AND u.on_duty = 1`).all();
       return JSON.stringify({
         at: now(),
         drivers: rows.map((u) => ({
@@ -936,7 +962,7 @@ function createApp(db, opts = {}) {
     let drivers = q(`SELECT u.*, (SELECT COUNT(*) FROM rides r WHERE r.driver_id = u.id AND r.status IN ('assigned','en_route','onboard')) AS load,
                        (SELECT COALESCE(SUM(r.passengers), 0) FROM rides r WHERE r.driver_id = u.id AND r.status = 'onboard') AS riding,
                        (SELECT v.seats FROM vehicles v WHERE v.id = u.vehicle_id) AS seats
-                     FROM users u WHERE u.role = 'driver' AND u.active = 1 AND u.on_duty = 1 AND u.last_lat IS NOT NULL AND u.last_loc_at >= ?
+                     FROM users u WHERE ${IS_DRIVER()} AND u.active = 1 AND u.on_duty = 1 AND u.last_lat IS NOT NULL AND u.last_loc_at >= ?
                      AND u.id NOT IN (SELECT driver_id FROM ride_offers WHERE status = 'pending')`)
       .all(new Date(at.getTime() - 10 * 60000).toISOString());
     const dealer = dealerOrigin();
@@ -1146,7 +1172,7 @@ function createApp(db, opts = {}) {
     const rows = q(`SELECT u.*, v.name AS vehicle_name,
                       (SELECT COUNT(*) FROM rides r WHERE r.driver_id = u.id AND r.status IN ('assigned','en_route','onboard')) AS open_rides
                     FROM users u LEFT JOIN vehicles v ON v.id = u.vehicle_id
-                    WHERE u.role = 'driver' AND u.active = 1 ORDER BY u.on_duty DESC, u.name`).all();
+                    WHERE ${IS_DRIVER()} AND u.active = 1 ORDER BY u.on_duty DESC, u.name`).all();
     // Advisors and drivers see a driver's name and phone (to call them), not their sign-in email.
     const admin = req.user.role === 'admin';
     res.json({ drivers: rows.map((u) => { const d = { ...publicUser(u), vehicle_name: u.vehicle_name, open_rides: u.open_rides }; if (!admin) delete d.email; return d; }) });
@@ -1274,14 +1300,14 @@ function createApp(db, opts = {}) {
       where.push(`(r.customer_name LIKE ? OR r.ro_number LIKE ?${digits.length >= 3 ? " OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(r.customer_phone,'-',''),' ',''),'(',''),')',''),'.',''),'+','') LIKE ?" : ''}) AND r.scheduled_at >= ? AND r.cleared_at IS NULL`);
       args.push(like, like, ...(digits.length >= 3 ? [`%${digits}%`] : []), new Date(Date.now() - 30 * 86400000).toISOString());
     }
-    if (req.query.mine === '1' && req.user.role === 'advisor') { where.push('r.advisor_id = ?'); args.push(req.user.id); }
-    if (req.query.mine === '1' && req.user.role === 'driver') { where.push('r.driver_id = ?'); args.push(req.user.id); }
+    if ((req.query.mine === '1' && req.user.role === 'advisor') || req.query.mine === 'advisor') { where.push('r.advisor_id = ?'); args.push(req.user.id); }
+    if ((req.query.mine === '1' && req.user.role === 'driver') || req.query.mine === 'driver') { where.push('r.driver_id = ?'); args.push(req.user.id); }
     const sql = `${RIDE_SELECT} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY r.scheduled_at LIMIT 500`;
     const key = `${sql}|${args.join('|')}`;
     const base = baseUrl(req);
     // Rank from the driver's live position if we have it, else from the dealership.
     let origin = null;
-    if (req.user.role === 'driver' && req.user.last_lat != null) origin = { lat: req.user.last_lat, lng: req.user.last_lng };
+    if ((req.user.role === 'driver' || (canAct(req.user, 'driver') && req.user.on_duty)) && req.user.last_lat != null) origin = { lat: req.user.last_lat, lng: req.user.last_lng };
     const build = () => {
       const rides = sharedRows(key, () => q(sql).all(...args)).map((r) => ({ ...r, track_url: `${base}/t/${r.track_token}` }));
       const ranked = rankRides(rides, origin || dealerOrigin());
@@ -1300,9 +1326,9 @@ function createApp(db, opts = {}) {
   });
 
   // Service advisors a ride can belong to (not the BDC team), for the BDC booking form.
-  const serviceAdvisor = (id) => (id ? q("SELECT id, name FROM users WHERE id = ? AND active = 1 AND ((role = 'advisor' AND COALESCE(team, '') <> 'bdc') OR role = 'admin')").get(id) : null);
+  const serviceAdvisor = (id) => (id ? q(`SELECT id, name FROM users WHERE id = ? AND active = 1 AND (${IS_ADVISOR()} OR role = 'admin')`).get(id) : null);
   app.get('/api/advisors', requireRole('advisor'), (req, res) => {
-    res.json({ advisors: q("SELECT id, name FROM users WHERE active = 1 AND role = 'advisor' AND COALESCE(team, '') <> 'bdc' ORDER BY name").all() });
+    res.json({ advisors: q(`SELECT id, name FROM users WHERE active = 1 AND ${IS_ADVISOR()} ORDER BY name`).all() });
   });
   // Tell an advisor a ride was booked for them (or moved to them) by someone else: a phone
   // notification and, if their page is open, a pop-up.
@@ -1362,7 +1388,7 @@ function createApp(db, opts = {}) {
         else return bad(res, 'That ride belongs to another driver.', 403);
       } else {
         const id = num(b.driver_id) || null; // 0, false or blank means "no driver"
-        if (id && !q("SELECT id FROM users WHERE id = ? AND role = 'driver' AND active = 1").get(id)) return bad(res, 'Driver not found.');
+        if (id && !q(`SELECT id FROM users WHERE id = ? AND ${IS_DRIVER('users')} AND active = 1`).get(id)) return bad(res, 'Driver not found.');
         updates.driver_id = id;
       }
       if (updates.driver_id) {
@@ -1408,7 +1434,7 @@ function createApp(db, opts = {}) {
       // Timestamps for the reports (kept from the first time each step happened).
       if (b.status === 'en_route' && !ride.en_route_at) updates.en_route_at = now();
       if (b.status === 'onboard' && !ride.onboard_at) updates.onboard_at = now();
-      if (['en_route', 'onboard', 'completed'].includes(b.status) && !ride.driver_id && !updates.driver_id && role === 'driver') {
+      if (['en_route', 'onboard', 'completed'].includes(b.status) && !ride.driver_id && !updates.driver_id && (role === 'driver' || (canAct(req.user, 'driver') && req.user.on_duty))) {
         updates.driver_id = req.user.id;
       }
     }
@@ -1568,7 +1594,7 @@ function createApp(db, opts = {}) {
     if (!SPECTATE_HOURS.includes(hours)) return bad(res, 'Pick how long the link works: 1, 4, 12 or 24 hours.');
     let driverId = null;
     if (b.driver_id) {
-      const d = q("SELECT id FROM users WHERE id = ? AND role = 'driver' AND active = 1").get(Number(b.driver_id));
+      const d = q(`SELECT id FROM users WHERE id = ? AND ${IS_DRIVER('users')} AND active = 1`).get(Number(b.driver_id));
       if (!d) return bad(res, 'Driver not found.');
       driverId = d.id;
     }
@@ -1593,7 +1619,7 @@ function createApp(db, opts = {}) {
     if (l.revoked_at || l.expires_at <= now()) return bad(res, 'This link has ended. Ask the dealership for a new one.', 410);
     if (!req.query.again) q('UPDATE spectate_links SET views = views + 1 WHERE id = ?').run(l.id);
     const rows = q(`SELECT u.*, v.name AS vehicle_name, v.make_model, v.color FROM users u LEFT JOIN vehicles v ON v.id = u.vehicle_id
-                    WHERE u.role = 'driver' AND u.active = 1 ${l.driver_id ? 'AND u.id = ?' : 'AND u.on_duty = 1'}`).all(...(l.driver_id ? [l.driver_id] : []));
+                    WHERE ${IS_DRIVER()} AND u.active = 1 ${l.driver_id ? 'AND u.id = ?' : 'AND u.on_duty = 1'}`).all(...(l.driver_id ? [l.driver_id] : []));
     const s = getSettings();
     res.set('Cache-Control', 'no-store').json({
       label: l.label, expires_at: l.expires_at, one_driver: !!l.driver_id,
@@ -1735,9 +1761,9 @@ function createApp(db, opts = {}) {
     const today = localDate(at.toISOString());
     if (nowHM < cutoff || s.auto_end_last === today) return 0;
     q("INSERT INTO settings (key, value) VALUES ('auto_end_last', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(today);
-    const drivers = q("SELECT id FROM users WHERE role = 'driver' AND on_duty = 1").all().map((u) => u.id);
+    const drivers = q("SELECT id FROM users WHERE on_duty = 1").all().map((u) => u.id);
     if (!drivers.length) return 0;
-    q("UPDATE users SET on_duty = 0, vehicle_id = NULL, route_json = NULL WHERE role = 'driver' AND on_duty = 1").run();
+    q("UPDATE users SET on_duty = 0, vehicle_id = NULL, route_json = NULL WHERE on_duty = 1").run();
     const [h, m] = cutoff.split(':').map(Number);
     const label = new Date(2000, 0, 1, h, m).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     quietly(push.notifyUsers(drivers, { title: '🌙 Shift ended', body: `Your shift was ended automatically at ${label}. Start a new shift in the app if you're still driving.`, tag: 'shift-ended' }));
@@ -1774,7 +1800,7 @@ function createApp(db, opts = {}) {
     setLast();
     const signedOut = q('DELETE FROM sessions').run().changes;
     live.soon('drivers', 300);
-    q("UPDATE users SET on_duty = 0, vehicle_id = NULL, route_json = NULL WHERE role = 'driver' AND on_duty = 1").run();
+    q("UPDATE users SET on_duty = 0, vehicle_id = NULL, route_json = NULL WHERE on_duty = 1").run();
     console.log(new Date().toLocaleString(), `[sign-out] Signed everyone out automatically (${signedOut} session(s)).`);
     return signedOut;
   }
@@ -2044,7 +2070,7 @@ function createApp(db, opts = {}) {
       disk: diskFree(),
       shuttle: {
         open_rides: q("SELECT COUNT(*) AS n FROM rides WHERE status IN ('requested','assigned','en_route','onboard')").get().n,
-        drivers_on_duty: q("SELECT COUNT(*) AS n FROM users WHERE role = 'driver' AND on_duty = 1").get().n,
+        drivers_on_duty: q('SELECT COUNT(*) AS n FROM users WHERE on_duty = 1').get().n,
         signed_in_devices: q('SELECT COUNT(*) AS n FROM sessions WHERE expires_at > ?').get(now()).n,
       },
       log_counts: await fromPrimary('logcounts', null, () => logbook.counts()),
@@ -2398,6 +2424,23 @@ function createApp(db, opts = {}) {
   const FONT_PRELOAD = ['/vendor/fonts/barlow/barlow-latin-400-normal.woff2', '/vendor/fonts/barlow/barlow-latin-700-normal.woff2']
     .map((f) => `<link rel="preload" href="${f}" as="font" type="font/woff2" crossorigin>`).join('');
   const MAP_HINT = '<link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin><link rel="dns-prefetch" href="https://tile.openstreetmap.org">';
+  // One short id for everything the browser runs (pages, scripts, styles). Each page
+  // carries it, and the live connection says the current one, so a page left open
+  // through an update knows it's out of date.
+  let build = null;
+  function buildId() {
+    if (build) return build;
+    const h = crypto.createHash('sha1');
+    const walk = (dir) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+        const f = path.join(dir, e.name);
+        if (e.isDirectory()) { if (!['vendor', 'icons'].includes(e.name)) walk(f); } else if (/\.(html|js|css|json)$/.test(e.name)) h.update(e.name).update(fs.readFileSync(f));
+      }
+    };
+    try { walk(pub); } catch { /* keep what we have */ }
+    build = h.update(APP_VERSION).digest('hex').slice(0, 10);
+    return build;
+  }
   const pageCache = new Map();
   const page = (file) => (req, res, next) => {
     let html = pageCache.get(file);
@@ -2415,7 +2458,7 @@ function createApp(db, opts = {}) {
     const logo = s.brand_logo ? (s.brand_logo_v || '1') : '';
     const name = String(s.brand_name || s.dealer_name || '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
     res.set('Cache-Control', 'no-store').type('html')
-      .send(html.replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-brand-name="${name}" data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" style="--brand:${color};--brand-dark:${dark}">`));
+      .send(html.replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-brand-name="${name}" data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" data-build="${buildId()}" style="--brand:${color};--brand-dark:${dark}">`));
   };
   app.get('/', (req, res) => {
     if (!req.user) return res.redirect('/login');

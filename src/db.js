@@ -184,6 +184,8 @@ function openDb(file) {
   `);
   addColumn('users', 'last_battery', 'TEXT');
   addColumn('users', 'team', 'TEXT');
+  addColumn('users', 'extra_roles', 'TEXT'); // other roles a person also has, e.g. "driver" for an advisor who drives
+  addColumn('users', 'start_page', 'TEXT'); // the page they open to, for people with several roles
   addColumn('rides', 'booked_by', 'INTEGER REFERENCES users(id) ON DELETE SET NULL'); // who booked it (e.g. BDC), when not the advisor          // 'bdc': an advisor on the BDC team (their own page)  // phone battery with the last location, e.g. "15" or "15+" (charging)
   addColumn('users', 'signup_at', 'TEXT');   // asked for an account from the sign-in page; waiting for an admin
   addColumn('users', 'signup_note', 'TEXT');

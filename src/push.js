@@ -71,7 +71,7 @@ function createPush(db, { sender, subject } = {}) {
     return { sent, failed };
   }
   function notifyOnDutyDrivers(message, exceptUserId) {
-    const ids = q("SELECT id FROM users WHERE role = 'driver' AND active = 1 AND on_duty = 1").all().map((u) => u.id).filter((id) => id !== exceptUserId);
+    const ids = q('SELECT id FROM users WHERE active = 1 AND on_duty = 1').all().map((u) => u.id).filter((id) => id !== exceptUserId);
     return notifyUsers(ids, message);
   }
 

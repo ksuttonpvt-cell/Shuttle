@@ -67,7 +67,8 @@ const App = (() => {
     const { user, settings, base_url, version } = await api('/api/me');
     App.baseUrl = base_url; App.version = version || null;
     if (!user) { location.href = '/login?next=' + encodeURIComponent(location.pathname); throw new Error('redirect'); }
-    if (roles.length && !roles.includes(user.role) && user.role !== 'admin') { location.href = user.home || '/' + user.role; throw new Error('redirect'); }
+    const can = user.can || [user.role]; // every role they have (several for some people)
+    if (roles.length && !roles.some((r) => can.includes(r))) { location.href = user.home || '/' + user.role; throw new Error('redirect'); }
     App.user = user; App.settings = settings;
     renderTopbar(user, settings);
     return user;
@@ -77,14 +78,21 @@ const App = (() => {
     const el = $('#topbar'); if (!el) return;
     const links = [];
     if (user.role === 'admin') links.push(['/admin', 'Admin'], ['/advisor', 'Advisor'], ['/bdc', 'BDC'], ['/driver', 'Driver']);
-    else if (user.team === 'bdc') links.push(['/bdc', 'BDC'], ['/advisor', 'Advisor desk']);
+    else {
+      // People with several roles get a link to each of their pages.
+      const roles = user.roles || [user.role];
+      const PAGE = { bdc: ['/bdc', 'BDC'], advisor: ['/advisor', 'Advisor desk'], driver: ['/driver', 'Driver'] };
+      for (const r of roles) if (PAGE[r]) links.push(PAGE[r]);
+      if (roles.includes('bdc') && !roles.includes('advisor')) links.push(PAGE.advisor); // BDC can use the advisor desk too
+      if (links.length < 2) links.length = 0;
+    }
     const nav = links.map(([href, label]) => `<a href="${href}" class="${location.pathname === href ? 'active' : ''}">${label}</a>`).join('');
     el.className = 'topbar';
     el.innerHTML = `
       <a class="brand brand-classic" href="/"><span class="logo">🚐</span><span>Shuttle<small>${esc(settings.dealer_name)}</small></span></a>
       <a class="brand brand-corwin" href="/">${brandMark(settings.dealer_name, 'Shuttle')}</a>
       <nav>${nav}<button id="helpBtn" title="Ask for help or suggest an idea">💬 Help</button><button id="themeBtn" title="Light or dark screen"></button><button id="pwBtn" title="Change password">Password</button><button id="logoutBtn">Sign out</button></nav>
-      <span class="who">${esc(user.name)} · ${esc(user.team === "bdc" ? "BDC" : user.role)}</span>
+      <span class="who">${esc(user.name)} · ${esc((user.roles || [user.role]).map((r) => ({ admin: 'Admin', advisor: 'Advisor', bdc: 'BDC', driver: 'Driver' }[r] || r)).join(' + '))}</span>
       ${App.version ? `<button type="button" id="verBtn" class="ver-pill" title="Version — see what's new">v${esc(App.version)}${seenVersion() !== App.version ? '<span class="ver-new">NEW</span>' : ''}</button>` : ''}`;
     if ($('#verBtn')) $('#verBtn').onclick = () => whatsNew();
     $('#logoutBtn').onclick = async () => { await api('/api/logout', { body: {} }); location.href = '/login'; };
@@ -653,6 +661,7 @@ const App = (() => {
     let wasDown = false;
     const catchUp = () => { for (const fn of Object.values(handlers)) Promise.resolve().then(() => fn({ catchUp: true })).catch(() => {}); };
     es.onopen = () => { liveState.connected = true; if (wasDown) { wasDown = false; catchUp(); } };
+    es.addEventListener('hello', (e) => { try { App.checkBuild(JSON.parse(e.data).build); } catch { /* ignore */ } });
     es.onerror = () => { liveState.connected = false; wasDown = true; };
     document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - (liveState.hiddenAt || 0) > 30000) catchUp(); if (document.hidden) liveState.hiddenAt = Date.now(); });
     for (const [event, fn] of Object.entries(handlers)) {
@@ -696,19 +705,59 @@ const App = (() => {
     const sw = navigator.serviceWorker.controller;
     if (!sw) return;
     const ch = new MessageChannel();
-    ch.port1.onmessage = (e) => { if (e.data && e.data.updated) offerReload(); };
+    ch.port1.onmessage = (e) => { if (e.data && e.data.updated) App.offerReload(); };
     sw.postMessage({ type: 'shuttle-check', url: location.href }, [ch.port2]);
   });
-  navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'shuttle-updated') offerReload(); });
+  navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'shuttle-updated') App.offerReload(); });
+})();
+
+// After an update: switch to the new version with one reload, by itself when that's safe.
+// Without this, the device's saved copy of the old screen could open again on a reload,
+// so it took several reloads to see an update.
+(() => {
+  const mine = document.documentElement.dataset.build || '';
+  const openedAt = Date.now();
+  let lastTouch = 0; let ready = false;
+  for (const ev of ['input', 'keydown', 'pointerdown']) addEventListener(ev, () => { lastTouch = Date.now(); }, true);
+  // Safe = no window open, and nobody typing or tapping in the last 2 minutes.
+  // and no half-filled form (a ride someone started typing and walked away from).
+  const typedIn = () => [...document.querySelectorAll('form input, form textarea')]
+    .some((el) => ['text', 'tel', 'email', 'textarea', 'number'].includes(el.type) && el.value !== el.defaultValue);
+  const safe = () => !document.querySelector('.modal-back') && Date.now() - lastTouch > 120000 && !typedIn();
+  async function freshReload() {
+    // Never loop: one automatic reload per minute at most.
+    try {
+      const last = Number(sessionStorage.getItem('shuttle.autoReload')) || 0;
+      if (Date.now() - last < 60000) return false;
+      sessionStorage.setItem('shuttle.autoReload', String(Date.now()));
+    } catch { /* ignore */ }
+    // Forget the saved screens, so this reload comes straight from the server.
+    try { if (window.caches) for (const k of await caches.keys()) if (k.startsWith('screens-')) await caches.delete(k); } catch { /* ignore */ }
+    location.reload();
+    return true;
+  }
   function offerReload() {
+    ready = true;
+    // Just opened, not on screen, or nobody's used it for a while: switch now.
+    const quiet = document.hidden || (Date.now() - openedAt < 15000 && !lastTouch) || Date.now() - lastTouch > 120000;
+    if (quiet && !document.querySelector('.modal-back') && !typedIn()) { freshReload().then((went) => { if (!went) showBar(); }); return; }
+    showBar();
+  }
+  function showBar() {
     if (document.getElementById('updBar')) return;
     const bar = document.createElement('div');
     bar.id = 'updBar'; bar.className = 'upd-bar'; bar.setAttribute('role', 'status');
     bar.innerHTML = '✨ A newer version of the shuttle site is ready. <button type="button">Reload</button><button type="button" class="upd-x" aria-label="Later">✕</button>';
-    bar.querySelector('button').onclick = () => location.reload();
+    bar.querySelector('button').onclick = () => { try { sessionStorage.removeItem('shuttle.autoReload'); } catch { /* ignore */ } freshReload(); };
     bar.querySelector('.upd-x').onclick = () => bar.remove();
     document.body.appendChild(bar);
   }
+  // Coming back to a page that's out of date (phone unlocked, tab switched): switch then.
+  document.addEventListener('visibilitychange', () => { if (ready && !document.hidden && safe()) freshReload(); });
+  // Left open on a desk: switch during a quiet moment.
+  setInterval(() => { if (ready && safe()) freshReload(); }, 30000);
+  App.offerReload = offerReload;
+  App.checkBuild = (build) => { if (build && mine && build !== mine) offerReload(); };
 })();
 
 // Page speed on real devices: after a page loads, send how long each step took (finding

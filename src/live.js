@@ -6,7 +6,7 @@ function createLive({ maxClients = 10000, perUser = 6, heartbeatMs = 25000 } = {
   const clients = new Set();
   let nextId = 0;
 
-  function handler(req, res, user) {
+  function handler(req, res, user, hello = null) {
     const mine = [...clients].filter((c) => c.user && user && c.user.id === user.id);
     if (clients.size >= maxClients || mine.length >= perUser) {
       // Too many open: close the oldest one for this person, or refuse.
@@ -19,6 +19,9 @@ function createLive({ maxClients = 10000, perUser = 6, heartbeatMs = 25000 } = {
       'X-Accel-Buffering': 'no',
     });
     res.write('retry: 4000\n\n');
+    // Tell the page which build of the site is running, so a page from before an update
+    // can refresh itself (it connects again after every restart, including updates).
+    if (hello) res.write(`event: hello\ndata: ${JSON.stringify(hello)}\n\n`);
     const c = { id: ++nextId, res, user };
     clients.add(c);
     const beat = setInterval(() => res.write(': ping\n\n'), heartbeatMs);

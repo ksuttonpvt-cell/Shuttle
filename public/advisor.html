@@ -87,7 +87,7 @@
   let rides = []; let drivers = []; let cancelledRides = []; let readyRides = [];
   const chips = App.typeChips($('#typeChips'), 'shuttle.advisorType', () => refresh());
   async function refresh() {
-    const mine = $('#mineOnly').checked ? '&mine=1' : '';
+    const mine = $('#mineOnly').checked ? '&mine=advisor' : '';
     const [r, d] = await Promise.all([api('/api/rides?scope=open' + mine), api('/api/drivers')]);
     rides = r.queue.map((id) => r.rides.find((x) => x.id === id));
     drivers = d.drivers;
