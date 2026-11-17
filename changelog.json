@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.13.0",
+    "date": "2026-11-17",
+    "title": "Spectator links: watch a driver live",
+    "changes": [
+      "Admin → QR codes & links → Spectator links: make a link anyone can open to watch one driver, or every driver on shift, live on a map, without signing in.",
+      "The map shows the van moving, speed, battery, when it last updated, and the planned route line. No customer names, phone numbers or addresses.",
+      "Links work for 1, 4, 12 or 24 hours, and you can revoke one any time. The list shows how many times each was opened."
+    ]
+  },
+  {
     "version": "2.12.0",
     "date": "2026-11-17",
     "title": "Driver location always on, with a low-battery setting",

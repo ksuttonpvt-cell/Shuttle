@@ -118,6 +118,17 @@ function openDb(file) {
   addColumn('users', 'route_json', 'TEXT');    // the driver's planned route (stops in order + path)
   addColumn('users', 'reset_requested_at', 'TEXT'); // set when someone taps "Forgot password?"
   db.exec(`
+    CREATE TABLE IF NOT EXISTS spectate_links ( -- read-only live map links admins share; they run out
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      token_hash TEXT NOT NULL UNIQUE,
+      driver_id  INTEGER REFERENCES users(id) ON DELETE CASCADE, -- NULL = every driver on shift
+      label      TEXT,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT,
+      views      INTEGER NOT NULL DEFAULT 0
+    );
     CREATE TABLE IF NOT EXISTS perf (          -- page load times from real devices (no names, links or IPs); kept 14 days
       id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, page TEXT, role TEXT, device TEXT, net TEXT, proto TEXT, nav TEXT,
       dns INTEGER, connect INTEGER, tls INTEGER, wait INTEGER, download INTEGER, build INTEGER, ready INTEGER,
