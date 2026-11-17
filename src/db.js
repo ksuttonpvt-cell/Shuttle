@@ -171,6 +171,7 @@ function openDb(file) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+  addColumn('ride_offers', 'rotation', 'INTEGER NOT NULL DEFAULT 0'); // offered on the way back to the dealership
   return db;
 }
 

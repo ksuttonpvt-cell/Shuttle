@@ -76,7 +76,8 @@ test('reports: miles, miles per driver, cities, time driving, advisor scheduling
   assert.equal(cleared.city, 'Longmont');
   assert.ok(cleared.est_miles > 0);
 
-  const today = new Date(); const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  // "Today" at the dealership (Denver), not on the test machine's clock.
+  const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const rep = (await admin(`/api/reports?from=${ymd}&to=${ymd}`)).data;
   assert.ok(rep.totals.gps_miles > 1.5 && rep.totals.gps_miles < 2.3, `GPS miles ${rep.totals.gps_miles}`);
   assert.equal(rep.totals.moving_min, 3, 'three moving minutes; parked and glitch not counted');

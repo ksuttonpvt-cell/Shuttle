@@ -859,9 +859,19 @@ function createApp(db, opts = {}) {
                        (SELECT v.seats FROM vehicles v WHERE v.id = u.vehicle_id) AS seats
                      FROM users u WHERE u.role = 'driver' AND u.active = 1 AND u.on_duty = 1 AND u.last_lat IS NOT NULL AND u.last_loc_at >= ?
                      AND u.id NOT IN (SELECT driver_id FROM ride_offers WHERE status = 'pending')`)
-      .all(new Date(at.getTime() - 10 * 60000).toISOString())
-      .filter((d) => d.load <= 1); // free, or only finishing one ride
+      .all(new Date(at.getTime() - 10 * 60000).toISOString());
     const dealer = dealerOrigin();
+    // Rotation: a busy driver heading back to the dealership (next stop is the dealership, or
+    // within 3 miles of it) can take a ride waiting within 3 miles of where they are: drop
+    // the customers off, then grab the next one. Their route updates when they take it.
+    const ROTATION_KM = 3 / KM_TO_MI;
+    drivers = drivers.map((d) => {
+      if (d.load <= 1) return d; // free, or only finishing one ride
+      const here = { lat: d.last_lat, lng: d.last_lng };
+      const next = d.route_json ? liveRoute(d)?.stops?.[0] : null;
+      const back = (next && next.kind === 'dealer') || distanceKm(here, dealer) <= ROTATION_KM;
+      return back ? { ...d, rotation: true } : null;
+    }).filter(Boolean);
     const recent = new Date(at.getTime() - 30 * 60000).toISOString();
     const made = [];
     for (const r of rides) {
@@ -870,18 +880,20 @@ function createApp(db, opts = {}) {
         .all(r.id, recent).map((x) => x.driver_id));
       // Pick ups: go to the customer. Drop offs: the customer is at the dealership.
       const target = r.type === 'pickup' && r.lat != null ? { lat: r.lat, lng: r.lng } : dealer;
-      const best = drivers.filter((d) => !passed.has(d.id) && (!d.seats || d.riding + r.passengers <= d.seats)) // room in the van
+      const best = drivers.filter((d) => !passed.has(d.id)
+        && (d.rotation ? (!d.seats || r.passengers <= d.seats) && distanceKm({ lat: d.last_lat, lng: d.last_lng }, target) <= ROTATION_KM // close by; seats free up at the dealership
+          : (!d.seats || d.riding + r.passengers <= d.seats))) // room in the van
         .map((d) => ({ d, km: distanceKm({ lat: d.last_lat, lng: d.last_lng }, target) + d.load * 2.5 })) // busy drivers count as a bit further away
         .sort((a, b) => a.km - b.km)[0];
       if (!best) continue;
       const miles = Math.round(distanceKm({ lat: best.d.last_lat, lng: best.d.last_lng }, target) * KM_TO_MI * 1.35 * 10) / 10;
       const minutes = Math.max(1, Math.round((miles / 28) * 60));
-      const id = Number(q('INSERT INTO ride_offers (ride_id, driver_id, miles, minutes, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(r.id, best.d.id, miles, minutes, nowIso, new Date(at.getTime() + OFFER_SECONDS * 1000).toISOString()).lastInsertRowid);
+      const id = Number(q('INSERT INTO ride_offers (ride_id, driver_id, miles, minutes, created_at, expires_at, rotation) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(r.id, best.d.id, miles, minutes, nowIso, new Date(at.getTime() + OFFER_SECONDS * 1000).toISOString(), best.d.rotation ? 1 : 0).lastInsertRowid);
       drivers = drivers.filter((d) => d.id !== best.d.id);
       const where = r.type === 'pickup' ? `${miles} mi away (about ${minutes} min)` : `customer is at the dealership, ${miles} mi from you`;
       quietly(push.notifyUsers([best.d.id], {
-        title: best.d.load ? '🚐 Ride near you when you finish' : "🚐 You're free: ride near you",
+        title: best.d.rotation ? '🔄 On your way back: ride near you' : best.d.load ? '🚐 Ride near you when you finish' : "🚐 You're free: ride near you",
         body: `${r.type === 'pickup' ? 'Pick up' : 'Drop off'} ${r.customer_name} · ${where}. Want it?`,
         tag: `offer-${id}`, url: '/driver', offer_id: id,
       }));
@@ -916,13 +928,25 @@ function createApp(db, opts = {}) {
     q('UPDATE ride_offers SET status = ?, responded_at = ? WHERE id = ?').run(took ? 'accepted' : 'expired', now(), o.id);
     if (!took) return bad(res, 'Someone else just took this ride.', 409);
     scheduleOfferSweep();
-    res.json({ ok: true, ride: withLinks(req, q(`${RIDE_SELECT} WHERE r.id = ?`).get(o.ride_id)) });
+    const ride = withLinks(req, q(`${RIDE_SELECT} WHERE r.id = ?`).get(o.ride_id));
+    // A driver with a saved route gets the new ride worked into it (dealership stop, seats and all).
+    const me = q('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    const current = liveRoute(me);
+    if (!current) return res.json({ ok: true, ride });
+    const ids = [...new Set([...current.stops.flatMap((x) => [x.ride_id, ...(x.drop_ids || []), ...(x.load_ids || [])]).filter(Boolean), o.ride_id])]
+      .filter((id) => q("SELECT 1 FROM rides WHERE id = ? AND driver_id = ? AND status IN ('assigned','en_route','onboard')").get(id, me.id));
+    buildRoute({ body: { ride_ids: ids }, user: me })
+      .then((built) => { q('UPDATE users SET route_json = ? WHERE id = ?').run(JSON.stringify(built.route), me.id); live.soon('drivers', 300); res.json({ ok: true, ride, route: built.route }); })
+      .catch((e) => { console.error(new Date().toLocaleString(), `[routes] Couldn't add the ride to ${me.name}'s route: ${e.message}`); res.json({ ok: true, ride, route_note: 'Plan your route again to fit this ride in.' }); });
   });
 
   const MAX_ROUTE_RIDES = 12;
   const keepOrderRequested = (req) => !!(req.body && req.body.keep_order); // saving a route already previewed: same start
   async function buildRoute(req) {
-    const ids = [...new Set((Array.isArray(req.body.ride_ids) ? req.body.ride_ids : []).map(Number).filter(Boolean))];
+    const asked = (Array.isArray(req.body.ride_ids) ? req.body.ride_ids : []).map(Number).filter(Boolean);
+    // Customers already in this driver's van are always part of the trip, whatever was checked.
+    const riding = q("SELECT id FROM rides WHERE driver_id = ? AND status = 'onboard'").all(req.user.id).map((r) => r.id);
+    const ids = [...new Set([...asked, ...(asked.length ? riding : [])])];
     if (!ids.length) throw new Error('Pick at least one ride for the route.');
     if (ids.length > MAX_ROUTE_RIDES) throw new Error(`A route can have up to ${MAX_ROUTE_RIDES} rides.`);
     const rides = q(`${RIDE_SELECT} WHERE r.id IN (${ids.map(() => '?').join(',')})`).all(...ids);
