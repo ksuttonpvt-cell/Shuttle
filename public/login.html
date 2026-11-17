@@ -45,7 +45,7 @@
       <label for="semail">Work email</label><input id="semail" name="email" type="email" autocomplete="email" required>
       <label for="sphone">Mobile phone <span class="muted">(optional, for reset links by text)</span></label><input id="sphone" name="phone" type="tel" autocomplete="tel">
       <label>I'm a…</label>
-      <div class="seg"><input type="radio" name="role" id="srAdvisor" value="advisor" required><label for="srAdvisor">Service advisor</label><input type="radio" name="role" id="srDriver" value="driver"><label for="srDriver">Shuttle driver</label></div>
+      <div class="seg" style="grid-template-columns:repeat(3,1fr)"><input type="radio" name="role" id="srAdvisor" value="advisor" required><label for="srAdvisor">Service advisor</label><input type="radio" name="role" id="srBdc" value="bdc"><label for="srBdc">BDC</label><input type="radio" name="role" id="srDriver" value="driver"><label for="srDriver">Shuttle driver</label></div>
       <label for="spass">Choose a password <span class="muted">(at least 8 characters)</span></label><input id="spass" name="password" type="password" autocomplete="new-password" required minlength="8">
       <label for="snote">Anything the admin should know? <span class="muted">(optional)</span></label><input id="snote" name="note" maxlength="300" placeholder="e.g. New advisor, started Monday">
       <div id="smsg"></div>
@@ -66,7 +66,7 @@
   App.$('#dealer').textContent = settings.dealer_name + ' · staff only';
   App.applyBrand(settings.dealer_name);
   const next = new URLSearchParams(location.search).get('next');
-  const go = (u) => { location.href = next && next.startsWith('/') && !next.startsWith('//') ? next : '/' + u.role; };
+  const go = (u) => { location.href = next && next.startsWith('/') && !next.startsWith('//') ? next : (u.home || '/' + u.role); };
   if (user) return go(user);
   if (settings.staff_signup !== '0') App.$('#signupLine').classList.remove('hidden');
   const showSignup = (on) => {

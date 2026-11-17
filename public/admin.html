@@ -56,6 +56,7 @@
         <label>Role *</label>
         <select name="role" required>
           <option value="advisor">Service advisor</option>
+          <option value="bdc">BDC (books rides by phone, has its own page)</option>
           <option value="driver">Shuttle driver</option>
           <option value="admin">Admin (full access)</option>
         </select>
@@ -415,7 +416,8 @@
 (async () => {
   const { $, $$, api, esc, fmtTime, statusBadge, typeBadge } = App;
   const me = await App.requireUser('admin');
-  const ROLE = { admin: 'Admin', advisor: 'Advisor', driver: 'Driver' };
+  const ROLE = { admin: 'Admin', advisor: 'Advisor', bdc: 'BDC', driver: 'Driver' };
+  const roleOf = (u) => (u.role === 'advisor' && u.team === 'bdc' ? 'bdc' : u.role); // BDC = an advisor on the BDC team
 
   // ---------- tabs ----------
   const loaders = {};
@@ -506,10 +508,10 @@
   function paintUsers() {
     const q = ($('#userSearch').value || '').trim().toLowerCase();
     const staff = users.filter((u) => !u.signup_at); // requests waiting for approval are shown above
-    const shown = staff.filter((u) => !q || [u.name, u.email, ROLE[u.role], u.phone].some((v) => String(v || '').toLowerCase().includes(q)));
+    const shown = staff.filter((u) => !q || [u.name, u.email, ROLE[roleOf(u)], u.phone].some((v) => String(v || '').toLowerCase().includes(q)));
     $('#userCount').textContent = `${staff.filter((u) => u.active).length} active · ${staff.length} total`;
     $('#users').innerHTML = shown.length ? `<table><tr><th>Name</th><th>Role</th><th>Status</th><th></th></tr>
-      ${shown.map((u) => `<tr data-id="${u.id}"><td><b>${esc(u.name)}</b>${u.id === me.id ? ' <span class="small muted">(you)</span>' : ''}</td><td>${ROLE[u.role]}${u.super_admin ? ' <span class="badge b-super">⭐ Super</span>' : ''}</td>
+      ${shown.map((u) => `<tr data-id="${u.id}"><td><b>${esc(u.name)}</b>${u.id === me.id ? ' <span class="small muted">(you)</span>' : ''}</td><td>${ROLE[roleOf(u)]}${u.super_admin ? ' <span class="badge b-super">⭐ Super</span>' : ''}</td>
         <td>${u.active ? '<span class="badge s-completed">Active</span>' : '<span class="badge s-cancelled">Disabled</span>'}${u.reset_requested_at ? ' <span class="badge s-en_route">🔑 Forgot password</span>' : ''}</td>
         <td style="text-align:right"><button class="btn-ghost btn-sm" data-edit>Edit</button></td></tr>`).join('')}</table>`
       : '<div class="empty">No one matches.</div>';
@@ -527,7 +529,7 @@
         <label>Name</label><input name="name" value="${esc(u.name)}" required>
         <label>Email (their sign-in)</label><input name="email" type="email" value="${esc(u.email)}" required>
         <label>Mobile phone</label><input name="phone" type="tel" value="${esc(u.phone || '')}">
-        <label>Role</label><select name="role" ${u.id === me.id ? 'disabled' : ''}>${Object.entries(ROLE).map(([k, v]) => `<option value="${k}" ${k === u.role ? 'selected' : ''}>${v}</option>`).join('')}</select>
+        <label>Role</label><select name="role" ${u.id === me.id ? 'disabled' : ''}>${Object.entries(ROLE).map(([k, v]) => `<option value="${k}" ${k === roleOf(u) ? 'selected' : ''}>${v}</option>`).join('')}</select>
         ${me.super_admin && u.role === 'admin' ? `<label class="check" style="margin-top:.6rem"><input type="checkbox" name="super_admin" ${u.super_admin ? 'checked' : ''} ${u.id === me.id ? 'disabled' : ''}> ⭐ Super admin: can open the Server page (updates, restart, backups, logs)</label>` : ''}
         <div class="msg"></div>
         <div class="actions"><button>Save</button><button type="button" class="btn-ghost" data-close>Close</button></div>
@@ -575,7 +577,7 @@
     box.classList.toggle('hidden', !asked.length && !joining.length);
     box.innerHTML = (joining.length ? `<div class="alert alert-ok reset-alert"><b>🙋 Asking for an account:</b>
       ${joining.map((u) => `<span class="reset-who" data-id="${u.id}">${esc(u.name)} <span class="small">(${esc(u.email)}${u.phone ? `, ${esc(u.phone)}` : ''} · asked ${fmtTime(u.signup_at)}${u.signup_note ? ` · “${esc(u.signup_note)}”` : ''})</span>
-        <select data-role aria-label="Role for ${esc(u.name)}" style="width:auto;display:inline-block">${['advisor', 'driver', 'admin'].map((k) => `<option value="${k}" ${k === u.role ? 'selected' : ''}>${ROLE[k]}</option>`).join('')}</select>
+        <select data-role aria-label="Role for ${esc(u.name)}" style="width:auto;display:inline-block">${['advisor', 'bdc', 'driver', 'admin'].map((k) => `<option value="${k}" ${k === roleOf(u) ? 'selected' : ''}>${ROLE[k]}</option>`).join('')}</select>
         <button class="btn-sm" data-approve>Approve</button> <button class="btn-ghost btn-sm" data-decline>Decline</button></span>`).join('')}</div>` : '')
       + (asked.length ? `<div class="alert alert-warn reset-alert"><b>🔑 Forgot password:</b>
       ${asked.map((u) => `<span class="reset-who" data-id="${u.id}">${esc(u.name)} <span class="small">(${esc(u.email)}, ${fmtTime(u.reset_requested_at)})</span>
@@ -588,7 +590,7 @@
     try {
       if (b.hasAttribute('data-approve')) {
         const r = await api(`/api/users/${u.id}/approve`, { body: { role: row.querySelector('[data-role]').value } });
-        alert(`${u.name} can sign in now as ${ROLE[r.user.role]}.${r.emailed ? ' We emailed them.' : ' Let them know.'}`);
+        alert(`${u.name} can sign in now as ${ROLE[roleOf(r.user)]}.${r.emailed ? ' We emailed them.' : ' Let them know.'}`);
       } else {
         if (!confirm(`Decline ${u.name}'s request? Their details will be deleted.`)) { b.disabled = false; return; }
         await api(`/api/users/${u.id}/decline`, { body: {} });

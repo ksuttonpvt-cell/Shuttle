@@ -16,7 +16,7 @@ const TILE_DAYS = 7; // the map server allows keeping its images about a week
 // Screens that can open from the device. Customer tracking links all share one screen.
 function screenKey(url) {
   const path = url.pathname.toLowerCase(); // QR codes use capitals (/T/K7M2Q9XA, /REQUEST)
-  if (['/admin', '/advisor', '/driver', '/login', '/request'].includes(path)) return url.origin + path;
+  if (['/admin', '/advisor', '/bdc', '/driver', '/login', '/request'].includes(path)) return url.origin + path;
   if (/^\/t\/[^/]+$/.test(path)) return `${url.origin}/t/`;
   if (/^\/s\/[^/]+$/.test(path)) return `${url.origin}/s/`;
   return null;

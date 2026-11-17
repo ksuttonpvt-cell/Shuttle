@@ -182,7 +182,9 @@ function openDb(file) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
-  addColumn('users', 'last_battery', 'TEXT');  // phone battery with the last location, e.g. "15" or "15+" (charging)
+  addColumn('users', 'last_battery', 'TEXT');
+  addColumn('users', 'team', 'TEXT');
+  addColumn('rides', 'booked_by', 'INTEGER REFERENCES users(id) ON DELETE SET NULL'); // who booked it (e.g. BDC), when not the advisor          // 'bdc': an advisor on the BDC team (their own page)  // phone battery with the last location, e.g. "15" or "15+" (charging)
   addColumn('users', 'signup_at', 'TEXT');   // asked for an account from the sign-in page; waiting for an admin
   addColumn('users', 'signup_note', 'TEXT');
   addColumn('ride_offers', 'rotation', 'INTEGER NOT NULL DEFAULT 0'); // offered on the way back to the dealership

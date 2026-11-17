@@ -1,5 +1,18 @@
 [
   {
+    "version": "2.14.0",
+    "date": "2026-11-17",
+    "title": "The BDC desk",
+    "changes": [
+      "New BDC page for the BDC team. Find a customer by name, phone number (any format) or RO number while they're on the phone, and see what to tell them: “Driver on the way · driver Sam in Shuttle 2” or “#2 in line”.",
+      "Book a ride with the same step-by-step form as the advisor desk, for today or a future appointment, then send the tracking link right away.",
+      "Today, Booked ahead and Finished (last 3 days) lists, plus a live map of the vans. No driver controls.",
+      "BDC picks the customer's service advisor when booking (required), and can change it under Edit. The advisor gets a phone notification and a note at the top of the advisor desk (“📞 Bea (BDC) booked a pick up for you”), and the ride is under My customers only.",
+      "Rides show who booked them: “Advisor: Kim · 📞 booked by Bea (BDC)”.",
+      "Pick BDC as the role when adding someone, approving an account request, or editing a person. BDC staff land on their page when they sign in, and can still open the advisor desk."
+    ]
+  },
+  {
     "version": "2.13.0",
     "date": "2026-11-17",
     "title": "Spectator links: watch a driver live",
