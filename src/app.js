@@ -225,8 +225,13 @@ function createApp(db, opts = {}) {
     on_duty: !!u.on_duty, vehicle_id: u.vehicle_id, last_lat: u.last_lat, last_lng: u.last_lng,
     last_loc_at: u.last_loc_at, created_at: u.created_at, reset_requested_at: u.reset_requested_at || null,
     signup_at: u.signup_at || null, signup_note: u.signup_note || null,
+    team: u.team || null, home: homeOf(u),
     super_admin: u.role === 'admin' && !!u.super_admin,
   });
+  // BDC team members are advisors (same access) with their own page.
+  const homeOf = (u) => (u.role === 'advisor' && u.team === 'bdc' ? '/bdc' : `/${u.role}`);
+  const STAFF_ROLES = ['admin', 'advisor', 'driver', 'bdc'];
+  const asRole = (r) => (r === 'bdc' ? { role: 'advisor', team: 'bdc' } : { role: r, team: null });
   const str = (v, max = 500) => (v == null ? null : String(v).trim().slice(0, max) || null);
   const num = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Number(v));
   function bad(res, msg, code = 400) { return res.status(code).json({ error: msg }); }
@@ -580,7 +585,7 @@ function createApp(db, opts = {}) {
     const name = str(b.name, 100); const email = str(b.email, 200); const role = b.role;
     if (!name || name.length < 2) return bad(res, 'Enter your name.');
     if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return bad(res, 'Enter a valid email.');
-    if (!['advisor', 'driver'].includes(role)) return bad(res, 'Pick Advisor or Driver.');
+    if (!['advisor', 'driver', 'bdc'].includes(role)) return bad(res, 'Pick Advisor, BDC or Driver.');
     const err = validatePassword(b.password);
     if (err) return bad(res, err);
     const key = `signup|${clientIp(req)}`;
@@ -591,8 +596,9 @@ function createApp(db, opts = {}) {
     if (q('SELECT id FROM users WHERE email = ?').get(email)) return res.json(done);
     let id;
     try {
-      id = Number(q('INSERT INTO users (name, email, phone, role, password_hash, active, signup_at, signup_note) VALUES (?, ?, ?, ?, ?, 0, ?, ?)')
-        .run(name, email, str(b.phone, 40), role, hash, now(), str(b.note, 300)).lastInsertRowid);
+      const r = asRole(role);
+      id = Number(q('INSERT INTO users (name, email, phone, role, team, password_hash, active, signup_at, signup_note) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)')
+        .run(name, email, str(b.phone, 40), r.role, r.team, hash, now(), str(b.note, 300)).lastInsertRowid);
     } catch { return res.json(done); } // the same email at the same moment
     const admins = q("SELECT id FROM users WHERE role = 'admin' AND active = 1").all().map((a) => a.id);
     quietly(push.notifyUsers(admins, { title: '🙋 New account request', body: `${name} (${email}) wants to be a ${role}. Open Admin → Staff & logins to approve.`, tag: `signup-${id}`, url: '/admin#users' }));
@@ -603,8 +609,9 @@ function createApp(db, opts = {}) {
   app.post('/api/users/:id/approve', requireRole('admin'), (req, res) => {
     const u = q('SELECT * FROM users WHERE id = ? AND signup_at IS NOT NULL').get(Number(req.params.id));
     if (!u) return bad(res, 'Request not found.', 404);
-    const role = ['admin', 'advisor', 'driver'].includes(req.body && req.body.role) ? req.body.role : u.role;
-    q('UPDATE users SET active = 1, role = ?, signup_at = NULL, signup_note = NULL WHERE id = ?').run(role, u.id);
+    const role = STAFF_ROLES.includes(req.body && req.body.role) ? req.body.role : (u.team === 'bdc' ? 'bdc' : u.role);
+    const rr = asRole(role);
+    q('UPDATE users SET active = 1, role = ?, team = ?, signup_at = NULL, signup_note = NULL WHERE id = ?').run(rr.role, rr.team, u.id);
     console.log(new Date().toLocaleString(), `[staff] ${req.user.name} approved ${u.name} as ${role}.`);
     if (mailer.configured) {
       const dealer = getSettings().dealer_name || 'Shuttle';
@@ -627,12 +634,13 @@ function createApp(db, opts = {}) {
     const email = str(req.body.email, 200);
     const role = req.body.role;
     if (!name || !email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return bad(res, 'Name and a valid email are required.');
-    if (!['admin', 'advisor', 'driver'].includes(role)) return bad(res, 'Pick a role.');
+    if (!STAFF_ROLES.includes(role)) return bad(res, 'Pick a role.');
     const err = validatePassword(req.body.password);
     if (err) return bad(res, err);
     if (q('SELECT id FROM users WHERE email = ?').get(email)) return bad(res, 'That email already has an account.');
-    const r = q('INSERT INTO users (name, email, phone, role, password_hash) VALUES (?, ?, ?, ?, ?)')
-      .run(name, email, str(req.body.phone, 40), role, await hashPasswordAsync(req.body.password));
+    const rr = asRole(role);
+    const r = q('INSERT INTO users (name, email, phone, role, team, password_hash) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(name, email, str(req.body.phone, 40), rr.role, rr.team, await hashPasswordAsync(req.body.password));
     res.status(201).json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid)) });
   });
 
@@ -651,10 +659,11 @@ function createApp(db, opts = {}) {
     if (b.name != null) user.name = str(b.name, 100) || user.name;
     if (b.phone !== undefined) user.phone = str(b.phone, 40);
     if (b.role != null) {
-      if (!['admin', 'advisor', 'driver'].includes(b.role)) return bad(res, 'Pick a role.');
+      if (!STAFF_ROLES.includes(b.role)) return bad(res, 'Pick a role.');
       if (user.id === req.user.id && b.role !== 'admin') return bad(res, "You can't remove your own admin access.");
       if (b.role !== 'admin' && user.super_admin && !isSuper(req.user)) return bad(res, 'Only a super admin can change a super admin.', 403);
-      user.role = b.role;
+      const rr = asRole(b.role);
+      user.role = rr.role; user.team = rr.team;
       if (user.role !== 'admin') user.super_admin = 0;
     }
     if (b.super_admin != null) {
@@ -671,8 +680,8 @@ function createApp(db, opts = {}) {
       if (user.id === req.user.id && !b.active) return bad(res, "You can't deactivate yourself.");
       user.active = b.active ? 1 : 0;
     }
-    q('UPDATE users SET name=?, email=?, phone=?, role=?, active=?, super_admin=? WHERE id=?')
-      .run(user.name, user.email, user.phone, user.role, user.active, user.super_admin ? 1 : 0, user.id);
+    q('UPDATE users SET name=?, email=?, phone=?, role=?, team=?, active=?, super_admin=? WHERE id=?')
+      .run(user.name, user.email, user.phone, user.role, user.team || null, user.active, user.super_admin ? 1 : 0, user.id);
     if (user.active) q('UPDATE users SET signup_at = NULL, signup_note = NULL WHERE id = ?').run(user.id); // turned on = approved
     if (b.password) {
       const err = validatePassword(b.password);
@@ -1248,6 +1257,20 @@ function createApp(db, opts = {}) {
       const start = new Date(); start.setHours(0, 0, 0, 0);
       where.push('(r.scheduled_at >= ? OR r.cancelled_at >= ? OR r.completed_at >= ? OR r.status IN (\'requested\',\'assigned\',\'en_route\',\'onboard\'))');
       args.push(start.toISOString(), start.toISOString(), start.toISOString());
+    }
+    else if (scope === 'upcoming') { // booked for after today
+      const end = new Date(); end.setHours(24, 0, 0, 0);
+      where.push(`r.status IN (${OPEN_STATUSES.map(() => '?').join(',')}) AND r.scheduled_at >= ?`); args.push(...OPEN_STATUSES, end.toISOString());
+    } else if (scope === 'recent') { // finished in the last 3 days
+      where.push("r.status IN ('completed','cancelled') AND COALESCE(r.completed_at, r.cancelled_at, r.updated_at) >= ?");
+      args.push(new Date(Date.now() - 3 * 86400000).toISOString());
+    } else if (scope === 'search') { // a customer on the phone: name, phone or RO number (last 30 days and ahead)
+      const text = String(req.query.q || '').trim().slice(0, 60);
+      if (text.length < 2) return res.json({ rides: [], queue: [] });
+      const digits = text.replace(/\D/g, '');
+      const like = `%${text.replace(/[%_]/g, '')}%`;
+      where.push(`(r.customer_name LIKE ? OR r.ro_number LIKE ?${digits.length >= 3 ? " OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(r.customer_phone,'-',''),' ',''),'(',''),')',''),'.',''),'+','') LIKE ?" : ''}) AND r.scheduled_at >= ? AND r.cleared_at IS NULL`);
+      args.push(like, like, ...(digits.length >= 3 ? [`%${digits}%`] : []), new Date(Date.now() - 30 * 86400000).toISOString());
     }
     if (req.query.mine === '1' && req.user.role === 'advisor') { where.push('r.advisor_id = ?'); args.push(req.user.id); }
     if (req.query.mine === '1' && req.user.role === 'driver') { where.push('r.driver_id = ?'); args.push(req.user.id); }
@@ -2365,10 +2388,11 @@ function createApp(db, opts = {}) {
   };
   app.get('/', (req, res) => {
     if (!req.user) return res.redirect('/login');
-    res.redirect(`/${req.user.role}`);
+    res.redirect(homeOf(req.user));
   });
   app.get('/login', page('login.html'));
   app.get('/advisor', page('advisor.html'));
+  app.get('/bdc', page('bdc.html'));
   app.get('/driver', page('driver.html'));
   app.get('/admin', page('admin.html'));
   app.get('/request', page('request.html'));

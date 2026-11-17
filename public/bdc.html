@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script>/* apply the saved light/dark choice and any look preview before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;var q=new URLSearchParams(location.search).get("look");if(q==="corwin"||q==="classic")localStorage.setItem("shuttle.look",q);else if(q==="off")localStorage.removeItem("shuttle.look");var l=localStorage.getItem("shuttle.look");if(l==="corwin"||l==="classic")document.documentElement.dataset.look=l}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BDC Desk</title>
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<header id="topbar"></header>
+<main class="wrap grid bdc">
+  <!-- A customer on the phone: find their ride first. -->
+  <section class="card bdc-find">
+    <label for="find" class="bdc-find-label">Find a customer</label>
+    <div class="bdc-find-row">
+      <input id="find" type="search" autocomplete="off" placeholder="Name, phone number or RO #" aria-describedby="findHelp">
+      <button type="button" class="btn-lg" id="bookBtn">＋ Book a ride</button>
+    </div>
+    <p class="small muted" id="findHelp" style="margin:.3rem 0 0">Rides from the last 30 days and anything booked ahead. Customer details are cleared each night once a ride is done.</p>
+    <div id="results" aria-live="polite"></div>
+  </section>
+
+  <section class="card">
+    <div class="chips" role="tablist" aria-label="Which rides">
+      <button data-scope="today" class="active">Today <span data-n="today"></span></button>
+      <button data-scope="upcoming">Booked ahead <span data-n="upcoming"></span></button>
+      <button data-scope="recent">Finished (3 days) <span data-n="recent"></span></button>
+    </div>
+    <div id="list"></div>
+  </section>
+
+  <details class="card" id="vansCard">
+    <summary><b>Where are the vans?</b> <span class="small muted">live map</span></summary>
+    <div id="map" class="map" style="margin-top:.6rem"></div>
+  </details>
+</main>
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/rides.js"></script>
+<script>
+// BDC desk: answer "where's my shuttle?" calls, book rides for service appointments,
+// and text customers their tracking link. No driver controls.
+(async () => {
+  const { $, $$, api, esc } = App;
+  await App.requireUser('advisor');
+  let scope = 'today'; let rides = []; let found = [];
+  const byId = (id) => rides.concat(found).find((r) => r.id === id);
+  const sortTime = (list, newestFirst) => list.slice().sort((a, b) => (newestFirst ? -1 : 1) * (new Date(a.scheduled_at) - new Date(b.scheduled_at)));
+  const STATUS_WORDS = { requested: 'Waiting for a driver', assigned: 'Driver assigned', en_route: 'Driver on the way', onboard: 'On board', completed: 'Done', cancelled: 'Cancelled' };
+  // A short line the BDC person can read to the customer.
+  const sayLine = (r) => {
+    const bits = [STATUS_WORDS[r.status] || r.status];
+    if (r.driver_name) bits.push(`driver ${r.driver_name.split(' ')[0]}${r.vehicle_name ? ` in ${r.vehicle_name}` : ''}`);
+    if (r.rank && ['requested', 'assigned'].includes(r.status)) bits.push(`#${r.rank} in line`);
+    return `<div class="bdc-say">📞 Tell them: <b>${esc(bits.join(' · '))}</b></div>`;
+  };
+  const cardOf = (r) => Rides.card(r, { mode: 'bdc' }).replace('<div class="ride-meta">', `${sayLine(r)}<div class="ride-meta">`);
+
+  async function loadList() {
+    const [open, upcoming, recent] = await Promise.all(['open', 'upcoming', 'recent'].map((s) => api(`/api/rides?scope=${s}`)));
+    const end = new Date(); end.setHours(24, 0, 0, 0);
+    const rankOf = new Map(open.rides.map((r) => [r.id, r.rank]));
+    const sets = {
+      today: sortTime(open.rides.filter((r) => new Date(r.scheduled_at) < end), false),
+      upcoming: sortTime(upcoming.rides.map((r) => ({ ...r, rank: rankOf.get(r.id) })), false),
+      recent: sortTime(recent.rides, true),
+    };
+    for (const k of Object.keys(sets)) $(`[data-n="${k}"]`).textContent = `(${sets[k].length})`;
+    rides = sets.today.concat(sets.upcoming, sets.recent);
+    const list = sets[scope];
+    $('#list').innerHTML = list.length ? list.map(cardOf).join('')
+      : `<div class="empty">${{ today: 'No shuttle rides left today.', upcoming: 'Nothing booked ahead yet.', recent: 'Nothing finished in the last 3 days.' }[scope]}</div>`;
+  }
+  $$('[data-scope]').forEach((b) => { b.onclick = () => { scope = b.dataset.scope; $$('[data-scope]').forEach((x) => x.classList.toggle('active', x === b)); loadList(); }; });
+
+  let searchTimer = null; let lastQ = '';
+  async function search() {
+    const text = $('#find').value.trim(); lastQ = text;
+    if (text.length < 2) { found = []; $('#results').innerHTML = ''; return; }
+    const r = await api(`/api/rides?scope=search&q=${encodeURIComponent(text)}`);
+    if (text !== lastQ) return; // a newer search is on its way
+    found = sortTime(r.rides, true);
+    $('#results').innerHTML = found.length
+      ? `<div class="small muted" style="margin:.6rem 0 .3rem">${found.length} ride${found.length === 1 ? '' : 's'} found</div>${found.map(cardOf).join('')}`
+      : `<div class="empty">No rides for “${esc(text)}”. Check the spelling, try the phone number, or book a new ride.</div>`;
+  }
+  $('#find').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => search().catch(() => {}), 250); });
+
+  // Book a ride: the same step-by-step form as the advisor desk, in a window.
+  $('#bookBtn').onclick = () => {
+    const m = App.modal('<h2>Book a shuttle ride</h2><form id="bdcRide"></form>');
+    $('.modal', m).style.maxWidth = '620px';
+    Rides.newRideForm($('#bdcRide', m), (ride) => { m.close(); $('#find').value = ride.customer_name; search(); loadList(); });
+  };
+
+  const refresh = () => { loadList().catch(() => {}); if (lastQ) search().catch(() => {}); };
+  Rides.bind($('#results'), byId, refresh);
+  Rides.bind($('#list'), byId, refresh);
+
+  // Live vans, drawn once the map is opened.
+  let map = null;
+  $('#vansCard').addEventListener('toggle', (e) => {
+    if (!e.target.open) return;
+    if (map) { map.invalidateSize(); return; }
+    map = App.makeMap($('#map'), { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng) });
+    App.dealerMarker(map, App.settings); App.liveDrivers(map);
+  });
+
+  App.live({ rides: refresh, drivers: refresh });
+  await loadList();
+  App.poll(refresh, 30000); // a backup in case an instant update is missed
+  $('#find').focus();
+})();
+</script>
+</body>
+</html>

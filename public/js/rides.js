@@ -157,6 +157,10 @@ const Rides = (() => {
           <button class="btn-ghost btn-sm" data-cancel>Cancel ride</button>
         </div>` : ''}
         ${!open && mode === 'staff' ? `<div class="actions"><button class="btn-ghost btn-sm" data-share>Link / QR</button></div>` : ''}
+        ${mode === 'bdc' ? `<div class="actions">
+          <button class="btn-blue btn-sm" data-share>📱 Send tracking link</button>
+          ${open ? '<button class="btn-ghost btn-sm" data-edit>Edit</button><button class="btn-ghost btn-sm" data-cancel>Cancel ride</button>' : ''}
+        </div>` : ''}
       </div>`;
   }
 
@@ -195,5 +199,78 @@ const Rides = (() => {
     };
   }
 
-  return { formHtml, stepFormHtml, wireForm, formData, card, bind, edit };
+  // The step-by-step "new ride" form, used on the advisor and BDC pages.
+  function newRideForm(form, onAdded = () => {}) {
+    // New ride form, one step at a time:
+    // pick up or drop off -> customer name & phone -> location -> time & people -> urgent or not.
+    form.innerHTML = `${Rides.stepFormHtml()}
+      <div id="formMsg"></div>
+      <div class="step-nav">
+        <button type="button" class="btn-ghost" data-back>← Back</button>
+        <button type="button" class="btn-dark" data-next>Next →</button>
+        <button type="submit" class="btn-lg" data-submit>Add to shuttle queue</button>
+      </div>`;
+    const wired = Rides.wireForm(form);
+    const WORDS = {
+      pickup: { where: 'Where are we picking them up?', when: 'When should we pick them up, and how many people?' },
+      dropoff: { where: 'Where are we taking them?', when: 'When do they leave the dealership, and how many people?' },
+    };
+    const typeOf = () => form.elements.type.value;
+    const WAIT = Number(App.settings.dropoff_wait_min) || 0;
+    // In the review, show when a drop off will really leave (the wait applies unless urgent).
+    function reviewTime() {
+      const el = $('[data-review-time]', form); if (!el) return;
+      const f = Rides.formData(form);
+      const earliest = Date.now() + WAIT * 60000;
+      const waits = f.type === 'dropoff' && f.priority !== 'urgent' && WAIT > 0 && new Date(f.scheduled_at) < earliest - 60000;
+      const t = waits ? new Date(earliest).toISOString() : f.scheduled_at;
+      el.innerHTML = `🕒 ${App.fmtTime(t)}${waits ? ` <span class="small">(${WAIT}-minute drop-off wait)</span>` : ''} · ${f.passengers || 1} ${Number(f.passengers) === 1 ? 'person' : 'people'}`;
+    }
+    form.addEventListener('change', (e) => { if (e.target.name === 'priority') reviewTime(); });
+    const steps = App.stepper(form, {
+      msg: $('#formMsg'),
+      check: {
+        where: () => (form.elements.lat.value ? null : (confirm('No map pin was set for this address. The driver will only see the typed address. Continue anyway?') ? null : 'Pick an address from the list, or tap the map to set the spot.')),
+      },
+      onShow: (step) => {
+        if (step === 'where') { $('[data-addr-label]', form).textContent = WORDS[typeOf()].where; setTimeout(() => wired.map.invalidateSize(), 50); }
+        if (step === 'when') {
+          // Drop offs wait a set time unless urgent (marked in the next step).
+          const note = $('[data-wait-note]', form);
+          note.hidden = !(typeOf() === 'dropoff' && WAIT > 0);
+          note.innerHTML = `⏳ Drop offs leave at least <b>${WAIT} minutes</b> after booking (earliest about ${App.fmtTime(new Date(Date.now() + WAIT * 60000).toISOString())}). Need it sooner? Choose <b>Urgent</b> in the next step and give a reason.`;
+        }
+        if (step === 'priority') {
+          const f = Rides.formData(form);
+          $('[data-summary]', form).innerHTML = `<b>Review</b>
+            <div>${f.type === 'pickup' ? '⬆ Pick up' : '⬇ Drop off'} · <b>${esc(f.customer_name)}</b>${f.customer_phone ? ` · ${esc(f.customer_phone)}` : ''}</div>
+            <div>📍 ${esc(f.address)}${f.lat ? '' : ' <span class="late">(no map pin)</span>'}</div>
+            <div data-review-time>🕒 ${App.fmtTime(f.scheduled_at)} · ${f.passengers || 1} ${Number(f.passengers) === 1 ? 'person' : 'people'}</div>`;
+          reviewTime();
+        }
+      },
+    });
+    form.querySelectorAll('[data-choose]').forEach((b) => b.addEventListener('click', () => {
+      form.querySelector(`[name=type][value=${b.dataset.choose}]`).checked = true;
+      form.querySelectorAll('[data-choose]').forEach((x) => x.classList.toggle('picked', x === b));
+    }));
+    form.querySelectorAll('[data-in]').forEach((b) => b.onclick = () => {
+      form.elements.scheduled_at.value = App.toLocalInput(new Date(Date.now() + Number(b.dataset.in) * 60000));
+    });
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const { ride, adjusted_to: moved, wait_min: waitMin } = await api('/api/rides', { body: Rides.formData(form) });
+        form.reset(); wired.reset(); wired.syncUrgent();
+        form.elements.scheduled_at.value = App.toLocalInput(new Date(Date.now() + 30 * 60000));
+        form.querySelectorAll('[data-choose]').forEach((x) => x.classList.remove('picked'));
+        steps.reset(); // ready for the next ride
+        App.flash($('#formMsg'), moved ? `Added ${ride.customer_name}. Drop off set for ${App.fmtTime(moved)} (${waitMin}-minute wait).` : `Added ${ride.customer_name}.`, true);
+        onAdded(ride);
+        App.share({ title: `Shuttle tracking for ${ride.customer_name}`, url: ride.track_url, phone: ride.customer_phone, email: ride.customer_email, message: App.rideMessage(ride) });
+      } catch (err) { App.flash($('#formMsg'), err.message); }
+    };
+  }
+
+  return { formHtml, stepFormHtml, wireForm, formData, card, bind, edit, newRideForm };
 })();

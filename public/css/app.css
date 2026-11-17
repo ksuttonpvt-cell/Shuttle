@@ -608,3 +608,10 @@ body.spec { height: 100%; margin: 0; display: grid; grid-template-rows: auto 1fr
 .spec-panel { display: grid; gap: .5rem; padding: .7rem max(16px, env(safe-area-inset-left, 0px)) calc(.7rem + env(safe-area-inset-bottom, 0px)); background: var(--card); border-top: 1px solid var(--line); }
 .spec-row { padding: .3rem 0; border-bottom: 1px solid var(--line); }
 .spec-panel button { justify-self: start; }
+
+/* BDC desk */
+.bdc { max-width: 900px; }
+.bdc-find-label { font-size: 1.15rem; margin-top: 0; }
+.bdc-find-row { display: flex; flex-wrap: wrap; gap: .5rem; }
+.bdc-find-row input { flex: 1 1 240px; min-width: 0; font-size: 1.15rem; padding: .8rem 1rem; }
+.bdc-say { margin: .35rem 0; padding: .45rem .6rem; border-radius: 8px; background: var(--blue-bg); font-size: .92rem; }
