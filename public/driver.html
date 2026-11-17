@@ -140,6 +140,12 @@
     onboard: ['completed', 'Ride complete ✓', 'btn-green'],
   };
 
+  // Where the driver goes next for this ride: a picked-up customer on board goes to the
+  // dealership; a drop-off customer still waiting is collected at the dealership first.
+  function nextPlace(r) {
+    const toDealer = (r.type === 'pickup' && r.status === 'onboard') || (r.type === 'dropoff' && r.status !== 'onboard') || r.lat == null && r.type === 'pickup' && r.status === 'onboard';
+    return toDealer ? { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng), address: App.settings.dealer_address, dealer: true } : r;
+  }
   function rideHtml(r, big = false) {
     const mine = r.driver_id === me.id;
     const step = mine && NEXT_STEP[r.status];
@@ -164,7 +170,7 @@
         <div class="actions">
           ${!r.driver_id ? `<button class="btn-dark" data-claim>Take this ride</button>` : ''}
           ${step ? `<button class="${step[2]}" data-status="${step[0]}">${step[1]}</button>` : ''}
-          <a class="btn btn-ghost" target="_blank" rel="noopener" href="${App.directionsUrl(r)}">🧭 Navigate</a>
+          <a class="btn btn-ghost" target="_blank" rel="noopener" href="${App.navUrl(nextPlace(r))}">🧭 ${nextPlace(r).dealer ? 'To dealership' : 'Navigate'}</a>
           ${r.customer_phone ? `<a class="btn btn-ghost" href="${App.telLink(r.customer_phone)}">📞 Call</a>
             <a class="btn btn-ghost" href="sms:${r.customer_phone.replace(/[^\d+]/g, '')}">💬 Text</a>` : ''}
           ${mine && r.status === 'assigned' ? `<button class="btn-ghost" data-release>Give back</button>` : ''}
@@ -453,6 +459,7 @@
         const ids = saved.stops.filter((x) => x.ride_id).map((x) => x.ride_id);
         if (!ids.includes(id)) await plan([...ids, id], true);
       },
+      setSaved(rt) { saved = rt; preview = null; picking = null; drawPath(saved); paint(); },
       nextRideId: () => (saved ? (saved.stops.find((x) => x.ride_id) || {}).ride_id : null),
       clearLocal() { saved = null; preview = null; picking = null; drawPath(null); },
     };
@@ -472,11 +479,12 @@
       const where = o.type === 'pickup'
         ? `📍 ${esc(o.address)}<br><b>${o.miles} mi from you</b> (about ${o.minutes} min)`
         : `Customer is waiting at the dealership (<b>${o.miles} mi from you</b>, about ${o.minutes} min) → drop off at ${esc(o.address)}`;
-      sheet.innerHTML = `<div class="offer-head"><b>${o.type === 'pickup' ? '🚐 Ride near you. Want it?' : '🚐 Drop off waiting. Want it?'}</b><span class="offer-timer">${secondsLeft(o)}s</span></div>
+      sheet.innerHTML = `<div class="offer-head"><b>${o.rotation ? '🔄 On your way back: ride near you. Want it?' : o.type === 'pickup' ? '🚐 Ride near you. Want it?' : '🚐 Drop off waiting. Want it?'}</b><span class="offer-timer">${secondsLeft(o)}s</span></div>
         <div class="offer-who">${typeBadge(o.type)} ${o.priority === 'urgent' ? '<span class="badge b-urgent">Urgent</span>' : ''} <b>${esc(o.customer_name)}</b></div>
         <div class="small" style="margin:.3rem 0">${where}</div>
         <div class="small">🕒 ${fmtTime(o.scheduled_at)} · ${relTime(o.scheduled_at)} · ${o.passengers} passenger${o.passengers > 1 ? 's' : ''}</div>
         ${o.notes ? `<div class="small">📝 ${esc(o.notes)}</div>` : ''}
+        ${o.rotation ? '<div class="small muted">Drop off who’s on board at the dealership, then grab this one. Your route updates if you take it.</div>' : ''}
         <div class="offer-actions"><button class="btn-green btn-lg" data-offer="accept">✅ Take it</button><button class="btn-ghost btn-lg" data-offer="decline">No thanks</button></div>
         <div class="offer-msg"></div>`;
       sheet.classList.remove('hidden');
@@ -498,9 +506,10 @@
       try {
         if (b.dataset.offer === 'accept') {
           alerts.tookMyself([o.ride_id]);
-          await api(`/api/offers/${o.id}/accept`, { body: {} });
+          const r = await api(`/api/offers/${o.id}/accept`, { body: {} });
           current = null; paint();
-          await route.addRide(o.ride_id);
+          if (r.route) route.setSaved(r.route); // the server already worked it into the route
+          else await route.addRide(o.ride_id);
           refresh();
         } else {
           await api(`/api/offers/${o.id}/decline`, { body: {} });

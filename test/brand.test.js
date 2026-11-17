@@ -90,6 +90,8 @@ test('links and QR codes use https when visitors come through Cloudflare', async
   const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Visitor': '{"scheme":"https"}', 'CF-Connecting-IP': '203.0.113.9', Host: 'corwinshuttle.example' },
     body: JSON.stringify({ email: 'admin@test.local', password: 'adminpass1' }) });
   assert.match(login.headers.get('set-cookie'), /; Secure/, 'sign-in cookie is marked secure');
+  assert.equal(login.headers.get('strict-transport-security'), 'max-age=31536000', 'browsers remember to use https');
+  assert.equal((await fetch(`${base}/login`)).headers.get('strict-transport-security'), null, 'not on plain office-network visits');
   const cookie = login.headers.get('set-cookie').split(';')[0];
   const links = await (await fetch(`${base}/api/links`, { headers: { Cookie: cookie, 'CF-Visitor': '{"scheme":"https"}', Host: 'corwinshuttle.example' } })).json();
   assert.match(links.links[0].url, /^https:\/\/127\.0\.0\.1:\d+\/request$/, 'https when the visitor used https');

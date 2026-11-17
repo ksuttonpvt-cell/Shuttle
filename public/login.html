@@ -38,8 +38,23 @@
       <button class="btn-block btn-lg" style="margin-top:1rem">Ask for a reset link</button>
       <p class="small" style="text-align:center;margin-top:.8rem"><button type="button" class="linklike" id="backToLogin">← Back to sign in</button></p>
     </form>
+    <form id="signup" class="hidden">
+      <h2 style="margin-top:0">Ask for an account</h2>
+      <p class="small muted">For dealership staff. A shuttle admin approves new accounts; then you sign in with this email and password.</p>
+      <label for="sname">Your name</label><input id="sname" name="name" autocomplete="name" required maxlength="100">
+      <label for="semail">Work email</label><input id="semail" name="email" type="email" autocomplete="email" required>
+      <label for="sphone">Mobile phone <span class="muted">(optional, for reset links by text)</span></label><input id="sphone" name="phone" type="tel" autocomplete="tel">
+      <label>I'm a…</label>
+      <div class="seg"><input type="radio" name="role" id="srAdvisor" value="advisor" required><label for="srAdvisor">Service advisor</label><input type="radio" name="role" id="srDriver" value="driver"><label for="srDriver">Shuttle driver</label></div>
+      <label for="spass">Choose a password <span class="muted">(at least 8 characters)</span></label><input id="spass" name="password" type="password" autocomplete="new-password" required minlength="8">
+      <label for="snote">Anything the admin should know? <span class="muted">(optional)</span></label><input id="snote" name="note" maxlength="300" placeholder="e.g. New advisor, started Monday">
+      <div id="smsg"></div>
+      <button class="btn-block btn-lg" style="margin-top:1rem">Send my request</button>
+      <p class="small" style="text-align:center;margin-top:.8rem"><button type="button" class="linklike" id="backFromSignup">← Back to sign in</button></p>
+    </form>
     <p class="small muted" style="text-align:center;margin-top:1rem">
       <button type="button" class="linklike" id="forgotLink">Forgot your password?</button><br>
+      <span id="signupLine" class="hidden">New here? <button type="button" class="linklike" id="signupLink">Ask for an account</button><br></span>
       Customer? <a href="/request">Request a shuttle ride</a>
     </p>
   </div>
@@ -53,6 +68,25 @@
   const next = new URLSearchParams(location.search).get('next');
   const go = (u) => { location.href = next && next.startsWith('/') && !next.startsWith('//') ? next : '/' + u.role; };
   if (user) return go(user);
+  if (settings.staff_signup !== '0') App.$('#signupLine').classList.remove('hidden');
+  const showSignup = (on) => {
+    App.$('#f').classList.toggle('hidden', on); App.$('#signup').classList.toggle('hidden', !on);
+    App.$('#forgotLink').parentElement.classList.toggle('hidden', on);
+    if (on) App.$('#sname').focus();
+  };
+  App.$('#signupLink').onclick = () => showSignup(true);
+  App.$('#backFromSignup').onclick = () => showSignup(false);
+  App.$('#signup').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target.elements; const btn = e.target.querySelector('.btn-lg'); btn.disabled = true;
+    try {
+      const r = await App.api('/api/signup', { body: { name: f.name.value, email: f.email.value, phone: f.phone.value, role: f.role.value, password: f.password.value, note: f.note.value } });
+      App.flash(App.$('#smsg'), r.message, true);
+      App.$('#email').value = f.email.value;
+      e.target.querySelectorAll('input').forEach((i) => { i.disabled = true; });
+      btn.classList.add('hidden');
+    } catch (err) { App.flash(App.$('#smsg'), err.message); btn.disabled = false; }
+  };
   const showForgot = (on) => {
     App.$('#f').classList.toggle('hidden', on); App.$('#forgot').classList.toggle('hidden', !on);
     App.$('#forgotLink').parentElement.classList.toggle('hidden', on);

@@ -275,3 +275,63 @@ test('a dealership stop drops off the route once its customers are off and on', 
     assert.deepEqual(await stopsNow(), [drop.id, 0], 'Cy is on: the dealership stop is done');
   } finally { srv.close(); }
 });
+
+test('rotation: a driver heading back to the dealership is offered a ride within 3 miles, and the route takes it in', async () => {
+  const db = openDb(':memory:');
+  ensureAdmin(db, { email: 'boss@rot.test', password: 'adminpass1', name: 'Boss' });
+  const app = createApp(db, { noTimers: true });
+  const srv = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const client = () => { let cookie = ''; return async (p, { method, body } = {}) => {
+    const res = await fetch(base + p, { method: method || (body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    const set = res.headers.get('set-cookie'); if (set) cookie = set.split(';')[0];
+    return { status: res.status, data: await res.json().catch(() => null) };
+  }; };
+  const soon = (m) => new Date(Date.now() + m * 60000).toISOString();
+  try {
+    const a = client(); await a('/api/login', { body: { email: 'boss@rot.test', password: 'adminpass1' } });
+    await a('/api/settings', { method: 'PATCH', body: { ride_offers: '1' } });
+    const dr = (await a('/api/users', { body: { name: 'Dee', email: 'dee@rot.test', role: 'driver', password: 'driverpass1' } })).data.user;
+    const v = (await a('/api/vehicles', { body: { name: 'Van', seats: 6 } })).data.vehicle;
+    const book = async (name, type, lat, lng, extra = {}) => (await a('/api/rides', { body: { type, customer_name: name, customer_phone: '3035550101', address: name, lat, lng, scheduled_at: soon(15), passengers: 1, ...extra } })).data.ride;
+    const d = client(); await d('/api/login', { body: { email: 'dee@rot.test', password: 'driverpass1' } });
+    await d('/api/driver/shift', { body: { on_duty: true, vehicle_id: v.id } });
+    // Dee has two customers on board, heading back, now 2 miles east of the dealership.
+    const r1 = await book('Ann', 'pickup', 40.02, -105.10); const r2 = await book('Bo', 'pickup', 40.03, -105.09);
+    for (const r of [r1, r2]) { await d(`/api/rides/${r.id}`, { method: 'PATCH', body: { driver_id: dr.id } }); await d(`/api/rides/${r.id}`, { method: 'PATCH', body: { status: 'onboard' } }); }
+    await d('/api/driver/location', { body: { lat: 40.0236, lng: -105.205 } });
+    const route = (await d('/api/route', { body: { ride_ids: [r1.id], save: true } })).data.route;
+    assert.deepEqual(route.stops.map((x) => x.kind), ['dealer'], 'both on board (even though only one was checked): straight to the dealership');
+    assert.deepEqual(route.stops[0].drop_ids.sort(), [r1.id, r2.id].sort());
+    // A new ride 1.5 miles away comes in: offered to Dee even though she's busy.
+    const near = await book('Cy', 'pickup', 40.0236, -105.18);
+    const far = await book('Far', 'pickup', 40.20, -105.10); // ~13 miles: not a rotation ride
+    const made = app.locals.offerSweep();
+    const mine = made.find((o) => o.driver_id === dr.id);
+    assert.ok(mine, 'offered to the busy driver heading back');
+    assert.equal(mine.ride_id, near.id);
+    assert.ok(!made.some((o) => o.ride_id === far.id && o.driver_id === dr.id), 'not a ride 13 miles away');
+    const offer = (await d('/api/offers/mine')).data.offer;
+    assert.equal(offer.rotation, 1);
+    // Taking it puts it on the route: drop Ann and Bo off, then go get Cy (or the other way if quicker).
+    const took = await d(`/api/offers/${offer.id}/accept`, { body: {} });
+    assert.equal(took.status, 200);
+    assert.ok(took.data.route, 'the route came back updated');
+    const kinds = took.data.route.stops.map((x) => x.ride_id || x.kind);
+    assert.ok(kinds.includes(near.id), `Cy is on the route: ${kinds.join(' → ')}`);
+    assert.equal(kinds.at(-1), 'dealer');
+    assert.equal((await d('/api/route')).data.route.stops.some((x) => x.ride_id === near.id), true, 'saved');
+  } finally { srv.close(); }
+});
+
+test('a trip that passes the dealership with customers on board stops to let them off', async () => {
+  const { planTrip } = require('../src/routing');
+  const now = Date.now();
+  // Van east of the dealership with a picked-up customer on board, next pick up is west of it.
+  const p = await planTrip({ start: { lat: 40.0236, lng: -105.15 }, dealer: DEALER, now, rides: [
+    { id: 1, type: 'pickup', name: 'On board', lat: 40.0236, lng: -105.10, people: 1, onboard: true, due: now - 600000 },
+    { id: 2, type: 'pickup', name: 'West', lat: 40.0236, lng: -105.32, people: 1, due: now + 20 * 60000 },
+  ] });
+  const seq = p.stops.map((x) => (x.kind === 'dealer' ? `D(${x.off.map((r) => r.name).join(',')})` : x.ride.name));
+  assert.deepEqual(seq, ['D(On board)', 'West', 'D(West)'], `passing the dealership: let them off first (${seq.join(' → ')})`);
+});

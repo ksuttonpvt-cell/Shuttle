@@ -171,6 +171,9 @@ function openDb(file) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+  addColumn('users', 'signup_at', 'TEXT');   // asked for an account from the sign-in page; waiting for an admin
+  addColumn('users', 'signup_note', 'TEXT');
+  addColumn('ride_offers', 'rotation', 'INTEGER NOT NULL DEFAULT 0'); // offered on the way back to the dealership
   return db;
 }
 
