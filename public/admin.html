@@ -191,6 +191,7 @@
         <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
       </select>
       <label class="check" style="margin-top:1rem"><input type="checkbox" name="public_requests"> Let customers request rides online (the /request page)</label>
+      <label class="check"><input type="checkbox" name="staff_signup"> Let new staff ask for an account from the sign-in page (an admin approves each one)</label>
       <label class="check"><input type="checkbox" name="customer_actions"> Let customers say they're running late or cancel from their tracking page (the driver gets a notification)</label>
       <label class="check" style="margin-top:.6rem"><input type="checkbox" name="ride_offers"> Offer waiting rides to the closest free driver (they get a ding and can take it or pass; if they pass, it goes to the next closest)</label>
       <div id="setMsg"></div>
@@ -485,8 +486,9 @@
   // The list shows only name, role and status; contact details and account actions are under Edit.
   function paintUsers() {
     const q = ($('#userSearch').value || '').trim().toLowerCase();
-    const shown = users.filter((u) => !q || [u.name, u.email, ROLE[u.role], u.phone].some((v) => String(v || '').toLowerCase().includes(q)));
-    $('#userCount').textContent = `${users.filter((u) => u.active).length} active · ${users.length} total`;
+    const staff = users.filter((u) => !u.signup_at); // requests waiting for approval are shown above
+    const shown = staff.filter((u) => !q || [u.name, u.email, ROLE[u.role], u.phone].some((v) => String(v || '').toLowerCase().includes(q)));
+    $('#userCount').textContent = `${staff.filter((u) => u.active).length} active · ${staff.length} total`;
     $('#users').innerHTML = shown.length ? `<table><tr><th>Name</th><th>Role</th><th>Status</th><th></th></tr>
       ${shown.map((u) => `<tr data-id="${u.id}"><td><b>${esc(u.name)}</b>${u.id === me.id ? ' <span class="small muted">(you)</span>' : ''}</td><td>${ROLE[u.role]}${u.super_admin ? ' <span class="badge b-super">⭐ Super</span>' : ''}</td>
         <td>${u.active ? '<span class="badge s-completed">Active</span>' : '<span class="badge s-cancelled">Disabled</span>'}${u.reset_requested_at ? ' <span class="badge s-en_route">🔑 Forgot password</span>' : ''}</td>
@@ -549,12 +551,32 @@
   // Shown on every tab, so an admin sees it right away.
   function showResetAlert() {
     const asked = users.filter((u) => u.reset_requested_at && u.active);
+    const joining = users.filter((u) => u.signup_at && !u.active);
     const box = $('#resetAlert');
-    box.classList.toggle('hidden', !asked.length);
-    box.innerHTML = asked.length ? `<div class="alert alert-warn reset-alert"><b>🔑 Forgot password:</b>
+    box.classList.toggle('hidden', !asked.length && !joining.length);
+    box.innerHTML = (joining.length ? `<div class="alert alert-ok reset-alert"><b>🙋 Asking for an account:</b>
+      ${joining.map((u) => `<span class="reset-who" data-id="${u.id}">${esc(u.name)} <span class="small">(${esc(u.email)}${u.phone ? `, ${esc(u.phone)}` : ''} · asked ${fmtTime(u.signup_at)}${u.signup_note ? ` · “${esc(u.signup_note)}”` : ''})</span>
+        <select data-role aria-label="Role for ${esc(u.name)}" style="width:auto;display:inline-block">${['advisor', 'driver', 'admin'].map((k) => `<option value="${k}" ${k === u.role ? 'selected' : ''}>${ROLE[k]}</option>`).join('')}</select>
+        <button class="btn-sm" data-approve>Approve</button> <button class="btn-ghost btn-sm" data-decline>Decline</button></span>`).join('')}</div>` : '')
+      + (asked.length ? `<div class="alert alert-warn reset-alert"><b>🔑 Forgot password:</b>
       ${asked.map((u) => `<span class="reset-who" data-id="${u.id}">${esc(u.name)} <span class="small">(${esc(u.email)}, ${fmtTime(u.reset_requested_at)})</span>
-        <button class="btn-sm" data-link>Send reset link</button> <button class="btn-ghost btn-sm" data-dismiss>Dismiss</button></span>`).join('')}</div>` : '';
+        <button class="btn-sm" data-link>Send reset link</button> <button class="btn-ghost btn-sm" data-dismiss>Dismiss</button></span>`).join('')}</div>` : '');
   }
+  $('#resetAlert').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-approve],[data-decline]'); if (!b) return;
+    const row = b.closest('[data-id]'); const u = users.find((x) => x.id === Number(row.dataset.id)); if (!u) return;
+    b.disabled = true;
+    try {
+      if (b.hasAttribute('data-approve')) {
+        const r = await api(`/api/users/${u.id}/approve`, { body: { role: row.querySelector('[data-role]').value } });
+        alert(`${u.name} can sign in now as ${ROLE[r.user.role]}.${r.emailed ? ' We emailed them.' : ' Let them know.'}`);
+      } else {
+        if (!confirm(`Decline ${u.name}'s request? Their details will be deleted.`)) { b.disabled = false; return; }
+        await api(`/api/users/${u.id}/decline`, { body: {} });
+      }
+      await loadUsers();
+    } catch (err) { alert(err.message); b.disabled = false; }
+  });
   async function checkResets() {
     try { ({ users } = await api('/api/users')); showResetAlert(); } catch { /* try again next time */ }
   }
@@ -890,6 +912,7 @@
     if (!sf.elements.timezone.value) sf.elements.timezone.value = 'America/Denver';
     sf.elements.public_requests.checked = settings.public_requests === '1';
     sf.elements.customer_actions.checked = settings.customer_actions !== '0';
+    sf.elements.staff_signup.checked = settings.staff_signup !== '0';
     sf.elements.ride_offers.checked = settings.ride_offers !== '0';
     const at = [Number(settings.dealer_lat), Number(settings.dealer_lng)];
     if (!setMap) {
@@ -1332,6 +1355,7 @@
     const body = Object.fromEntries(new FormData(sf));
     body.public_requests = sf.elements.public_requests.checked ? '1' : '0';
     body.customer_actions = sf.elements.customer_actions.checked ? '1' : '0';
+    body.staff_signup = sf.elements.staff_signup.checked ? '1' : '0';
     body.ride_offers = sf.elements.ride_offers.checked ? '1' : '0';
     try { const { settings } = await api('/api/settings', { method: 'PATCH', body }); App.settings = settings; App.flash($('#setMsg'), 'Saved.', true); }
     catch (err) { App.flash($('#setMsg'), err.message); }

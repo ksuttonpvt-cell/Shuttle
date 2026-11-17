@@ -42,6 +42,7 @@ const DEFAULT_SETTINGS = {
   dealer_lng: '-105.2405',
   public_requests: '1',
   customer_actions: '1', // customers can say they're running late or cancel from their tracking page
+  staff_signup: '1', // new staff can ask for an account from the sign-in page (an admin approves it)
   timezone: 'America/Denver',
   service_radius_mi: '15.5',
   dropoff_wait_min: '30',   // drop offs leave at least this many minutes after booking, unless urgent
@@ -61,7 +62,7 @@ const DEFAULT_SETTINGS = {
   sms_en_route: '1',
   sms_cancelled: '1',
 };
-const YES_NO_SETTINGS = ['public_requests', 'customer_actions', 'ride_offers', 'easter_egg', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
+const YES_NO_SETTINGS = ['public_requests', 'customer_actions', 'staff_signup', 'ride_offers', 'easter_egg', 'sms_booked', 'sms_en_route', 'sms_cancelled'];
 
 function createApp(db, opts = {}) {
   const app = express();
@@ -217,6 +218,7 @@ function createApp(db, opts = {}) {
     id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, active: !!u.active,
     on_duty: !!u.on_duty, vehicle_id: u.vehicle_id, last_lat: u.last_lat, last_lng: u.last_lng,
     last_loc_at: u.last_loc_at, created_at: u.created_at, reset_requested_at: u.reset_requested_at || null,
+    signup_at: u.signup_at || null, signup_note: u.signup_note || null,
     super_admin: u.role === 'admin' && !!u.super_admin,
   });
   const str = (v, max = 500) => (v == null ? null : String(v).trim().slice(0, max) || null);
@@ -368,6 +370,9 @@ function createApp(db, opts = {}) {
     if (throttled(key) || throttled(emailKey, 30)) return bad(res, 'Too many attempts. Try again in 15 minutes.', 429);
     const user = q('SELECT * FROM users WHERE email = ?').get(email);
     const ok = await verifyPasswordAsync(password, user && user.password_hash); // same time whether or not the email exists
+    if (user && ok && !user.active && user.signup_at) {
+      return bad(res, 'Your account is waiting for a shuttle admin to approve it. You can sign in as soon as they do.', 403);
+    }
     if (!user || !user.active || !ok) {
       recordFailure(key); recordFailure(emailKey);
       return bad(res, 'Email or password is incorrect.', 401);
@@ -559,6 +564,58 @@ function createApp(db, opts = {}) {
     res.json({ users: rows.map(publicUser) });
   });
 
+  // ---------- asking for an account (sign-in page) ----------
+  // New staff fill in their details and pick a password; the account stays off until an
+  // admin approves it (and picks the role). Nobody can ask to be an admin. Same answer
+  // whether or not the email already has an account.
+  app.post('/api/signup', async (req, res) => {
+    if (getSettings().staff_signup === '0') return bad(res, 'Ask a shuttle admin to make your account.', 403);
+    const b = req.body || {};
+    const name = str(b.name, 100); const email = str(b.email, 200); const role = b.role;
+    if (!name || name.length < 2) return bad(res, 'Enter your name.');
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return bad(res, 'Enter a valid email.');
+    if (!['advisor', 'driver'].includes(role)) return bad(res, 'Pick Advisor or Driver.');
+    const err = validatePassword(b.password);
+    if (err) return bad(res, err);
+    const key = `signup|${clientIp(req)}`;
+    if (limits.count(key, 3600000) >= 5) return bad(res, 'Too many requests from here. Try again later, or ask a shuttle admin.', 429);
+    limits.hit(key, 3600000);
+    const hash = await hashPasswordAsync(b.password);
+    const done = { ok: true, message: 'Thanks! A shuttle admin will look at your request. Once they approve it, sign in with this email and password.' };
+    if (q('SELECT id FROM users WHERE email = ?').get(email)) return res.json(done);
+    let id;
+    try {
+      id = Number(q('INSERT INTO users (name, email, phone, role, password_hash, active, signup_at, signup_note) VALUES (?, ?, ?, ?, ?, 0, ?, ?)')
+        .run(name, email, str(b.phone, 40), role, hash, now(), str(b.note, 300)).lastInsertRowid);
+    } catch { return res.json(done); } // the same email at the same moment
+    const admins = q("SELECT id FROM users WHERE role = 'admin' AND active = 1").all().map((a) => a.id);
+    quietly(push.notifyUsers(admins, { title: '🙋 New account request', body: `${name} (${email}) wants to be a ${role}. Open Admin → Staff & logins to approve.`, tag: `signup-${id}`, url: '/admin#users' }));
+    console.log(new Date().toLocaleString(), `[staff] ${name} asked for a ${role} account.`);
+    live.soon('drivers', 300);
+    res.json(done);
+  });
+  app.post('/api/users/:id/approve', requireRole('admin'), (req, res) => {
+    const u = q('SELECT * FROM users WHERE id = ? AND signup_at IS NOT NULL').get(Number(req.params.id));
+    if (!u) return bad(res, 'Request not found.', 404);
+    const role = ['admin', 'advisor', 'driver'].includes(req.body && req.body.role) ? req.body.role : u.role;
+    q('UPDATE users SET active = 1, role = ?, signup_at = NULL, signup_note = NULL WHERE id = ?').run(role, u.id);
+    console.log(new Date().toLocaleString(), `[staff] ${req.user.name} approved ${u.name} as ${role}.`);
+    if (mailer.configured) {
+      const dealer = getSettings().dealer_name || 'Shuttle';
+      mailer.send({ to: u.email, subject: `Your ${dealer} shuttle account is ready`,
+        text: `Hi ${u.name.split(' ')[0]},\n\nYour shuttle account has been approved. Sign in here with your email and the password you chose:\n\n${baseUrl(req)}/login\n\n${dealer} shuttle` })
+        .catch((e) => console.error(new Date().toLocaleString(), `[staff] Approval email to ${u.name} failed: ${e.message}`));
+    }
+    res.json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(u.id)), emailed: mailer.configured });
+  });
+  app.post('/api/users/:id/decline', requireRole('admin'), (req, res) => {
+    const u = q('SELECT * FROM users WHERE id = ? AND signup_at IS NOT NULL AND active = 0').get(Number(req.params.id));
+    if (!u) return bad(res, 'Request not found.', 404);
+    q('DELETE FROM users WHERE id = ?').run(u.id);
+    console.log(new Date().toLocaleString(), `[staff] ${req.user.name} declined ${u.name}'s account request.`);
+    res.json({ ok: true });
+  });
+
   app.post('/api/users', requireRole('admin'), async (req, res) => {
     const name = str(req.body.name, 100);
     const email = str(req.body.email, 200);
@@ -610,6 +667,7 @@ function createApp(db, opts = {}) {
     }
     q('UPDATE users SET name=?, email=?, phone=?, role=?, active=?, super_admin=? WHERE id=?')
       .run(user.name, user.email, user.phone, user.role, user.active, user.super_admin ? 1 : 0, user.id);
+    if (user.active) q('UPDATE users SET signup_at = NULL, signup_note = NULL WHERE id = ?').run(user.id); // turned on = approved
     if (b.password) {
       const err = validatePassword(b.password);
       if (err) return bad(res, err);

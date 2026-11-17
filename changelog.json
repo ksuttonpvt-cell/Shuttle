@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.11.0",
+    "date": "2026-11-17",
+    "title": "New staff can ask for an account",
+    "changes": [
+      "New staff tap “Ask for an account” on the sign-in page. They enter their name, work email, phone, Advisor or Driver, and a password they choose.",
+      "Admins get a phone notification. The request shows at the top of Staff & logins with Approve (pick the role) or Decline.",
+      "Until it's approved, signing in says it's waiting for an admin. Once approved, they sign in with the password they chose, and get an email if email is set up.",
+      "Nobody can ask to be an admin. Admins can turn the link off in Settings."
+    ]
+  },
+  {
     "version": "2.10.0",
     "date": "2026-11-17",
     "title": "Rotation near the dealership, right destinations, full check-up",
