@@ -18,6 +18,7 @@ function screenKey(url) {
   const path = url.pathname.toLowerCase(); // QR codes use capitals (/T/K7M2Q9XA, /REQUEST)
   if (['/admin', '/advisor', '/driver', '/login', '/request'].includes(path)) return url.origin + path;
   if (/^\/t\/[^/]+$/.test(path)) return `${url.origin}/t/`;
+  if (/^\/s\/[^/]+$/.test(path)) return `${url.origin}/s/`;
   return null;
 }
 

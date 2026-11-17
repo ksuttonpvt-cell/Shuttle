@@ -597,3 +597,14 @@ html[data-look="corwin"] .cust-big { font-family: "Barlow Semi Condensed", "Barl
 .gps-on { border-color: color-mix(in srgb, var(--green) 45%, transparent); background: var(--green-bg); color: var(--green-fg, var(--ink)); }
 .gps-warn { border-color: var(--amber); background: var(--amber-bg); }
 .gps-off { color: var(--muted); }
+
+/* Spectator page: a full-screen live map */
+body.spec { height: 100%; margin: 0; display: grid; grid-template-rows: auto 1fr auto; min-height: 100dvh; }
+.spec-top { display: flex; align-items: center; gap: .8rem; padding: .6rem max(16px, env(safe-area-inset-left, 0px)); background: #111; color: #fff; }
+.spec-top .brand-block { margin: 0; }
+.spec-title { display: grid; line-height: 1.25; min-width: 0; }
+.spec-title span { opacity: .75; }
+.spec-map { min-height: 55vh; }
+.spec-panel { display: grid; gap: .5rem; padding: .7rem max(16px, env(safe-area-inset-left, 0px)) calc(.7rem + env(safe-area-inset-bottom, 0px)); background: var(--card); border-top: 1px solid var(--line); }
+.spec-row { padding: .3rem 0; border-bottom: 1px solid var(--line); }
+.spec-panel button { justify-self: start; }

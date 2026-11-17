@@ -1493,6 +1493,72 @@ function createApp(db, opts = {}) {
     });
   });
 
+  // ---------- spectator links ----------
+  // Admins share a read-only live map of one driver (or every driver on shift) that runs
+  // out after a few hours. It shows vans, speed, battery and the planned route line, but no
+  // customer names, phones or addresses. Only a hash of the link is stored.
+  const SPECTATE_HOURS = [1, 4, 12, 24];
+  const specRow = (l) => {
+    const d = l.driver_id ? q('SELECT name FROM users WHERE id = ?').get(l.driver_id) : null;
+    return { id: l.id, label: l.label, driver_id: l.driver_id, driver_name: d ? d.name : null, created_at: l.created_at, expires_at: l.expires_at,
+      revoked: !!l.revoked_at, active: !l.revoked_at && l.expires_at > now(), views: l.views,
+      created_by: l.created_by ? (q('SELECT name FROM users WHERE id = ?').get(l.created_by) || {}).name || null : null };
+  };
+  app.get('/api/spectate-links', requireRole('admin'), (req, res) => {
+    q('DELETE FROM spectate_links WHERE expires_at < ?').run(new Date(Date.now() - 7 * 86400000).toISOString());
+    res.json({ links: q('SELECT * FROM spectate_links ORDER BY id DESC LIMIT 50').all().map(specRow) });
+  });
+  app.post('/api/spectate-links', requireRole('admin'), (req, res) => {
+    const b = req.body || {};
+    const hours = Number(b.hours);
+    if (!SPECTATE_HOURS.includes(hours)) return bad(res, 'Pick how long the link works: 1, 4, 12 or 24 hours.');
+    let driverId = null;
+    if (b.driver_id) {
+      const d = q("SELECT id FROM users WHERE id = ? AND role = 'driver' AND active = 1").get(Number(b.driver_id));
+      if (!d) return bad(res, 'Driver not found.');
+      driverId = d.id;
+    }
+    const token = randomToken(18);
+    const expires = new Date(Date.now() + hours * 3600000).toISOString();
+    const id = Number(q('INSERT INTO spectate_links (token_hash, driver_id, label, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(hashToken(token), driverId, str(b.label, 80), req.user.id, now(), expires).lastInsertRowid);
+    console.log(new Date().toLocaleString(), `[spectate] ${req.user.name} made a ${hours}-hour spectator link${driverId ? '' : ' for all drivers'}.`);
+    res.status(201).json({ url: `${baseUrl(req)}/s/${token}`, link: specRow(q('SELECT * FROM spectate_links WHERE id = ?').get(id)) });
+  });
+  app.post('/api/spectate-links/:id/revoke', requireRole('admin'), (req, res) => {
+    const done = q('UPDATE spectate_links SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL').run(now(), Number(req.params.id)).changes;
+    if (!done) return bad(res, 'Link not found.', 404);
+    res.json({ ok: true });
+  });
+  // The live view (public, by link). Wrong links are limited like tracking codes.
+  app.get('/api/spectate/:token', (req, res) => {
+    const key = `specmiss|${clientIp(req)}`;
+    if (limits.count(key, 3600000) >= 40) return bad(res, 'Too many tries.', 429);
+    const l = q('SELECT * FROM spectate_links WHERE token_hash = ?').get(hashToken(String(req.params.token).slice(0, 100)));
+    if (!l) { limits.hit(key, 3600000); return bad(res, 'This link doesn’t work. Ask the dealership for a new one.', 404); }
+    if (l.revoked_at || l.expires_at <= now()) return bad(res, 'This link has ended. Ask the dealership for a new one.', 410);
+    if (!req.query.again) q('UPDATE spectate_links SET views = views + 1 WHERE id = ?').run(l.id);
+    const rows = q(`SELECT u.*, v.name AS vehicle_name, v.make_model, v.color FROM users u LEFT JOIN vehicles v ON v.id = u.vehicle_id
+                    WHERE u.role = 'driver' AND u.active = 1 ${l.driver_id ? 'AND u.id = ?' : 'AND u.on_duty = 1'}`).all(...(l.driver_id ? [l.driver_id] : []));
+    const s = getSettings();
+    res.set('Cache-Control', 'no-store').json({
+      label: l.label, expires_at: l.expires_at, one_driver: !!l.driver_id,
+      dealer: { name: s.dealer_name, lat: Number(s.dealer_lat), lng: Number(s.dealer_lng) },
+      drivers: rows.map((u) => {
+        const rt = liveRoute(u);
+        const fresh = u.last_loc_at && Date.now() - new Date(u.last_loc_at) < 6 * 3600000; // nothing older than 6 hours
+        return {
+          id: u.id, name: u.name.split(' ')[0], on_duty: !!u.on_duty,
+          vehicle: u.vehicle_name ? [u.color, u.make_model].filter(Boolean).join(' ') || u.vehicle_name : null, vehicle_name: u.vehicle_name,
+          lat: fresh ? u.last_lat : null, lng: fresh ? u.last_lng : null, at: fresh ? u.last_loc_at : null,
+          heading: u.last_heading, speed: u.last_speed, battery: u.last_battery || null,
+          // The route line and stop order only: no customer names or addresses.
+          route: rt ? { path: rt.path, finish_at: rt.finish_at, stops: rt.stops.map((x) => ({ kind: x.kind, lat: x.lat, lng: x.lng, eta: x.eta })) } : null,
+        };
+      }),
+    });
+  });
+
   // ---------- customer actions from the tracking page ----------
   // "Running late" adds a dated note to the ride; "Cancel" cancels it with a reason. The driver
   // (and the advisor) get a phone notification, and every open screen updates right away.
@@ -2307,6 +2373,7 @@ function createApp(db, opts = {}) {
   app.get('/admin', page('admin.html'));
   app.get('/request', page('request.html'));
   app.get('/t/:token', page('track.html'));
+  app.get('/s/:token', (req, res, next) => { res.set('Referrer-Policy', 'no-referrer').set('X-Robots-Tag', 'noindex'); next(); }, page('spectate.html'));
   app.get('/reset/:token', (req, res, next) => { res.set('Referrer-Policy', 'no-referrer'); next(); }, page('reset.html'));
   // The app manifest must always be fresh, so it's never cached (sw.js has its own route below).
   for (const [route, file, type] of [['/manifest.webmanifest', 'manifest.webmanifest', 'application/manifest+json']]) {

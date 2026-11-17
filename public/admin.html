@@ -120,6 +120,18 @@
     <h2 class="qr-section">For staff</h2>
     <div class="qr-staff" id="links"></div>
     <p class="small muted">Each ride also gets its own tracking link for the customer: use <b>Send link / QR</b> on the ride.</p>
+    <h2 class="qr-section">Spectator links</h2>
+    <div class="card">
+      <p class="small muted" style="margin-top:0">A live map anyone with the link can watch, without signing in: vans, speed, battery and route lines, but no customer names or addresses. Links stop working when their time runs out, or when you revoke them.</p>
+      <form id="specForm" class="grid cols-2" style="gap:.5rem;align-items:end">
+        <div><label for="specDriver">Who</label><select id="specDriver" name="driver_id"><option value="">Every driver on shift</option></select></div>
+        <div><label for="specHours">Works for</label><select id="specHours" name="hours"><option value="1">1 hour</option><option value="4" selected>4 hours</option><option value="12">12 hours</option><option value="24">24 hours</option></select></div>
+        <div style="grid-column:1/-1"><label for="specLabel">Name it <span class="muted">(optional, shows on the map)</span></label><input id="specLabel" name="label" maxlength="80" placeholder="e.g. Friday test drive"></div>
+        <div style="grid-column:1/-1"><button>Make a spectator link</button></div>
+      </form>
+      <div id="specMsg"></div>
+      <div id="specList" class="small" style="margin-top:.6rem"></div>
+    </div>
   </section>
 
   <!-- Reports -->
@@ -778,7 +790,40 @@
       </div>`;
     }).join('');
   }
-  loaders.links = loadLinks;
+  // ---------- spectator links ----------
+  async function loadSpectate() {
+    const drivers = (users && users.length ? users : (await api('/api/users')).users).filter((u) => u.role === 'driver' && u.active);
+    const sel = $('#specDriver'); const keep = sel.value;
+    sel.innerHTML = '<option value="">Every driver on shift</option>' + drivers.map((u) => `<option value="${u.id}">${esc(u.name)}${u.on_duty ? ' (on shift)' : ''}</option>`).join('');
+    sel.value = keep;
+    const { links } = await api('/api/spectate-links');
+    const left = (iso) => { const m = Math.round((new Date(iso) - Date.now()) / 60000); return m >= 120 ? `${Math.round(m / 60)} h left` : `${Math.max(0, m)} min left`; };
+    $('#specList').innerHTML = links.length ? `<table><tr><th>Link</th><th>Who</th><th>Status</th><th>Views</th><th></th></tr>${links.map((l) => `<tr data-id="${l.id}">
+        <td>${esc(l.label || 'Spectator link')}<br><span class="muted">by ${esc(l.created_by || '—')} · ${fmtTime(l.created_at)}</span></td>
+        <td>${esc(l.driver_name || 'Every driver on shift')}</td>
+        <td>${l.active ? `<span class="badge s-completed">Active</span> ${left(l.expires_at)}` : `<span class="badge s-cancelled">${l.revoked ? 'Revoked' : 'Ended'}</span>`}</td>
+        <td>${l.views}</td>
+        <td style="text-align:right">${l.active ? '<button class="btn-ghost btn-sm" data-revoke>Revoke</button>' : ''}</td></tr>`).join('')}</table>`
+      : '<span class="muted">No spectator links yet.</span>';
+  }
+  $('#specForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target.elements;
+    try {
+      const r = await api('/api/spectate-links', { body: { driver_id: f.driver_id.value ? Number(f.driver_id.value) : null, hours: Number(f.hours.value), label: f.label.value } });
+      f.label.value = '';
+      $('#specMsg').innerHTML = `<div class="alert alert-ok">Link ready (works until ${fmtTime(r.link.expires_at)}). It's shown only now, so copy or send it:
+        <div class="linkbox" style="margin-top:.4rem"><input readonly value="${esc(r.url)}" aria-label="Spectator link"><button type="button" class="btn-blue btn-sm" data-specshare="${esc(r.url)}">Send / share</button></div></div>`;
+      loadSpectate();
+    } catch (err) { App.flash($('#specMsg'), err.message); }
+  };
+  $('#specMsg').addEventListener('click', (e) => { const b = e.target.closest('[data-specshare]'); if (b) App.share({ title: 'Live shuttle map', url: b.dataset.specshare }); });
+  $('#specList').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-revoke]'); if (!b) return;
+    if (!confirm('Revoke this link? Anyone watching loses the map right away.')) return;
+    await api(`/api/spectate-links/${b.closest('[data-id]').dataset.id}/revoke`, { body: {} }); loadSpectate();
+  });
+  loaders.links = () => { loadLinks(); loadSpectate().catch((err) => { $('#specList').textContent = err.message; }); };
   // A one-page sign for the counter or waiting room.
   function printSign(url) {
     const dealer = App.settings.dealer_name || 'Dealership';

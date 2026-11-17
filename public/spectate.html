@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script>/* apply the saved light/dark choice and any look preview before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;var q=new URLSearchParams(location.search).get("look");if(q==="corwin"||q==="classic")localStorage.setItem("shuttle.look",q);else if(q==="off")localStorage.removeItem("shuttle.look");var l=localStorage.getItem("shuttle.look");if(l==="corwin"||l==="classic")document.documentElement.dataset.look=l}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live shuttle map</title>
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="spec">
+<div class="spec-top"><div data-brand class="brand-block"></div><div class="spec-title"><b id="title">Live shuttle map</b><span class="small" id="sub">Loading…</span></div></div>
+<div id="map" class="spec-map"></div>
+<div class="spec-panel" id="panel" aria-live="polite"></div>
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/js/common.js"></script>
+<script>
+// Read-only live map from a spectator link: vans, speed, battery and route lines.
+// No customer details are ever sent to this page.
+(async () => {
+  const { $, api, esc, fmtTime } = App;
+  const token = location.pathname.split('/').pop();
+  let map = null; const vans = new Map(); const lines = new Map(); let follow = true; let first = true; let last = null;
+  const ago = (iso) => { if (!iso) return 'no location yet'; const s = Math.round((Date.now() - new Date(iso)) / 1000); return s < 10 ? 'just now' : s < 90 ? `${s} s ago` : s < 5400 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`; };
+  const mph = (d) => (d.speed != null ? `${Math.round(d.speed * 2.237)} mph` : '');
+  const batt = (d) => (d.battery ? `🔋 ${String(d.battery).replace('+', '')}%${String(d.battery).endsWith('+') ? ' charging' : ''}` : '');
+  function draw(data) {
+    const { dealer, drivers } = data;
+    if (!map) {
+      App.settings = { dealer_name: dealer.name, dealer_lat: dealer.lat, dealer_lng: dealer.lng };
+      map = App.makeMap($('#map'), dealer, 12);
+      App.dealerMarker(map, App.settings);
+      map.on('dragstart', () => { follow = false; paintPanel(); });
+      if (!document.querySelector('[data-brand] *')) App.applyBrand(dealer.name);
+    }
+    $('#title').textContent = data.label || (data.one_driver && drivers[0] ? `${drivers[0].name}'s shuttle, live` : 'Shuttles on the road, live');
+    const seen = new Set();
+    for (const d of drivers) {
+      if (d.lat == null) continue;
+      seen.add(d.id);
+      const stale = !d.at || Date.now() - new Date(d.at) > 3 * 60000;
+      let m = vans.get(d.id);
+      const pop = `<b>${esc(d.name)}</b>${d.vehicle ? `<br>${esc(d.vehicle)}` : ''}<br><span class="small">${[mph(d), batt(d), ago(d.at)].filter(Boolean).join(' · ')}</span>`;
+      if (!m) { m = L.marker([d.lat, d.lng], { icon: App.vanIcon(d, stale), zIndexOffset: 600 }).bindPopup(pop).addTo(map); vans.set(d.id, m); }
+      else { m.setIcon(App.vanIcon(d, stale)); m.setPopupContent(pop); App.glide(m, [d.lat, d.lng]); }
+      const old = lines.get(d.id); if (old) old.remove();
+      if (d.route && d.route.path && d.route.path.length > 1) {
+        const g = L.layerGroup().addTo(map);
+        L.polyline(d.route.path, { color: '#1a73e8', weight: 5, opacity: 0.7 }).addTo(g);
+        d.route.stops.forEach((x, i) => L.marker([x.lat, x.lng], { icon: L.divIcon({ className: '', html: `<div class="stop-num ${x.kind === 'dealer' ? 'done' : ''}">${i + 1}</div>`, iconSize: [22, 22], iconAnchor: [11, 30] }) })
+          .bindPopup(`${x.kind === 'dealer' ? 'Dealership' : x.kind === 'pickup' ? 'Pick up' : 'Drop off'} · about ${fmtTime(x.eta)}`).addTo(g));
+        lines.set(d.id, g);
+      } else lines.delete(d.id);
+    }
+    for (const [id, m] of vans) if (!seen.has(id)) { m.remove(); vans.delete(id); const g = lines.get(id); if (g) { g.remove(); lines.delete(id); } }
+    if (follow) {
+      const pts = drivers.filter((d) => d.lat != null).map((d) => [d.lat, d.lng]);
+      if (pts.length === 1) map.setView(pts[0], first ? 15 : map.getZoom(), { animate: !first });
+      else if (pts.length > 1) map.fitBounds(pts, { padding: [50, 50], maxZoom: 15 });
+    }
+    first = false;
+    $('#sub').textContent = `${data.dealer.name} · link works until ${fmtTime(data.expires_at)}`;
+  }
+  function paintPanel() {
+    if (!last) return;
+    const ds = last.drivers;
+    $('#panel').innerHTML = (ds.length ? ds.map((d) => `<div class="spec-row" data-id="${d.id}">
+        <b>${esc(d.name)}</b>${d.vehicle ? ` <span class="small muted">· ${esc(d.vehicle)}</span>` : ''}${d.on_duty ? '' : ' <span class="small muted">· off shift</span>'}
+        <div class="small">${d.lat == null ? 'No location yet' : [mph(d), batt(d), `updated ${ago(d.at)}`].filter(Boolean).join(' · ')}${d.route ? ` · back about ${fmtTime(d.route.finish_at)}` : ''}</div></div>`).join('')
+      : '<div class="small muted">No drivers on shift right now.</div>')
+      + `<button type="button" class="btn-ghost btn-sm" id="followBtn">${follow ? '📍 Following' : '📍 Follow again'}</button>`;
+    $('#followBtn').onclick = () => { follow = true; draw(last); paintPanel(); };
+  }
+  async function load() {
+    try { last = await api(`/api/spectate/${encodeURIComponent(token)}${first ? '' : '?again=1'}`); }
+    catch (err) {
+      $('#panel').innerHTML = `<div class="alert alert-err">${esc(err.message)}</div>`;
+      $('#sub').textContent = '';
+      if (/ended|doesn/.test(err.message)) return 'stop';
+      return;
+    }
+    draw(last); paintPanel();
+  }
+  if ((await load()) === 'stop') return;
+  const timer = setInterval(async () => { if (document.hidden) return; if ((await load()) === 'stop') clearInterval(timer); }, 3000);
+  setInterval(() => paintPanel(), 5000); // keep "updated … ago" current
+})();
+</script>
+</body>
+</html>
