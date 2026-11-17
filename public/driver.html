@@ -25,6 +25,7 @@
 <header id="topbar"></header>
 <main class="wrap grid" style="max-width:900px">
 
+  <div id="gpsBar" class="gps-bar" role="status" aria-live="polite"></div>
   <section class="card" id="shift"></section>
 
   <section class="card" id="pushCard"></section>
@@ -75,11 +76,10 @@
       <div class="card-head" style="margin:0">
         <div><h2 style="margin:0">On duty ✅</h2>
           <div class="muted small">Driving <b>${esc(veh?.name || '—')}</b>${veh ? [veh.color, veh.make_model, veh.plate, veh.seats ? `${veh.seats} seats` : ''].filter(Boolean).map((x) => ` · ${esc(x)}`).join('') : ''}</div>
-          <div class="small" id="gps">${watchId != null ? '📡 Sharing location' : '📡 Location off'}</div>
           <div class="small">${alerts.on ? '🔔 New-ride alerts on' : '🔕 New-ride alerts off'}</div>
         </div>
         <div class="actions" style="margin:0">
-          <button class="btn-ghost btn-sm" id="gpsBtn">${watchId != null ? 'Stop sharing location' : 'Share my location'}</button>
+          <button class="btn-ghost btn-sm" id="wakeBtn">${wake.wanted ? 'Let screen sleep' : 'Keep screen on'}</button>
           <button class="btn-ghost btn-sm" id="alertBtn">${alerts.on ? 'Turn alerts off' : 'Turn alerts on'}</button>
           <button class="btn-dark btn-sm" id="endShift">End shift</button>
         </div>
@@ -95,24 +95,61 @@
       <div id="shiftMsg"></div>
       ${!usable.length ? '<p class="small muted">No vehicles are set up yet — ask an admin to add one.</p>' : ''}`;
     if (me.on_duty) {
-      $('#endShift').onclick = async () => { ({ user: me } = await api('/api/driver/shift', { body: { on_duty: false } })); stopGps(); drawShift(); route.clearLocal(); refresh(); };
-      $('#gpsBtn').onclick = () => { watchId != null ? stopGps() : startGps(); drawShift(); };
+      $('#endShift').onclick = async () => { ({ user: me } = await api('/api/driver/shift', { body: { on_duty: false } })); wake.update(); drawShift(); route.clearLocal(); refresh(); };
+      $('#wakeBtn').onclick = () => { wake.set(!wake.wanted); drawShift(); };
       $('#alertBtn').onclick = () => { alerts.set(!alerts.on); drawShift(); };
     } else {
       $('#startShift').onclick = async () => {
         alerts.unlock(); // a tap lets the phone play the alert sound later
         try {
           ({ user: me } = await api('/api/driver/shift', { body: { on_duty: true, vehicle_id: Number($('#vehSel').value) } }));
-          startGps(); drawShift(); refresh();
+          if (gpsWanted()) startGps(); wake.update(); drawShift(); refresh();
         } catch (err) { App.flash($('#shiftMsg'), err.message); }
       };
     }
   }
 
+  // Location is shared whenever this page is open (on shift or not), unless the driver
+  // turned it off on this phone; that choice is remembered. Phones only share while the
+  // page is open and the screen is on, so the screen stays on during a shift (wake lock).
+  const GPS_KEY = 'shuttle.gps';
+  const gpsWanted = () => { try { return localStorage.getItem(GPS_KEY) !== 'off'; } catch { return true; } };
+  let gpsProblem = null;
+  function drawGpsBar() {
+    const bar = $('#gpsBar'); if (!bar) return;
+    const on = watchId != null;
+    const state = !navigator.geolocation ? ['off', '📡 This phone can’t share location.', '']
+      : gpsProblem ? ['warn', `📡 Location is blocked: ${esc(gpsProblem)}. Allow location for this site in your phone’s settings, then tap Turn on.`, 'Turn on']
+        : on ? ['on', `📡 Sharing your location${me.on_duty ? '' : ' (off shift: you show on the maps once your shift starts)'}`, 'Turn off']
+          : ['off', '📡 Location is off. Routes start at the dealership and nearby rides can’t find you.', 'Turn on'];
+    bar.className = `gps-bar gps-${state[0]}`;
+    bar.innerHTML = `<span>${state[1]}</span>${state[2] ? `<button type="button" class="btn-ghost btn-sm" id="gpsToggle">${state[2]}</button>` : ''}`;
+    const t = $('#gpsToggle');
+    if (t) t.onclick = () => {
+      if (watchId != null) { try { localStorage.setItem(GPS_KEY, 'off'); } catch { /* fine */ } stopGps(); }
+      else { try { localStorage.removeItem(GPS_KEY); } catch { /* fine */ } gpsProblem = null; startGps(); }
+      drawGpsBar();
+    };
+  }
+  // Keep the screen on during a shift (so the phone keeps sharing); the driver can turn it off.
+  const wake = (() => {
+    const KEY = 'shuttle.wake'; let lock = null;
+    let wanted = true; try { wanted = localStorage.getItem(KEY) !== 'off'; } catch { /* default on */ }
+    async function update() {
+      const want = wanted && me.on_duty && document.visibilityState === 'visible' && 'wakeLock' in navigator;
+      if (want && !lock) { try { lock = await navigator.wakeLock.request('screen'); lock.addEventListener('release', () => { lock = null; }); } catch { lock = null; } }
+      if (!want && lock) { lock.release().catch(() => {}); lock = null; }
+    }
+    document.addEventListener('visibilitychange', update);
+    return { get wanted() { return wanted; }, set(v) { wanted = v; try { localStorage.setItem(KEY, v ? 'on' : 'off'); } catch { /* fine */ } update(); }, update };
+  })();
+
   let lastSent = 0; let lastSentAt = null; let myMarker = null;
   function startGps() {
-    if (!navigator.geolocation) return alert('This device cannot share location.');
+    if (!navigator.geolocation) { drawGpsBar(); return; }
+    if (watchId != null) return;
     watchId = navigator.geolocation.watchPosition((pos) => {
+      if (gpsProblem) { gpsProblem = null; drawGpsBar(); }
       const { latitude: lat, longitude: lng } = pos.coords;
       me.last_lat = lat; me.last_lng = lng; me.last_loc_at = new Date().toISOString();
       if (myMarker) myMarker.setLatLng([lat, lng]); else myMarker = L.marker([lat, lng], { icon: App.carIcon(), zIndexOffset: 900 }).bindPopup('You').addTo(map);
@@ -124,10 +161,14 @@
         const { heading, speed } = pos.coords;
         api('/api/driver/location', { body: { lat, lng, heading: Number.isFinite(heading) ? heading : null, speed: Number.isFinite(speed) ? speed : null } }).catch(() => {});
       }
-    }, (err) => { const g = $('#gps'); if (g) g.textContent = '📡 Location blocked: ' + err.message; watchId = null; },
+    }, (err) => {
+      if (err.code === 1) { gpsProblem = 'permission denied'; stopGps(); } // blocked: stop asking
+      else gpsProblem = err.code === 3 ? 'no signal yet' : 'not available right now';
+      drawGpsBar();
+    },
     { enableHighAccuracy: true, maximumAge: 3000, timeout: 30000 });
   }
-  function stopGps() { if (watchId != null) navigator.geolocation.clearWatch(watchId); watchId = null; }
+  function stopGps() { if (watchId != null) navigator.geolocation.clearWatch(watchId); watchId = null; drawGpsBar(); }
 
   // ---------- rides ----------
   const map = App.makeMap($('#map'), { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng) });
@@ -540,8 +581,8 @@
     const fresh = (await api('/api/me')).user;
     if (fresh && fresh.on_duty !== me.on_duty) {
       me = fresh;
-      if (!me.on_duty) stopGps();
-      drawShift();
+      wake.update();
+      drawShift(); drawGpsBar();
     }
     const r = await api('/api/rides?scope=open');
     rides = r.queue.map((id) => r.rides.find((x) => x.id === id));
@@ -603,7 +644,8 @@
   };
 
   await drawShift();
-  if (me.on_duty) { startGps(); drawShift(); }
+  if (gpsWanted()) startGps(); // on whenever the page is open, unless turned off on this phone
+  drawGpsBar(); wake.update();
   // Keep checking while the app is in the background so alerts still arrive (phones may slow this down).
   App.poll(refresh, 15000, { background: true });
 })();
