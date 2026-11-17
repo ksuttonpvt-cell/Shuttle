@@ -184,12 +184,49 @@ function openDb(file) {
   `);
   addColumn('users', 'last_battery', 'TEXT');
   addColumn('users', 'team', 'TEXT');
-  addColumn('users', 'extra_roles', 'TEXT'); // other roles a person also has, e.g. "driver" for an advisor who drives
+  addColumn('users', 'extra_roles', 'TEXT');
+  addColumn('users', 'photo', 'TEXT');       // driver's photo for customers (small JPEG, data URL)
+  addColumn('users', 'photo_v', 'INTEGER');  // changes when the photo does
+  addColumn('rides', 'arrived_at', 'TEXT');  // driver tapped "I'm here"
+  addColumn('rides', 'customer_reply', 'TEXT');    // customer's answer: coming | need5
+  addColumn('rides', 'customer_reply_at', 'TEXT'); // other roles a person also has, e.g. "driver" for an advisor who drives
   addColumn('users', 'start_page', 'TEXT'); // the page they open to, for people with several roles
   addColumn('rides', 'booked_by', 'INTEGER REFERENCES users(id) ON DELETE SET NULL'); // who booked it (e.g. BDC), when not the advisor          // 'bdc': an advisor on the BDC team (their own page)  // phone battery with the last location, e.g. "15" or "15+" (charging)
   addColumn('users', 'signup_at', 'TEXT');   // asked for an account from the sign-in page; waiting for an admin
   addColumn('users', 'signup_note', 'TEXT');
   addColumn('ride_offers', 'rotation', 'INTEGER NOT NULL DEFAULT 0'); // offered on the way back to the dealership
+  // Each shift: who, which van, when, and what their phone's GPS saw (for reports).
+  db.exec(`CREATE TABLE IF NOT EXISTS shifts (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      driver_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      vehicle_id  INTEGER REFERENCES vehicles(id) ON DELETE SET NULL,
+      vehicle_name TEXT,
+      started_at  TEXT NOT NULL,
+      ended_at    TEXT,
+      ended_by    TEXT,                 -- driver | auto | sign-out
+      miles       REAL NOT NULL DEFAULT 0,
+      moving_s    INTEGER NOT NULL DEFAULT 0,
+      gps_points  INTEGER NOT NULL DEFAULT 0,
+      gps_gaps    INTEGER NOT NULL DEFAULT 0, -- times the phone went quiet for 2+ minutes
+      longest_gap_s INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS shifts_started ON shifts(started_at);
+    -- Server numbers per hour (every copy of the site adds its own): for the daily report.
+    CREATE TABLE IF NOT EXISTS server_hours (
+      hour     TEXT PRIMARY KEY,          -- 2026-11-17T21 (UTC)
+      requests INTEGER NOT NULL DEFAULT 0,
+      s4xx     INTEGER NOT NULL DEFAULT 0,
+      s5xx     INTEGER NOT NULL DEFAULT 0,
+      ms_total REAL NOT NULL DEFAULT 0,
+      buckets  TEXT NOT NULL DEFAULT '[]', -- response-time histogram, see serverstats.js
+      routes   TEXT NOT NULL DEFAULT '{}'  -- per kind of request: [count, ms total, slowest ms, errors]
+    );
+    -- The saved daily report (shuttle + server), built at midnight and kept with the backups.
+    CREATE TABLE IF NOT EXISTS daily_reports (
+      day      TEXT PRIMARY KEY,
+      built_at TEXT NOT NULL,
+      data     TEXT NOT NULL
+    );`);
   return db;
 }
 

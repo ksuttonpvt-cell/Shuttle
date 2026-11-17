@@ -80,7 +80,8 @@ async function smtpSend(cfg, { to, subject, text }, { timeoutMs = 20000 } = {}) 
     const fromName = String(cfg.fromName || '').replace(/["\r\n]/g, '').trim();
     const body = Buffer.from(String(text).replace(/\r?\n/g, '\r\n')).toString('base64').replace(/.{76}/g, '$&\r\n');
     const msg = [
-      `From: ${fromName ? `"${enc(fromName)}" ` : ''}<${from}>`, `To: <${to}>`, `Subject: ${enc(String(subject).replace(/[\r\n]/g, ' '))}`,
+      `From: ${fromName ? `"${enc(fromName)}" ` : ''}<${from}>`, ...(ADDR_RE.test(String(cfg.replyTo || '')) ? [`Reply-To: <${cfg.replyTo}>`] : []),
+      `To: <${to}>`, `Subject: ${enc(String(subject).replace(/[\r\n]/g, ' '))}`,
       `Date: ${new Date().toUTCString().replace('GMT', '+0000')}`, `Message-ID: <${crypto.randomBytes(12).toString('hex')}@${from.split('@')[1]}>`,
       'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', 'Content-Transfer-Encoding: base64', '', body,
     ].join('\r\n');
@@ -96,10 +97,11 @@ async function smtpSend(cfg, { to, subject, text }, { timeoutMs = 20000 } = {}) 
 // getConfig() returns the current settings (or null). Settings in .env win.
 function createMailer(getConfig) {
   const cfg = () => {
-    if (process.env.SMTP_HOST) {
-      return { host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, user: process.env.SMTP_USER, pass: process.env.SMTP_PASS, from: process.env.SMTP_FROM || process.env.SMTP_USER, fromName: process.env.SMTP_FROM_NAME, source: 'env' };
-    }
     const c = getConfig() || {};
+    if (process.env.SMTP_HOST) {
+      return { host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, user: process.env.SMTP_USER, pass: process.env.SMTP_PASS, from: process.env.SMTP_FROM || process.env.SMTP_USER,
+        fromName: process.env.SMTP_FROM_NAME || c.fromName, replyTo: process.env.SMTP_REPLY_TO || c.replyTo, source: 'env' };
+    }
     return c.host ? { ...c, source: 'settings' } : null;
   };
   return {

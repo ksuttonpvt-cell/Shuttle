@@ -62,6 +62,82 @@ const App = (() => {
   window.addEventListener('online', () => { /* the next refresh clears the banner */ });
   window.addEventListener('offline', () => connection(false));
 
+  // "How long is the shuttle wait right now?" A small meter for the desks and the request page.
+  // el gets filled in; returns { refresh(point) } to update it (e.g. once an address is picked).
+  function waitMeter(el, { point = null, type = 'pickup', customer = false } = {}) {
+    let at = point; let kind = type;
+    const LEVEL = { quiet: ['ok', 'Shuttle is free'], busy: ['warn', 'Shuttle is busy'], very_busy: ['err', 'Shuttle is very busy'] };
+    async function refresh(p = at, t = kind) {
+      at = p; kind = t;
+      const qs = new URLSearchParams({ type: kind });
+      if (at && at.lat != null) { qs.set('lat', at.lat); qs.set('lng', at.lng); }
+      let w; try { w = await api(`/api/wait?${qs}`); } catch { return; }
+      if (w.level === 'closed') {
+        el.innerHTML = customer ? '' : '<div class="wait-meter wait-closed"><b>No shuttle on shift right now</b><span>Rides you book will wait for the next driver.</span></div>';
+        el.hidden = customer; return;
+      }
+      const [tone, label] = LEVEL[w.level];
+      const pct = Math.min(100, Math.round((w.out / Math.max(1, w.on_duty)) * 100));
+      el.hidden = false;
+      el.innerHTML = `<div class="wait-meter wait-${tone}">
+        <div class="wait-top"><b>${customer ? `We can get to you in about ${w.wait_min} min` : `${label}: about ${w.wait_min} min`}</b>
+          ${customer ? '' : `<span class="wait-vans">${w.out} of ${w.on_duty} van${w.on_duty === 1 ? '' : 's'} out</span>`}</div>
+        <div class="wait-bar" aria-hidden="true"><i style="width:${Math.max(8, pct)}%"></i></div>
+        <span>${customer ? 'Based on where the shuttles are right now. It can change a little.' : `A ${kind === 'dropoff' ? 'drop off' : 'pick up'} booked now would start in about ${w.wait_min} minutes.`}</span>
+      </div>`;
+    }
+    refresh();
+    return { refresh };
+  }
+
+  // Calling or texting a customer. With the dealership number on (Admin → Phone & email),
+  // links marked data-call-ride / data-text-ride go through it instead of this phone.
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('[data-call-ride],[data-text-ride]'); if (!a || !App.settings) return;
+    const id = Number(a.dataset.callRide || a.dataset.textRide);
+    if (a.dataset.callRide && App.settings.phone_calls === 'dealership') {
+      e.preventDefault();
+      api(`/api/rides/${id}/call`, { body: {} })
+        .then((r) => App.modal(`<h2>📞 Calling…</h2><p>${esc(r.message)}</p><div class="actions"><button data-close>OK</button></div>`))
+        .catch((err) => App.modal(`<h2>The call didn't start</h2><p>${esc(err.message)}</p><div class="actions"><button data-close>OK</button></div>`));
+    } else if (a.dataset.textRide && App.settings.phone_texts === 'dealership') {
+      e.preventDefault();
+      const m = App.modal(`<h2>💬 Text ${esc(a.dataset.name || 'the customer')}</h2>
+        <p class="small muted" style="margin-top:0">Sent from the dealership number, signed with your first name. It's saved on the ride.</p>
+        <form><textarea name="body" rows="3" maxlength="480" required placeholder="e.g. I'm 5 minutes away, see you at the front door."></textarea>
+        <div class="chips" style="margin:.4rem 0">${['I\'m on my way.', 'I\'m about 5 minutes away.', 'I\'m here, out front.', 'Your car is ready.'].map((t) => `<button type="button" data-quick>${esc(t)}</button>`).join('')}</div>
+        <div class="msg"></div><div class="actions"><button>Send</button><button type="button" class="btn-ghost" data-close>Cancel</button></div></form>`);
+      const f = $('form', m);
+      m.querySelectorAll('[data-quick]').forEach((b) => { b.onclick = () => { f.elements.body.value = b.textContent; f.elements.body.focus(); }; });
+      f.onsubmit = async (ev) => {
+        ev.preventDefault();
+        try { const r = await api(`/api/rides/${id}/text`, { body: { body: f.elements.body.value } }); App.flash($('.msg', m), r.message, true); setTimeout(() => m.close(), 900); }
+        catch (err) { App.flash($('.msg', m), err.message); }
+      };
+    }
+  });
+
+  // Pick a photo (camera or library) and shrink it to a small square JPEG for the server.
+  function pickPhoto() {
+    return new Promise((resolve, reject) => {
+      const input = document.createElement('input');
+      input.type = 'file'; input.accept = 'image/*';
+      input.onchange = () => {
+        const file = input.files && input.files[0]; if (!file) return resolve(null);
+        const url = URL.createObjectURL(file); const img = new Image();
+        img.onload = () => {
+          const side = Math.min(img.naturalWidth, img.naturalHeight); const size = Math.min(320, side);
+          const c = document.createElement('canvas'); c.width = size; c.height = size;
+          c.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+          URL.revokeObjectURL(url); resolve(c.toDataURL('image/jpeg', 0.82));
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That file isn’t a photo this phone can open. Try another one.')); };
+        img.src = url;
+      };
+      input.click();
+    });
+  }
+
   // Ensures the visitor is signed in with one of the given roles (admin always allowed).
   async function requireUser(...roles) {
     const { user, settings, base_url, version } = await api('/api/me');
@@ -135,7 +211,31 @@ const App = (() => {
     };
   }
 
-  // ---------- dealership branding (the Corwin look) ----------
+  // Midnight at the start of a local day (YYYY-MM-DD) in the business's time zone, as a Date.
+  // (The shuttle PC's own clock setting doesn't matter.)
+  function zoneOffsetMs(zone, d) {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      .formatToParts(d).filter((x) => x.type !== 'literal').map((x) => [x.type, Number(x.value)]));
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(d.getTime() / 1000) * 1000;
+  }
+  function localMidnight(day, zone) {
+    const guess = Date.parse(`${day}T00:00:00Z`);
+    let t = guess - zoneOffsetMs(zone, new Date(guess));
+    t = guess - zoneOffsetMs(zone, new Date(t)); // again, in case daylight saving changed in between
+    return new Date(t);
+  }
+  const nextDay = (day) => new Date(Date.parse(`${day}T12:00:00Z`) + 86400000).toISOString().slice(0, 10);
+  // The end of today in the business's time zone (the page's data-tz), for "today" lists.
+  function endOfToday() {
+    const zone = document.documentElement.dataset.tz || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return localMidnight(nextDay(new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(new Date())), zone);
+  }
+
+  // What riders call the base: "dealership", or a shuttle service's own word (hotel, office…).
+  const place = () => document.documentElement.dataset.place || 'dealership';
+  const Place = () => place().charAt(0).toUpperCase() + place().slice(1);
+
+  // ---------- your branding (the Branded look) ----------
   // The logo if one was uploaded, otherwise a wordmark made from the dealership name:
   // "CORWIN" big, "TOYOTA OF BOULDER · SHUTTLE" small.
   function brandMark(dealerName, extra = '') {
@@ -151,7 +251,8 @@ const App = (() => {
   function applyBrand(dealerName) {
     $$('[data-brand]').forEach((el) => { el.innerHTML = brandMark(dealerName, el.dataset.brand || ''); });
     const name = document.documentElement.dataset.brandName || dealerName;
-    $$('[data-foot]').forEach((el) => { el.innerHTML = `<b>${esc(name)}</b> · Service shuttle`; });
+    $$('[data-foot]').forEach((el) => { el.innerHTML = `<b>${esc(name)}</b> · ${place() === 'dealership' ? 'Service shuttle' : 'Shuttle'}`; });
+    $$('span[data-word]').forEach((el) => { el.textContent = el.dataset.word === 'cap' ? Place() : place(); });
     let preview = null;
     try { preview = localStorage.getItem('shuttle.look'); } catch { /* storage blocked */ }
     const site = document.documentElement.dataset.siteLook;
@@ -323,9 +424,9 @@ const App = (() => {
     const mi = milesFromDealer(lat, lng, s); const max = Number(s.service_radius_mi) || 0;
     if (max > 0 && mi > max) {
       const admin = App.user && App.user.role === 'admin';
-      return { ok: false, text: `⚠️ ${mi.toFixed(1)} miles from the dealership. That's outside the ${max}-mile shuttle area.${admin ? ' As an admin you can still book it.' : ''}` };
+      return { ok: false, text: `⚠️ ${mi.toFixed(1)} miles from the ${place()}. That's outside the ${max}-mile shuttle area.${admin ? ' As an admin you can still book it.' : ''}` };
     }
-    return { ok: true, text: `📍 Spot marked · ${mi.toFixed(1)} miles from the dealership` };
+    return { ok: true, text: `📍 Spot marked · ${mi.toFixed(1)} miles from the ${place()}` };
   }
 
   // Shows open rides + on-duty drivers on a map layer. Returns a function to refresh.
@@ -455,7 +556,7 @@ const App = (() => {
   }
 
   function rideMessage(ride) {
-    const dealer = App.settings?.dealer_name || 'the dealership';
+    const dealer = App.settings?.dealer_name || `the ${place()}`;
     const what = ride.type === 'pickup' ? 'shuttle pick up' : 'shuttle ride';
     return `Hi ${ride.customer_name.split(' ')[0]}, your ${dealer} ${what} is scheduled for ${fmtTime(ride.scheduled_at)}. Track your driver here: ${ride.track_url}`;
   }
@@ -690,7 +791,7 @@ const App = (() => {
 
   return {
     whatsNew, esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
-    brandMark, applyBrand, stepper, tacoRain, live, liveState, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
+    brandMark, applyBrand, place, Place, endOfToday, stepper, pickPhoto, waitMeter, tacoRain, live, liveState, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
 })();

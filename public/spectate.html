@@ -47,7 +47,7 @@
         const g = L.layerGroup().addTo(map);
         L.polyline(d.route.path, { color: '#1a73e8', weight: 5, opacity: 0.7 }).addTo(g);
         d.route.stops.forEach((x, i) => L.marker([x.lat, x.lng], { icon: L.divIcon({ className: '', html: `<div class="stop-num ${x.kind === 'dealer' ? 'done' : ''}">${i + 1}</div>`, iconSize: [22, 22], iconAnchor: [11, 30] }) })
-          .bindPopup(`${x.kind === 'dealer' ? 'Dealership' : x.kind === 'pickup' ? 'Pick up' : 'Drop off'} · about ${fmtTime(x.eta)}`).addTo(g));
+          .bindPopup(`${x.kind === 'dealer' ? App.Place() : x.kind === 'pickup' ? 'Pick up' : 'Drop off'} · about ${fmtTime(x.eta)}`).addTo(g));
         lines.set(d.id, g);
       } else lines.delete(d.id);
     }

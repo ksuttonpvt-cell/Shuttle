@@ -25,7 +25,27 @@ function trafficType(p) {
   return 'pages';
 }
 
+// Response-time steps for the daily report (ms): under 50, 100, 250, 500, 1000, 2500, and slower.
+const BUCKETS = [50, 100, 250, 500, 1000, 2500];
+// One name per kind of request, without ids or links: /api/rides/42/arrived -> POST /api/rides/:id/arrived.
+function routeKey(method, p) {
+  if (!p.startsWith('/api/')) {
+    if (/^\/(t|s|reset)\//.test(p)) return `GET /${p.split('/')[1]}/:code`;
+    const t = trafficType(p); return t === 'files' ? 'files' : `GET ${p.length > 30 ? p.slice(0, 30) : p}`;
+  }
+  const clean = p.split('/').map((seg) => (/^\d+$/.test(seg) ? ':id' : /^[A-Za-z0-9_-]{8,}$/.test(seg) && /\d/.test(seg) ? ':code' : seg)).join('/');
+  return `${method} ${clean.slice(0, 60)}`;
+}
+// Percentile from the steps above (the step's upper edge; "slower" reports 5000).
+function percentile(buckets, pct) {
+  const total = buckets.reduce((n, x) => n + x, 0); if (!total) return null;
+  let seen = 0;
+  for (let i = 0; i < buckets.length; i++) { seen += buckets[i]; if (seen / total >= pct) return BUCKETS[i] ?? 5000; }
+  return 5000;
+}
+
 function createStats({ sampleMs = 5000, timers = true } = {}) {
+  let hourly = new Map(); // hour (UTC, 2026-11-17T21) -> numbers not yet saved
   const startedAt = new Date();
   const minutes = new Map(); // minute (epoch/60000) -> { n, ms, s5xx, s4xx }
   const seen = new Map();    // user id -> { role, at }
@@ -69,6 +89,18 @@ function createStats({ sampleMs = 5000, timers = true } = {}) {
       b[0]++; b[1] += bytes; m.bytes += bytes;
       if (res.statusCode >= 500) m.s5xx++; else if (res.statusCode >= 400) m.s4xx++;
       minutes.set(k, m);
+      // For the daily report: per hour, with response-time steps and each kind of request.
+      const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+      const hk = new Date().toISOString().slice(0, 13);
+      const h = hourly.get(hk) || { requests: 0, s4xx: 0, s5xx: 0, ms: 0, buckets: BUCKETS.map(() => 0).concat(0), routes: {} };
+      h.requests++; h.ms += ms;
+      if (res.statusCode >= 500) h.s5xx++; else if (res.statusCode >= 400) h.s4xx++;
+      let bi = BUCKETS.findIndex((b) => ms < b); if (bi < 0) bi = BUCKETS.length; h.buckets[bi]++;
+      let rk = routeKey(req.method, req.path);
+      if (!h.routes[rk] && Object.keys(h.routes).length >= 80) rk = 'other';
+      const r = h.routes[rk] || (h.routes[rk] = [0, 0, 0, 0]); // count, ms total, slowest, errors (5xx)
+      r[0]++; r[1] += ms; r[2] = Math.max(r[2], ms); if (res.statusCode >= 500) r[3]++;
+      hourly.set(hk, h);
     });
     next();
   }
@@ -109,7 +141,9 @@ function createStats({ sampleMs = 5000, timers = true } = {}) {
     const trackers = []; for (const [k, v] of viewers) if (v >= since) trackers.push(k);
     return { users, trackers };
   }
-  return { middleware, sawUser, sawTracker, snapshot, sample, active };
+  // Hand over the hourly numbers collected since the last time (to be saved), and start fresh.
+  function drain() { const out = hourly; hourly = new Map(); return out; }
+  return { middleware, sawUser, sawTracker, snapshot, sample, active, drain };
 }
 
 // Adds up the numbers from every copy of the site: [{ snapshot, active }].
@@ -149,4 +183,4 @@ function mergeSnapshots(parts) {
   };
 }
 
-module.exports = { createStats, mergeSnapshots, trafficType, TRAFFIC_TYPES };
+module.exports = { createStats, mergeSnapshots, trafficType, TRAFFIC_TYPES, routeKey, percentile, BUCKETS };

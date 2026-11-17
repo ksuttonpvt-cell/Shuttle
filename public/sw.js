@@ -131,7 +131,7 @@ self.addEventListener('push', (event) => {
     body: data.body || 'You have a shuttle update.',
     tag: data.tag || 'shuttle',
     renotify: true,
-    icon: '/icons/icon-192.png',
+    icon: '/brand/icon-192.png',
     badge: '/icons/badge-96.png',
     vibrate: data.offer_id ? [300, 150, 300, 150, 300] : [250, 120, 250],
     data: { url: data.url || '/driver', offer_id: data.offer_id || null },

@@ -94,6 +94,19 @@
       </div>
       <div id="shiftMsg"></div>
       ${!usable.length ? '<p class="small muted">No vehicles are set up yet — ask an admin to add one.</p>' : ''}`;
+    // Your photo: customers see it with your first name and the van's plate.
+    $('#shift').insertAdjacentHTML('beforeend', `<div class="me-photo">
+      ${me.photo_url ? `<img src="${esc(me.photo_url)}" alt="Your photo">` : `<div class="me-photo-none" aria-hidden="true">${esc(me.name[0])}</div>`}
+      <div class="small">${me.photo_url ? 'Customers see this photo with your first name.' : '<b>Add your photo</b> so customers know who to look for.'}</div>
+      <div class="actions" style="margin:0"><button type="button" class="btn-ghost btn-sm" id="photoBtn">${me.photo_url ? 'Change' : 'Add photo'}</button>${me.photo_url ? '<button type="button" class="btn-ghost btn-sm" id="photoDel">Remove</button>' : ''}</div>
+    </div><div id="photoMsg"></div>`);
+    $('#photoBtn').onclick = async () => {
+      try {
+        const image = await App.pickPhoto(); if (!image) return;
+        ({ user: me } = await api('/api/me/photo', { body: { image } })); drawShift();
+      } catch (err) { App.flash($('#photoMsg'), err.message); }
+    };
+    if ($('#photoDel')) $('#photoDel').onclick = async () => { ({ user: me } = await api('/api/me/photo', { method: 'DELETE' })); drawShift(); };
     if (me.on_duty) {
       $('#endShift').onclick = async () => { ({ user: me } = await api('/api/driver/shift', { body: { on_duty: false } })); wake.update(); drawShift(); route.clearLocal(); refresh(); };
       if ($('#wakeBtn')) $('#wakeBtn').onclick = () => { wake.set(!wake.wanted); drawShift(); };
@@ -150,7 +163,7 @@
     let state;
     if (!navigator.geolocation) state = ['off', '📡 This phone can’t share location.', ''];
     else if (gpsProblemBlocked()) state = ['warn', '📡 Location is blocked on this phone. Allow location for this site in your phone’s settings, then tap Try again.', 'Try again'];
-    else if (!gpsWanted()) state = ['off', '📡 Location is off. Routes start at the dealership and nearby rides can’t find you.', 'Turn on'];
+    else if (!gpsWanted()) state = ['off', `📡 Location is off. Routes start at the ${App.place()} and nearby rides can’t find you.`, 'Turn on'];
     else if (mode === 'pause') state = ['warn', `🔋 Battery ${pct}: location paused to save battery. Plug in to share again.`, ''];
     else if (on && mode === 'slow') state = ['warn', `🔋 Battery ${pct}: sharing less often to save battery. Plug in to go back to normal.`, mayToggle() ? 'Turn off' : ''];
     else if (on) state = ['on', `📡 Sharing your location${offShift}${gpsProblem ? ` (${esc(gpsProblem)})` : ''}`, mayToggle() ? 'Turn off' : ''];
@@ -225,12 +238,19 @@
     const toDealer = (r.type === 'pickup' && r.status === 'onboard') || (r.type === 'dropoff' && r.status !== 'onboard') || r.lat == null && r.type === 'pickup' && r.status === 'onboard';
     return toDealer ? { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng), address: App.settings.dealer_address, dealer: true } : r;
   }
+  // "I'm here": how long the driver has waited, and when they can mark a no-show.
+  const waitMs = () => (Number(App.settings.arrive_wait_min) || 5) * 60000;
+  const waited = (iso) => { const s = Math.max(0, Math.round((Date.now() - new Date(iso)) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  setInterval(() => {
+    document.querySelectorAll('[data-waited]').forEach((el) => { el.textContent = waited(el.dataset.waited); });
+    document.querySelectorAll('[data-noshow]').forEach((el) => { el.hidden = Date.now() < Number(el.dataset.after); });
+  }, 1000);
   function rideHtml(r, big = false) {
     const mine = r.driver_id === me.id;
     const step = mine && NEXT_STEP[r.status];
     const dest = r.type === 'pickup'
-      ? `Pick up at <b>${esc(r.address)}</b> → bring to dealership`
-      : `Dealership → drop off at <b>${esc(r.address)}</b>`;
+      ? `Pick up at <b>${esc(r.address)}</b> → bring to the ${App.place()}`
+      : `${App.Place()} → drop off at <b>${esc(r.address)}</b>`;
     return `
       <div class="ride ${r.rank === 1 ? 'first' : ''}" data-id="${r.id}">
         <div class="ride-top">
@@ -245,13 +265,18 @@
           ${r.notes ? `<div>📝 ${esc(r.notes)}</div>` : ''}
           ${r.driver_name && !mine ? `<div>🚐 ${esc(r.driver_name)}</div>` : ''}
           ${r.reasons ? `<div class="small">Why this order: ${esc(r.reasons.join(' · '))}</div>` : ''}
+          ${mine && r.arrived_at && ['assigned', 'en_route'].includes(r.status) ? `<div class="arrived-line">📍 You're here · waiting <b data-waited="${esc(r.arrived_at)}">${waited(r.arrived_at)}</b>
+            ${r.customer_reply ? `<div class="cust-reply">${r.customer_reply === 'coming' ? '👋 Customer is coming out' : '⏳ Customer needs 5 more minutes'} <span class="small muted">(${relTime(r.customer_reply_at)})</span></div>` : '<div class="small muted">We told the customer you\'re here.</div>'}</div>` : ''}
         </div>
         <div class="actions">
           ${!r.driver_id ? `<button class="btn-dark" data-claim>Take this ride</button>` : ''}
+          ${mine && ['assigned', 'en_route'].includes(r.status) && !r.arrived_at ? `<button class="btn-green" data-arrived>📍 I'm here</button>` : ''}
           ${step ? `<button class="${step[2]}" data-status="${step[0]}">${step[1]}</button>` : ''}
-          <a class="btn btn-ghost" target="_blank" rel="noopener" href="${App.navUrl(nextPlace(r))}">🧭 ${nextPlace(r).dealer ? 'To dealership' : 'Navigate'}</a>
-          ${r.customer_phone ? `<a class="btn btn-ghost" href="${App.telLink(r.customer_phone)}">📞 Call</a>
-            <a class="btn btn-ghost" href="sms:${r.customer_phone.replace(/[^\d+]/g, '')}">💬 Text</a>` : ''}
+          ${mine && r.arrived_at && ['assigned', 'en_route'].includes(r.status) ? `<button class="btn-ghost" data-noshow data-after="${new Date(r.arrived_at).getTime() + waitMs()}" ${Date.now() < new Date(r.arrived_at).getTime() + waitMs() ? 'hidden' : ''}>Customer didn't come out</button>
+            <button class="btn-ghost btn-sm" data-unarrive>Not here yet</button>` : ''}
+          <a class="btn btn-ghost" target="_blank" rel="noopener" href="${App.navUrl(nextPlace(r))}">🧭 ${nextPlace(r).dealer ? `To the ${App.place()}` : 'Navigate'}</a>
+          ${r.customer_phone ? `<a class="btn btn-ghost" href="${App.telLink(r.customer_phone)}" data-call-ride="${r.id}">📞 Call</a>
+            <a class="btn btn-ghost" href="sms:${r.customer_phone.replace(/[^\d+]/g, '')}" data-text-ride="${r.id}" data-name="${esc(r.customer_name.split(' ')[0])}">💬 Text</a>` : ''}
           ${mine && r.status === 'assigned' ? `<button class="btn-ghost" data-release>Give back</button>` : ''}
           ${mine ? `<button class="btn-ghost" data-cancel>Cancel ride</button>` : ''}
         </div>
@@ -408,12 +433,12 @@
     }
     // "Leave now → Pat 8:38 → Kim 8:50 → Back at dealership 9:28"
     // Dealership stops along the way say who gets off and on there.
-    const shortName = (x) => (x.kind === 'dealer' ? (x.label.startsWith('Back') ? 'Back at dealership' : x.label) : x.label);
+    const shortName = (x) => (x.kind === 'dealer' ? (x.label.startsWith('Back') ? `Back at the ${App.place()}` : x.label) : x.label);
     const timeline = (rt) => `<div class="timeline">
         <div class="tl-row"><span class="tl-dot tl-start"></span><b>Leave now</b><span class="muted small">${fmtTime(rt.planned_at)}</span></div>
         ${rt.stops.map((x, i) => `${x.leg_min ? `<div class="tl-leg small muted">🚐 ${x.leg_min} min · ${x.leg_mi} mi</div>` : ''}
           <div class="tl-row"><span class="tl-dot ${x.kind === 'dealer' ? 'tl-dealer' : ''}">${i + 1}</span><b>${esc(shortName(x))}${rt.seats && x.on_board != null && i < rt.stops.length - 1 ? ` <span class="seat-pill">👥 ${x.on_board}/${rt.seats}</span>` : ''}${x.late_min ? ` <span class="late small">⚠ about ${x.late_min} min late</span>` : ''}</b><span><b>${fmtTime(x.eta)}</b></span></div>`).join('')}
-        <div class="route-total" style="margin-top:.5rem">Back at the dealership about ${fmtTime(rt.finish_at)} · ${rt.total_mi} mi total</div>
+        <div class="route-total" style="margin-top:.5rem">Back at the ${App.place()} about ${fmtTime(rt.finish_at)} · ${rt.total_mi} mi total</div>
         <div class="small muted">${rt.source === 'roads' ? 'Real road driving times' : 'Estimated times (road info unavailable)'}, plus 3 min at each stop.</div></div>`;
     // How many people are checked, against the van's seats.
     function seatNote(list) {
@@ -426,7 +451,7 @@
       const all = ups + downs;
       const tone = biggest > veh.seats ? 'alert-err' : all > veh.seats ? 'alert-warn' : 'alert-ok';
       const say = biggest > veh.seats ? `Too many: a party of ${biggest} won't fit in ${veh.seats} seats. Uncheck that ride.`
-        : all > veh.seats ? `${all} passengers in all, more than ${veh.seats} seats, so the route will stop at the dealership in between to let people off.`
+        : all > veh.seats ? `${all} passengers in all, more than ${veh.seats} seats, so the route will stop at the ${App.place()} in between to let people off.`
         : `${all} passenger${all === 1 ? '' : 's'} · ${esc(veh.name)} has ${veh.seats} seats`;
       return `<div class="alert ${tone} small">👥 ${say}</div>`;
     }
@@ -441,7 +466,7 @@
       const cls = starting ? 'btn btn-green btn-lg btn-block' : 'btn btn-blue btn-lg btn-block';
       if (app === 'google') {
         return `<a class="${cls}" ${attrs} href="${App.routeUrl(rt.stops)}">🧭 ${starting ? 'Start route' : 'Open route'} in Google Maps</a>
-          <p class="small muted" style="margin:.4rem 0 0">Every stop opens in this order, for turn-by-turn directions to each customer and back to the dealership.${starting ? ' This also saves the route here.' : ''}</p>`;
+          <p class="small muted" style="margin:.4rem 0 0">Every stop opens in this order, for turn-by-turn directions to each customer and back to the ${App.place()}.${starting ? ' This also saves the route here.' : ''}</p>`;
       }
       const first = rt.stops[0];
       return `<a class="${cls}" ${attrs} href="${App.navUrl(first)}">🧭 ${starting ? 'Start' : 'Next stop'}: ${esc(shortName(first))} in ${name}</a>
@@ -557,13 +582,13 @@
       const o = current;
       const where = o.type === 'pickup'
         ? `📍 ${esc(o.address)}<br><b>${o.miles} mi from you</b> (about ${o.minutes} min)`
-        : `Customer is waiting at the dealership (<b>${o.miles} mi from you</b>, about ${o.minutes} min) → drop off at ${esc(o.address)}`;
+        : `Customer is waiting at the ${App.place()} (<b>${o.miles} mi from you</b>, about ${o.minutes} min) → drop off at ${esc(o.address)}`;
       sheet.innerHTML = `<div class="offer-head"><b>${o.rotation ? '🔄 On your way back: ride near you. Want it?' : o.type === 'pickup' ? '🚐 Ride near you. Want it?' : '🚐 Drop off waiting. Want it?'}</b><span class="offer-timer">${secondsLeft(o)}s</span></div>
         <div class="offer-who">${typeBadge(o.type)} ${o.priority === 'urgent' ? '<span class="badge b-urgent">Urgent</span>' : ''} <b>${esc(o.customer_name)}</b></div>
         <div class="small" style="margin:.3rem 0">${where}</div>
         <div class="small">🕒 ${fmtTime(o.scheduled_at)} · ${relTime(o.scheduled_at)} · ${o.passengers} passenger${o.passengers > 1 ? 's' : ''}</div>
         ${o.notes ? `<div class="small">📝 ${esc(o.notes)}</div>` : ''}
-        ${o.rotation ? '<div class="small muted">Drop off who’s on board at the dealership, then grab this one. Your route updates if you take it.</div>' : ''}
+        ${o.rotation ? `<div class="small muted">Drop off who’s on board at the ${App.place()}, then grab this one. Your route updates if you take it.</div>` : ''}
         <div class="offer-actions"><button class="btn-green btn-lg" data-offer="accept">✅ Take it</button><button class="btn-ghost btn-lg" data-offer="decline">No thanks</button></div>
         <div class="offer-msg"></div>`;
       sheet.classList.remove('hidden');
@@ -658,6 +683,14 @@
       if (btn.hasAttribute('data-claim')) await api(`/api/rides/${id}`, { method: 'PATCH', body: { driver_id: me.id } });
       else if (btn.hasAttribute('data-release')) await api(`/api/rides/${id}`, { method: 'PATCH', body: { driver_id: null } });
       else if (btn.dataset.status) await api(`/api/rides/${id}`, { method: 'PATCH', body: { status: btn.dataset.status } });
+      else if (btn.hasAttribute('data-arrived')) await api(`/api/rides/${id}/arrived`, { body: {} });
+      else if (btn.hasAttribute('data-unarrive')) await api(`/api/rides/${id}/arrived`, { body: { undo: true } });
+      else if (btn.hasAttribute('data-noshow')) {
+        const r = rides.find((x) => x.id === id);
+        const mins = r && r.arrived_at ? Math.max(1, Math.round((Date.now() - new Date(r.arrived_at)) / 60000)) : null;
+        if (!confirm(`Cancel ${r ? r.customer_name : 'this ride'} as a no-show? The advisor will see it.`)) return;
+        await api(`/api/rides/${id}`, { method: 'PATCH', body: { status: 'cancelled', cancel_reason: `No-show: customer didn't come out${mins ? ` (driver waited ${mins} min)` : ''}` } });
+      }
       else if (btn.hasAttribute('data-cancel')) { if (!(await App.cancelRide(rides.find((x) => x.id === id)))) return; }
       else return;
       refresh();

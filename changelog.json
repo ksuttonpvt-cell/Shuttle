@@ -1,5 +1,47 @@
 [
   {
+    "version": "2.18.0",
+    "date": "2026-11-17",
+    "title": "Your own name, pictures and web address everywhere",
+    "changes": [
+      "Admin → Settings → Your business: pick Car dealership or Shuttle service (hotel, airport parking, office…), and what riders call your home base. Drivers and customers then see your word everywhere: “bring you to the hotel”, “Back at the hotel”, route stops, texts and emails.",
+      "Your branding: besides your name, colors and logo, you can now upload an app icon (the browser tab, phones' home screens and notifications) and a banner photo shown behind your name on the sign-in and customer pages.",
+      "Every browser tab shows your name, like “Driver App · Your Business”, and “Add to Home Screen” uses your name, colors and icon.",
+      "Web address: type your own address (like shuttle.yourbusiness.com) in Settings, tap Check to make sure it reaches this shuttle PC, and every link, text, email and QR code uses it.",
+      "Optional short link for customers, like yourbusiness.com/ride, that opens the ride request page. QR codes use it.",
+      "The “Corwin” look is now called the Branded look.",
+      "Fix: “Today” and “Booked ahead” lists now split at midnight in the business's time zone, whatever the shuttle PC's clock is set to."
+    ]
+  },
+  {
+    "version": "2.17.0",
+    "date": "2026-11-17",
+    "title": "Phone & email your way, detailed reports, and a daily report at midnight",
+    "changes": [
+      "New Admin → Phone & email tab. Each dealership chooses how calls and texts work: staff use their own phones, or a dealership number so customers only ever see the dealership.",
+      "With a dealership number, tapping Call rings the staff member's phone and connects them to the customer; tapping Text sends from the dealership number and keeps the message on the ride. You also pick which number customers see, and who a call to the shuttle number rings: the driver on that customer's ride, every driver on shift, or a desk phone. Texts to the number are added to the customer's ride.",
+      "The dealership number (Twilio) is set up right on that tab, with a test call and the links to paste into Twilio. The auth token stays on the shuttle PC.",
+      "Email uses the dealership's own email system and a shared mailbox. The site won't accept a staff member's own email address. Choose the name emails come from, where replies go, and which emails are sent (password links, “your account is ready”, and new: “your ride is booked” to customers who give an email).",
+      "Reports: drivers now show shifts, time on shift, people carried, rides per hour, drive time to the pick up, wait at the pick up, no-shows and GPS gaps. New Vehicles table (shifts, time in use, GPS miles), Busiest hours, and a Ride log with every ride's times you can download.",
+      "No-shows marked by drivers (“Customer didn't come out”) are now counted in reports.",
+      "New daily report (Admin → Server → Daily reports): the shuttle's day plus how the server did: requests, server errors, response times, the slowest requests, page speed on real devices, and the most common errors in the log. It can be emailed to managers each morning.",
+      "At midnight, in this order: the day's report is saved, customer info is cleared, then the nightly backup runs, so everything is backed up at midnight (it used to be 12:30 AM)."
+    ]
+  },
+  {
+    "version": "2.16.0",
+    "date": "2026-11-17",
+    "title": "Ride-app touches: who's coming, “I'm here”, and the wait right now",
+    "changes": [
+      "Customers see who's coming: the driver's first name and photo, the van's color and model, and the plate in big letters.",
+      "The tracking page says how many stops the driver makes first (“Sam has 2 stops before you”), or “You're next!”.",
+      "Drivers add their photo on the driver page (an admin can add or remove it too, under Edit).",
+      "New “📍 I'm here” button for drivers at the pick-up spot. The customer gets a text (if texting is on), and their page shows “Your shuttle is here” with a countdown and two buttons: “I'm coming out” and “I need 5 more minutes”. The driver and advisor see the answer right away.",
+      "After the wait (5 minutes, set in Admin → Settings), the driver can cancel the ride as a no-show. Tapped “I'm here” too early? “Not here yet” undoes it.",
+      "Shuttle wait right now: the advisor desk and BDC page show how long a pick up booked now would take (“Shuttle is busy: about 25 min · 2 of 3 vans out”), and the customer request page says “We can get to you in about 15 min”."
+    ]
+  },
+  {
     "version": "2.15.0",
     "date": "2026-11-17",
     "title": "People can have more than one role",

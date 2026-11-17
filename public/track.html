@@ -10,6 +10,7 @@
 <body class="cust">
 <div class="hero"><div data-brand class="brand-block"></div><div class="hero-emoji" style="font-size:2rem">🚐</div><h1 id="title">Your shuttle ride</h1><div id="dealer" style="color:#ccc"></div></div>
 <main class="wrap grid cust-wrap">
+  <div class="card here-card hidden" id="here" aria-live="assertive"></div>
   <div class="card" id="status" aria-live="polite"><div class="empty">Loading your ride…</div></div>
   <div class="cust-actions" id="actions"></div>
   <div class="card cust-map-card" id="mapCard"><div id="map" class="map"></div></div>
@@ -56,7 +57,7 @@
     const open = ['requested', 'assigned', 'en_route', 'onboard'].includes(ride.status);
 
     let body;
-    if (ride.status === 'cancelled') body = `<h2>This ride was cancelled</h2><p class="muted">${dealer.phone ? `Questions? Call ${esc(dealer.phone)}.` : 'Questions? Call the dealership.'}</p>`;
+    if (ride.status === 'cancelled') body = `<h2>This ride was cancelled</h2><p class="muted">${dealer.phone ? `Questions? Call ${esc(dealer.phone)}.` : 'Questions? Call us.'}</p>`;
     else {
       const idx = STEPS.findIndex(([st]) => st === ride.status);
       const steps = STEPS.map(([, label], i) => `<div class="step ${i < idx ? 'done' : i === idx ? 'now' : ''}"><i>${i < idx ? '✓' : i + 1}</i>${label}</div>`).join('');
@@ -65,23 +66,39 @@
         requested: 'We got your request. A driver will be assigned shortly.',
         assigned: `${driver} will be your driver.`,
         en_route: `${driver} is on the way!`,
-        onboard: ride.type === 'pickup' ? 'Heading to the dealership.' : "You're on your way home.",
+        onboard: ride.type === 'pickup' ? `Heading to the ${App.place()}.` : "You're on your way home.",
         completed: 'Ride complete. Thanks for choosing us!',
       }[ride.status];
       const big = bigLine(ride, eta, est);
       const veh = ride.vehicle;
+      // Who's coming: photo (or first letter), name, van and plate.
+      const driverCard = ride.driver_name && ['assigned', 'en_route', 'onboard'].includes(ride.status) ? `
+        <div class="drv-card">
+          ${data.driver_photo ? `<img class="drv-photo" src="${esc(data.driver_photo)}" alt="${esc(ride.driver_name)}">` : `<div class="drv-photo drv-initial" aria-hidden="true">${esc(ride.driver_name[0])}</div>`}
+          <div class="drv-who"><b>${esc(ride.driver_name)}</b>${veh ? `<span>${esc([veh.color, veh.make_model].filter(Boolean).join(' ') || veh.name)}${veh.name && (veh.color || veh.make_model) ? ` · ${esc(veh.name)}` : ''}</span>` : ''}</div>
+          ${veh && veh.plate ? `<div class="drv-plate" title="License plate">${esc(veh.plate)}</div>` : ''}
+        </div>` : '';
+      // How many stops the driver makes first.
+      const n = data.stops_before;
+      const stopsLine = n == null || data.arrived_at ? '' : n === 0
+        ? (['assigned', 'en_route'].includes(ride.status) ? `<div class="stops-line"><b>You're next!</b></div>` : '')
+        : `<div class="stops-line"><div class="stops-dots" aria-hidden="true">${'<i></i>'.repeat(Math.min(n, 6))}<i class="you"></i></div>
+           <span><b>${esc(ride.driver_name || 'Your driver')}</b> has ${n} stop${n === 1 ? '' : 's'} before ${ride.status === 'onboard' ? 'yours' : 'you'}</span></div>`;
       body = `<div class="status-steps">${steps}</div>
-        ${big ? `<div class="cust-big">${esc(big)}</div>` : ''}
+        ${big && !data.arrived_at ? `<div class="cust-big">${esc(big)}</div>` : ''}
+        ${stopsLine}
         <h2 class="cust-headline">${headline}</h2>
+        ${driverCard}
         <div class="ride-meta cust-meta">
           <div>🕒 ${ride.type === 'pickup' ? 'Pick up' : 'Leaving'} ${fmtTime(ride.scheduled_at)}</div>
           <div>📍 ${ride.type === 'pickup' ? 'From' : 'To'} ${esc(ride.address)}</div>
-          ${veh ? `<div>🚐 Look for: <b>${esc([veh.color, veh.make_model].filter(Boolean).join(' ') || veh.name)}</b>${veh.plate ? ` · plate <b class="nowrap">${esc(veh.plate)}</b>` : ''}</div>` : ''}
+          ${veh && !driverCard ? `<div>🚐 Look for: <b>${esc([veh.color, veh.make_model].filter(Boolean).join(' ') || veh.name)}</b>${veh.plate ? ` · plate <b class="nowrap">${esc(veh.plate)}</b>` : ''}</div>` : ''}
           ${eta && open ? `<div>⏱ ${ride.status === 'onboard' ? 'Arriving' : ride.type === 'pickup' ? 'Driver expected' : 'Arriving'} around <b>${fmtTime(eta)}</b>${est ? ' (estimate)' : ''}</div>` : ''}
-          ${pos ? `<div>📋 You're #${pos} in the shuttle line</div>` : ''}
+          ${pos && data.stops_before == null ? `<div>📋 You're #${pos} in the shuttle line</div>` : ''}
         </div>`;
     }
     $('#status').innerHTML = body;
+    drawHere(data);
 
     // One-tap buttons.
     const buttons = [];
@@ -138,6 +155,49 @@
     }
   }
 
+  // "Your shuttle is here": the driver tapped I'm here. A timer shows how long they can wait.
+  function drawHere(data) {
+    const box = $('#here'); const r = data.ride;
+    if (!data.arrived_at || !['assigned', 'en_route'].includes(r.status)) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+    const veh = r.vehicle; const who = esc(r.driver_name || 'Your driver');
+    const look = veh ? `${esc([veh.color, veh.make_model].filter(Boolean).join(' ') || veh.name)}${veh.plate ? `, plate <b class="nowrap">${esc(veh.plate)}</b>` : ''}` : '';
+    const replied = data.customer_reply;
+    const canAnswer = data.can_change && !replied;
+    const key = `${data.arrived_at}|${replied}|${data.can_change}`;
+    if (box.dataset.key !== key) {
+      box.dataset.key = key;
+      box.innerHTML = `<div class="here-top"><span class="here-pill">${r.type === 'pickup' ? 'Your shuttle is here' : 'Your shuttle is out front'}</span><span class="here-timer" data-here-timer></span></div>
+        <h2>${who} is ${r.type === 'pickup' ? 'outside' : `waiting at the ${App.place()}`}</h2>
+        ${look ? `<p>Look for the ${look}.</p>` : ''}
+        <p class="small muted" data-here-note></p>
+        ${replied ? `<div class="alert alert-ok">${replied === 'coming' ? `${who} knows you're coming out.` : `${who} knows you need 5 more minutes.`}</div>` : ''}
+        ${canAnswer ? `<div class="here-actions"><button type="button" class="btn-lg" data-reply="coming">I'm coming out</button><button type="button" class="btn-ghost" data-reply="need5">I need 5 more minutes</button></div>` : ''}
+        <div data-here-msg></div>`;
+      box.querySelectorAll('[data-reply]').forEach((b) => { b.onclick = async () => {
+        box.querySelectorAll('[data-reply]').forEach((x) => { x.disabled = true; });
+        try { await api(`/api/public/track/${encodeURIComponent(token)}/reply`, { body: { answer: b.dataset.reply } }); await load(); }
+        catch (err) { App.flash($('[data-here-msg]', box), err.message); box.querySelectorAll('[data-reply]').forEach((x) => { x.disabled = false; }); }
+      }; });
+    }
+    box.classList.remove('hidden');
+    tickHere();
+  }
+  function tickHere() {
+    const box = $('#here'); if (!last || box.classList.contains('hidden')) return;
+    const left = Math.round((new Date(last.arrived_at).getTime() + (last.arrive_wait_min || 5) * 60000 - Date.now()) / 1000);
+    const t = $('[data-here-timer]', box); const note = $('[data-here-note]', box);
+    if (!t) return;
+    const who = last.ride.driver_name || 'Your driver';
+    if (left > 0) {
+      t.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+      note.textContent = `${who} can wait about ${last.arrive_wait_min || 5} minutes.`;
+    } else {
+      t.textContent = '0:00';
+      note.textContent = last.dealer.phone ? `Please come out now, or call us at ${last.dealer.phone}.` : 'Please come out now, or call us.';
+    }
+  }
+  setInterval(tickHere, 1000);
+
   async function load() {
     let data;
     try { data = await api(`/api/public/track/${encodeURIComponent(token)}`); }
@@ -151,7 +211,7 @@
   }
 
   async function shareRide() {
-    const text = `Follow my shuttle ride from ${last ? last.dealer.name : 'the dealership'}: ${link}`;
+    const text = `Follow my shuttle ride from ${last ? last.dealer.name : `the ${App.place()}`}: ${link}`;
     if (navigator.share) { try { await navigator.share({ title: 'Shuttle ride', text, url: link }); return; } catch { return; } }
     try { await navigator.clipboard.writeText(link); App.flash($('#changeMsg') || $('#foot'), 'Link copied.', true); } catch { prompt('Copy this link:', link); }
   }
