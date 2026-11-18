@@ -688,3 +688,6 @@ body.spec { height: 100%; margin: 0; display: grid; grid-template-rows: auto 1fr
 .banner-preview { width: 160px; height: 56px; border-radius: 8px; border: 1px solid var(--line); background-size: cover; background-position: center; display: inline-block; }
 html[data-banner] .hero { background-image: linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.6)), var(--banner); background-size: cover; background-position: center; }
 html[data-banner] .center-page { background: linear-gradient(rgba(0,0,0,.5), rgba(0,0,0,.6)), var(--banner) center / cover fixed; }
+
+.danger-card { border-color: color-mix(in srgb, var(--red, #c4121f) 45%, var(--line)); }
+.wipe-list { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: .4rem .6rem; display: grid; gap: .2rem; }

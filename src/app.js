@@ -689,7 +689,7 @@ function createApp(db, opts = {}) {
   // ---------- users (admin) ----------
   // Staff list with emails and phone numbers: admins only.
   app.get('/api/users', requireRole('admin'), (req, res) => {
-    const rows = q('SELECT * FROM users ORDER BY role, name').all();
+    const rows = q('SELECT * FROM users WHERE removed_at IS NULL ORDER BY role, name').all();
     res.json({ users: rows.map(publicUser) });
   });
 
@@ -2964,6 +2964,47 @@ function createApp(db, opts = {}) {
     if (!needBackups(res)) return;
     res.json({ backups: opts.backups.list(), pending_restore: opts.backups.pendingRestore(), time: getSettings().backup_time || '' });
   });
+  // ---------- remove all staff except super admins ----------
+  // Accounts are retired, not erased: they can't sign in again (email freed, password wiped,
+  // signed out everywhere) and disappear from every list, but their names stay on past rides,
+  // shifts, GPS miles and reports. Account requests waiting for approval are deleted.
+  // A backup is made first. Super admins only (like the rest of /api/server).
+  const wipeTargets = () => q("SELECT id, name, role, team, extra_roles, signup_at, active FROM users WHERE removed_at IS NULL AND NOT (role = 'admin' AND super_admin = 1) ORDER BY name").all();
+  app.get('/api/server/staff-wipe', requireRole('admin'), (req, res) => {
+    const t = wipeTargets();
+    res.json({ remove: t.filter((u) => !u.signup_at || u.active).map((u) => ({ id: u.id, name: u.name, roles: rolesOf(u) })),
+      requests: t.filter((u) => u.signup_at && !u.active).length,
+      keep: q("SELECT name FROM users WHERE removed_at IS NULL AND role = 'admin' AND super_admin = 1 ORDER BY name").all().map((u) => u.name) });
+  });
+  app.post('/api/server/staff-wipe', requireRole('admin'), (req, res) => {
+    if (String((req.body && req.body.confirm) || '').trim().toUpperCase() !== 'REMOVE STAFF') return bad(res, 'Type REMOVE STAFF to confirm.');
+    let backup = null;
+    if (opts.backups) { try { backup = opts.backups.make('manual'); } catch (e) { return bad(res, `The backup before removing staff failed, so nothing was changed: ${e.message}`, 500); } }
+    const t = wipeTargets();
+    const requests = t.filter((u) => u.signup_at && !u.active).map((u) => u.id);
+    const staff = t.filter((u) => !requests.includes(u.id)).map((u) => u.id);
+    const at = now();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const id of requests) q('DELETE FROM users WHERE id = ?').run(id);
+      for (const id of staff) {
+        q(`UPDATE users SET active = 0, removed_at = ?, email = ?, password_hash = '!', phone = NULL, photo = NULL, photo_v = NULL, on_duty = 0,
+           vehicle_id = NULL, route_json = NULL, reset_requested_at = NULL, signup_at = NULL, signup_note = NULL, start_page = NULL WHERE id = ?`)
+          .run(at, `removed-${id}@removed.invalid`, id);
+        for (const sql of ['DELETE FROM sessions WHERE user_id = ?', 'DELETE FROM push_subscriptions WHERE user_id = ?', 'DELETE FROM password_resets WHERE user_id = ?']) q(sql).run(id);
+        q("UPDATE ride_offers SET status = 'expired', responded_at = ? WHERE driver_id = ? AND status = 'pending'").run(at, id);
+        q('UPDATE spectate_links SET revoked_at = ? WHERE driver_id = ? AND revoked_at IS NULL').run(at, id);
+        closeShifts('driver_id = ?', [id], 'removed');
+        // Rides they hadn't started go back in line for the drivers who are left.
+        q(`UPDATE rides SET driver_id = NULL, vehicle_id = NULL, arrived_at = NULL, status = 'requested', updated_at = ? WHERE driver_id = ? AND status IN ('assigned','en_route')`).run(at, id);
+      }
+      db.exec('COMMIT');
+    } catch (e) { try { db.exec('ROLLBACK'); } catch { /* done */ } return bad(res, `Removing staff failed, so nothing was changed: ${e.message}`, 500); }
+    ridesChanged(); live.soon('drivers', 300); live.soon('rides', 300);
+    console.log(new Date().toLocaleString(), `[staff] ${req.user.name} removed all staff except super admins: ${staff.length} account(s) and ${requests.length} account request(s).${backup ? ` Backup first: ${backup.name}.` : ''}`);
+    res.json({ removed: staff.length, requests: requests.length, backup: backup ? backup.name : null });
+  });
+
   app.post('/api/server/backups', requireRole('admin'), (req, res) => {
     if (!needBackups(res)) return;
     try { res.status(201).json({ backup: opts.backups.make('manual') }); } catch (e) { bad(res, `Backup failed: ${e.message}`, 500); }

@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.19.0",
+    "date": "2026-11-18",
+    "title": "Remove all staff except super admins",
+    "changes": [
+      "New in Admin → Server: Remove all staff. It shows exactly who will be removed and who's kept, asks you to type REMOVE STAFF, and makes a backup first.",
+      "Removed people are signed out everywhere, can't sign in again, and disappear from every list. Their emails can be used for new accounts. Account requests waiting for approval are deleted.",
+      "History is kept: past rides, shifts, GPS miles and reports keep everyone's names. Rides a removed driver hadn't started go back in line for the drivers who are left."
+    ]
+  },
+  {
     "version": "2.18.2",
     "date": "2026-11-18",
     "title": "Cloudflare connection: no more fighting copies",

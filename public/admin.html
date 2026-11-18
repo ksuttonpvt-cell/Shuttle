@@ -514,6 +514,10 @@
         <div class="table-wrap" id="srvBackups"></div>
       </div>
     </div>
+    <div class="card danger-card">
+      <div class="card-head"><h2>Remove all staff</h2><button type="button" class="btn-sm btn-dark" id="wipeBtn">Remove all staff…</button></div>
+      <p class="small muted" style="margin:-.4rem 0 0">Removes every account except super admins: they're signed out everywhere and can't sign in again, and their emails can be used for new accounts. Their names stay on past rides, shifts and reports. Account requests waiting for approval are deleted. A backup is made first.</p>
+    </div>
     <div class="card">
       <div class="card-head"><h2>Daily reports</h2><button type="button" class="btn-ghost btn-sm" id="drBuild">Build today's so far</button></div>
       <p class="small muted" style="margin-top:-.4rem">Saved every night at midnight for the day before: the shuttle's day (rides, people, on time, drive and wait times, shifts, GPS gaps) and the server's (requests, errors, response times, slowest requests, page speed on devices, the most common errors). No customer names, numbers or addresses. <span id="drEmail"></span></p>
@@ -1492,6 +1496,29 @@
   }, 2000);
 
   const serverVisible = () => !$('[data-pane="server"]').classList.contains('hidden') && !document.hidden;
+  // Remove all staff except super admins (with a preview and a typed confirmation).
+  $('#wipeBtn').onclick = async () => {
+    let d; try { d = await api('/api/server/staff-wipe'); } catch (err) { return alert(err.message); }
+    const ROLE_NAME = { admin: 'Admin', advisor: 'Advisor', bdc: 'BDC', driver: 'Driver' };
+    const m = App.modal(`<h2>Remove all staff?</h2>
+      ${d.remove.length || d.requests ? `<p>These <b>${d.remove.length}</b> account${d.remove.length === 1 ? '' : 's'} will be removed${d.requests ? `, plus <b>${d.requests}</b> account request${d.requests === 1 ? '' : 's'} waiting for approval` : ''}:</p>
+      <div class="wipe-list">${d.remove.map((u) => `<div>${esc(u.name)} <span class="small muted">${esc(u.roles.map((r) => ROLE_NAME[r] || r).join(' + '))}</span></div>`).join('') || '<div class="muted">No accounts</div>'}</div>
+      <p class="small">Kept: <b>${esc(d.keep.join(', '))}</b> (super admin${d.keep.length === 1 ? '' : 's'}). Past rides and reports keep everyone's names. A backup is made first.</p>
+      <form><label>Type <b>REMOVE STAFF</b> to confirm</label><input name="confirm" autocomplete="off" spellcheck="false">
+      <div class="msg"></div><div class="actions"><button class="btn-dark">Remove staff</button><button type="button" class="btn-ghost" data-close>Cancel</button></div></form>`
+      : '<p>There are no accounts to remove. Only super admins are left.</p><div class="actions"><button data-close>OK</button></div>'}`);
+    const f = $('form', m); if (!f) return;
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const r = await api('/api/server/staff-wipe', { body: { confirm: f.elements.confirm.value } });
+        m.close();
+        App.modal(`<h2>Done</h2><p>Removed ${r.removed} account${r.removed === 1 ? '' : 's'}${r.requests ? ` and ${r.requests} account request${r.requests === 1 ? '' : 's'}` : ''}.${r.backup ? ` The backup from just before is <b>${esc(r.backup)}</b> (under Backups, until tonight's clear).` : ''}</p><div class="actions"><button data-close>OK</button></div>`);
+        loadBackups(); if (typeof loadUsers === 'function') loadUsers().catch(() => {});
+      } catch (err) { App.flash($('.msg', m), err.message); }
+    };
+  };
+
   // Daily reports (saved at midnight).
   async function loadDaily() {
     const d = await api('/api/server/daily-reports');
