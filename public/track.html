@@ -30,6 +30,19 @@
   const minsUntil = (iso) => Math.round((new Date(iso) - Date.now()) / 60000);
   const smsLink = (phone, text) => `sms:${phone.replace(/[^\d+]/g, '')}?&body=${encodeURIComponent(text)}`;
 
+  // Once they're in the shuttle, show when things really happened, not the scheduled time
+  // (a drop off's scheduled time includes the wait, so it's often later than the ride itself).
+  function timeLine(ride) {
+    const at = (iso) => `<b>${fmtTime(iso)}</b>`;
+    if (ride.onboard_at && ['onboard', 'completed'].includes(ride.status)) {
+      const start = ride.type === 'pickup' ? `Picked up ${at(ride.onboard_at)}` : `Left the ${App.place()} ${at(ride.onboard_at)}`;
+      if (ride.status !== 'completed' || !ride.completed_at) return start;
+      return `${start} · ${ride.type === 'pickup' ? `At the ${App.place()}` : 'Dropped off'} ${at(ride.completed_at)}`;
+    }
+    if (ride.status === 'completed' && ride.completed_at) return `Done ${at(ride.completed_at)}`;
+    return `${ride.type === 'pickup' ? 'Pick up' : 'Leaving'} ${fmtTime(ride.scheduled_at)}`;
+  }
+
   // The big line at the top: what's happening, in plain words, with a countdown when we have one.
   function bigLine(ride, eta, estimated) {
     if (ride.status === 'en_route' && eta) {
@@ -90,9 +103,9 @@
         <h2 class="cust-headline">${headline}</h2>
         ${driverCard}
         <div class="ride-meta cust-meta">
-          <div>🕒 ${ride.type === 'pickup' ? 'Pick up' : 'Leaving'} ${fmtTime(ride.scheduled_at)}</div>
+          <div>🕒 ${timeLine(ride)}</div>
           <div>📍 ${ride.type === 'pickup' ? 'From' : 'To'} ${esc(ride.address)}</div>
-          ${veh && !driverCard ? `<div>🚐 Look for: <b>${esc([veh.color, veh.make_model].filter(Boolean).join(' ') || veh.name)}</b>${veh.plate ? ` · plate <b class="nowrap">${esc(veh.plate)}</b>` : ''}</div>` : ''}
+          ${veh && !driverCard && ride.status !== 'completed' ? `<div>🚐 Look for: <b>${esc([veh.color, veh.make_model].filter(Boolean).join(' ') || veh.name)}</b>${veh.plate ? ` · plate <b class="nowrap">${esc(veh.plate)}</b>` : ''}</div>` : ''}
           ${eta && open ? `<div>⏱ ${ride.status === 'onboard' ? 'Arriving' : ride.type === 'pickup' ? 'Driver expected' : 'Arriving'} around <b>${fmtTime(eta)}</b>${est ? ' (estimate)' : ''}</div>` : ''}
           ${pos && data.stops_before == null ? `<div>📋 You're #${pos} in the shuttle line</div>` : ''}
         </div>`;

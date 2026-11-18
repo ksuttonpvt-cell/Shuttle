@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.18.1",
+    "date": "2026-11-18",
+    "title": "Finished rides show when they really happened",
+    "changes": [
+      "The customer's tracking page used to keep showing the scheduled time after the ride, like “Leaving 6:45 PM” on a drop off that already happened (a drop off's scheduled time includes the 30-minute wait). Once the customer is in the shuttle it now shows the real times: “Left the dealership 6:21 PM · Dropped off 6:38 PM”, or “Picked up … · At the dealership …”.",
+      "Finished rides no longer say “Look for” the van."
+    ]
+  },
+  {
     "version": "2.18.0",
     "date": "2026-11-17",
     "title": "Your own name, pictures and web address everywhere",

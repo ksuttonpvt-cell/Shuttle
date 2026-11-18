@@ -1860,6 +1860,8 @@ function createApp(db, opts = {}) {
         driver_name: ride.driver_name ? ride.driver_name.split(' ')[0] : null,
         vehicle: ride.vehicle_name ? { name: ride.vehicle_name, color: ride.vehicle_color, make_model: ride.vehicle_make_model, plate: ride.vehicle_plate } : null,
         updated_at: ride.updated_at,
+        // When it really happened (the scheduled time can be later, e.g. the drop-off wait).
+        onboard_at: ride.onboard_at || null, completed_at: ride.status === 'completed' ? ride.completed_at : null,
       },
       driver_location: driverLoc,
       eta, eta_estimated: etaEstimated,
