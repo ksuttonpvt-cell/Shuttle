@@ -100,32 +100,79 @@ async function downloadCloudflared(root, { fetchImpl = fetch } = {}) {
   return file;
 }
 
+// Is this process id a running cloudflared? (So an old id that Windows reused for something
+// else is never stopped by mistake.)
+function isCloudflared(pid) {
+  if (!pid) return false;
+  try { process.kill(pid, 0); } catch { return false; }
+  try {
+    if (process.platform === 'win32') {
+      const out = execFileSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 });
+      return /cloudflared/i.test(out);
+    }
+    return /cloudflared/i.test(fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8'));
+  } catch { return false; }
+}
+
 // Runs cloudflared with the saved token, restarting it if it stops.
-function createTunnel({ root, log = () => {}, line = () => {}, spawnImpl = spawn }) {
+// - The id of the cloudflared it starts is written to pidFile. If Shuttle Control was closed
+//   without stopping it (the window's X, or Task Manager), that leftover cloudflared is
+//   stopped before a new one starts, so two never fight over the same status port.
+// - If the status port is taken anyway, the next try uses the next one (20241 → 20245).
+function createTunnel({ root, log = () => {}, line = () => {}, spawnImpl = spawn, pidFile = null }) {
   let child = null; let wanted = false; let timer = null; let restarts = 0; let lastExit = null; const fails = [];
-  const state = () => ({ managed: wanted || !!child, running: !!child, pid: child?.pid || null, restarts, last_exit: lastExit });
+  let portAt = 0; let portBusy = false; let lastError = null;
+  const metrics = () => `127.0.0.1:${METRICS_PORTS[portAt]}`;
+  const state = () => ({ managed: wanted || !!child, running: !!child, pid: child?.pid || null, restarts, last_exit: lastExit, metrics_port: METRICS_PORTS[portAt], last_error: lastError });
+  const savePid = (pid) => { if (!pidFile) return; try { if (pid) fs.writeFileSync(pidFile, String(pid)); else fs.rmSync(pidFile, { force: true }); } catch { /* not important */ } };
+  function stopLeftover() {
+    if (!pidFile) return;
+    let pid = null; try { pid = Number(fs.readFileSync(pidFile, 'utf8').trim()) || null; } catch { return; }
+    if (pid && pid !== child?.pid && isCloudflared(pid)) {
+      try { process.kill(pid); log(`Stopped a leftover Cloudflare connection from before (process ${pid}).`, 'warn'); } catch { /* already gone */ }
+    }
+    savePid(null);
+  }
+  // Turn cloudflared's own errors into a plain reason for Shuttle Control.
+  function reasonOf(l) {
+    if (/metrics server listener|bind: (Only one usage|address already in use)/i.test(l)) { portBusy = true; return `Its status port ${METRICS_PORTS[portAt]} is in use by another program (often a second copy of cloudflared). Trying another port.`; }
+    if (/Unauthorized|Invalid tunnel secret|token.*(invalid|not valid)/i.test(l)) return 'Cloudflare refused the tunnel token. Paste a new one from the Cloudflare dashboard.';
+    if (/no such host|lookup .* (failed|timeout)|network is unreachable|dial (tcp|udp).*(timeout|refused)/i.test(l)) return 'Can’t reach Cloudflare from this PC. Check the internet connection, or try the HTTP/2 connection type.';
+    if (/\bERR\b/.test(l)) return l.replace(/^\S+Z\s+/, '').replace(/^ERR\s+/, '').slice(0, 200);
+    return null;
+  }
   function start({ token, protocol = 'auto' }) {
     if (child) return;
     const bin = findCloudflared(root);
     if (!bin) throw new Error('cloudflared is not installed on this PC yet. Use "Download cloudflared" first.');
     if (!token) throw new Error('Paste your tunnel token first.');
     wanted = true; clearTimeout(timer);
-    const args = ['tunnel', '--no-autoupdate', '--metrics', OWN_METRICS];
+    stopLeftover();
+    if (portBusy) { portAt = (portAt + 1) % METRICS_PORTS.length; portBusy = false; }
+    const args = ['tunnel', '--no-autoupdate', '--metrics', metrics()];
     if (['quic', 'http2'].includes(protocol)) args.push('--protocol', protocol);
     args.push('run');
     // The token goes in the environment, not the command line, so it never shows in process lists or logs.
     child = spawnImpl(bin, args, { cwd: root, env: { ...process.env, TUNNEL_TOKEN: token }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    savePid(child.pid);
     log(`Starting the Cloudflare connection (${protocol === 'auto' ? 'automatic' : protocol.toUpperCase()})...`);
     for (const s of [child.stdout, child.stderr]) {
       let buf = ''; s.setEncoding('utf8');
-      s.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { line(buf.slice(0, i).replace(/\r$/, '')); buf = buf.slice(i + 1); } });
+      s.on('data', (d) => {
+        buf += d; let i;
+        while ((i = buf.indexOf('\n')) >= 0) {
+          const l = buf.slice(0, i).replace(/\r$/, ''); buf = buf.slice(i + 1);
+          if (/Registered tunnel connection/i.test(l)) lastError = null; else { const why = reasonOf(l); if (why) lastError = why; }
+          line(l);
+        }
+      });
     }
     child.on('error', (e) => log(`cloudflared could not start: ${e.message}`, 'error'));
     child.on('exit', (code, signal) => {
-      child = null; lastExit = { at: new Date().toISOString(), code, signal };
+      child = null; lastExit = { at: new Date().toISOString(), code, signal }; savePid(null);
       if (!wanted) { log('The Cloudflare connection is stopped.'); return; }
       const now = Date.now(); fails.push(now); while (fails.length && now - fails[0] > 120000) fails.shift();
-      const wait = fails.length >= 4 ? 60 : 5;
+      const wait = portBusy ? 2 : fails.length >= 4 ? 60 : 5; // a busy port: try the next one right away
       log(`The Cloudflare connection stopped (${signal || 'code ' + code}). Reconnecting in ${wait} seconds...`, 'error');
       timer = setTimeout(() => { restarts++; try { start({ token, protocol }); } catch (e) { log(e.message, 'error'); } }, wait * 1000);
     });
@@ -135,4 +182,4 @@ function createTunnel({ root, log = () => {}, line = () => {}, spawnImpl = spawn
   return { start, stop, restart, state };
 }
 
-module.exports = { probe, findCloudflared, cleanToken, tunnelIdOf, setEnvValue, downloadCloudflared, createTunnel, placeOf, OWN_METRICS };
+module.exports = { probe, probePort, findCloudflared, cleanToken, tunnelIdOf, setEnvValue, downloadCloudflared, createTunnel, placeOf, isCloudflared, OWN_METRICS, METRICS_PORTS };

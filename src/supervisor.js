@@ -74,7 +74,7 @@ function restart() {
 // too and reconnects it if it drops. If cloudflared already runs another way (for example
 // as a Windows service), it's left alone and just shown.
 const tunnel = tunnelKit.createTunnel({
-  root,
+  root, pidFile: path.join(dataDir, 'cloudflared.pid'),
   log: (m, level) => say(`[tunnel] ${m}`, level),
   line: (l) => {
     const level = /\bERR\b/.test(l) ? 'error' : /\bWRN\b/.test(l) ? 'warn' : 'info';
@@ -134,7 +134,9 @@ const control = http.createServer(async (req, res) => {
   }
   if (req.method === 'GET' && url.pathname === '/api/status') {
     const token = process.env.CLOUDFLARE_TUNNEL_TOKEN || '';
-    const t = await tunnelKit.probe();
+    // Our own cloudflared's status port when we run it; otherwise any cloudflared on this PC.
+    const own = tunnel.state();
+    const t = own.running ? (await tunnelKit.probePort(own.metrics_port, 800, fetch) || { running: true, ready: false, connections: 0, locations: [] }) : await tunnelKit.probe();
     return json(res, 200, {
       tunnel: { ...tunnel.state(), ...t, has_token: !!token, tunnel_id: token ? tunnelKit.tunnelIdOf(token) : null,
         protocol: process.env.TUNNEL_PROTOCOL || 'auto', installed: !!tunnelKit.findCloudflared(root) },
@@ -199,9 +201,30 @@ const control = http.createServer(async (req, res) => {
   json(res, 404, { error: 'Not found.' });
 });
 const startedAt = new Date().toISOString();
-control.on('error', (e) => say(`Shuttle Control could not start on port ${controlPort} (${e.code || e.message}). The website still runs; set CONTROL_PORT in .env to use another port.`, 'warn'));
-control.listen(controlPort, '127.0.0.1', () => say(`Shuttle Control is ready at http://127.0.0.1:${controlPort} (this PC only). Open it with "Shuttle Control.bat".`));
-
-readVersion(); setInterval(readVersion, 5 * 60000).unref();
-start();
-startTunnelIfSetUp();
+// Only one copy at a time: Shuttle Control's port is the lock. If another copy already has it,
+// this one says so and quits, instead of starting a second website and a second Cloudflare
+// connection that would fight the first one.
+let begun = false;
+function begin() {
+  if (begun) return; begun = true;
+  readVersion(); setInterval(readVersion, 5 * 60000).unref();
+  start();
+  startTunnelIfSetUp();
+}
+control.on('error', async (e) => {
+  if (e.code === 'EADDRINUSE') {
+    let other = false;
+    try { other = (await fetch(`http://127.0.0.1:${controlPort}/api/status`, { signal: AbortSignal.timeout(3000) })).ok; } catch { /* not Shuttle Control */ }
+    if (other) {
+      const msg = 'The shuttle website is already running on this PC, so this copy will close. Open "Shuttle Control.bat" to see it.';
+      console.log(`\n  ${msg}\n`); logbook.add(`[control] ${msg}`, { level: 'warn', source: 'control' });
+      process.exit(0);
+    }
+  }
+  say(`Shuttle Control could not start on port ${controlPort} (${e.code || e.message}). The website still runs; set CONTROL_PORT in .env to use another port.`, 'warn');
+  begin();
+});
+control.listen(controlPort, '127.0.0.1', () => {
+  say(`Shuttle Control is ready at http://127.0.0.1:${controlPort} (this PC only). Open it with "Shuttle Control.bat".`);
+  begin();
+});
