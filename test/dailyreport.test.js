@@ -1,4 +1,5 @@
 process.removeAllListeners('warning');
+const { seedTestSite } = require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
@@ -8,7 +9,7 @@ const { routeKey, percentile } = require('../src/serverstats');
 
 let server; let base; let app; let logsDir;
 before(async () => {
-  const db = openDb(':memory:');
+  const db = seedTestSite(openDb(':memory:'));
   ensureAdmin(db, { email: 'boss@rep.test', password: 'adminpass1', name: 'Ken' });
   logsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shuttle-logs-'));
   app = createApp(db, { noTimers: true, superEmail: 'boss@rep.test', restart: () => {}, logsDir });

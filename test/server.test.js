@@ -1,4 +1,5 @@
 process.removeAllListeners('warning');
+const { seedTestSite } = require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -41,7 +42,7 @@ test('log book: levels, filters, daily files, and passwords never kept', () => {
 test('backups: make, list, prune, and restore on the next start', () => {
   const dbFile = path.join(tmp, 'b', 'shuttle.db');
   const dir = path.join(tmp, 'b', 'backups');
-  let db = openDb(dbFile);
+  let db = seedTestSite(openDb(dbFile));
   db.prepare("INSERT INTO settings (key, value) VALUES ('marker', 'before')").run();
   const backups = createBackups({ db, dir });
   const daily = backups.make('daily', new Date(Date.now() - 20 * 86400000));
@@ -67,7 +68,7 @@ test('backups: make, list, prune, and restore on the next start', () => {
   const logs = [];
   assert.equal(applyPendingRestore({ dbFile, dir, log: (m) => logs.push(m) }), keep);
   assert.equal(backups.pendingRestore(), null, 'marker removed');
-  db = openDb(dbFile);
+  db = seedTestSite(openDb(dbFile));
   assert.equal(db.prepare("SELECT value FROM settings WHERE key = 'marker'").get().value, 'before');
   assert.ok(backups.list().some((b) => b.kind === 'before-restore'), 'old database kept');
   assert.equal(applyPendingRestore({ dbFile, dir }), null, 'nothing to do next time');
@@ -77,7 +78,7 @@ test('backups: make, list, prune, and restore on the next start', () => {
 let server; let base; let restarted = 0; let theApp;
 before(async () => {
   const dbFile = path.join(tmp, 'app', 'shuttle.db');
-  const db = openDb(dbFile);
+  const db = seedTestSite(openDb(dbFile));
   ensureAdmin(db, { email: 'admin@test.local', password: 'adminpass1', name: 'Admin' });
   const backups = createBackups({ db, dir: path.join(tmp, 'app', 'backups') });
   const logbook = createLogbook();

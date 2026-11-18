@@ -1,5 +1,6 @@
 process.removeAllListeners('warning');
 // Several processor cores: the site runs as several copies that must stay in step.
+const { seedTestSite } = require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
@@ -134,7 +135,7 @@ test('auto uses every core (up to 16); a number is capped at what the PC has', (
 });
 
 test('shared limits count in windows and space out turns', () => {
-  const db = openDb(':memory:');
+  const db = seedTestSite(openDb(':memory:'));
   const l = createLimits(db);
   assert.equal(l.count('a', 1000), 0);
   assert.equal(l.hit('a', 1000), 1); assert.equal(l.hit('a', 1000), 2);

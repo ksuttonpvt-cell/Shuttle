@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<script>/* apply the saved light/dark choice and any look preview before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;var q=new URLSearchParams(location.search).get("look");if(q==="corwin"||q==="classic")localStorage.setItem("shuttle.look",q);else if(q==="off")localStorage.removeItem("shuttle.look");var l=localStorage.getItem("shuttle.look");if(l==="corwin"||l==="classic")document.documentElement.dataset.look=l}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
+<script>/* apply the saved light/dark choice and any look preview before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;var q=new URLSearchParams(location.search).get("look");if(q==="branded"||q==="classic")localStorage.setItem("shuttle.look",q);else if(q==="off")localStorage.removeItem("shuttle.look");var l=localStorage.getItem("shuttle.look");if(l==="branded"||l==="classic")document.documentElement.dataset.look=l}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Driver App</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#111111">
@@ -93,7 +93,7 @@
         <button class="btn-green btn-lg" id="startShift">Start shift</button>
       </div>
       <div id="shiftMsg"></div>
-      ${!usable.length ? '<p class="small muted">No vehicles are set up yet — ask an admin to add one.</p>' : ''}`;
+      ${!usable.length ? '<p class="small muted">No vehicles are set up yet — ask a manager to add one.</p>' : ''}`;
     // Your photo: customers see it with your first name and the van's plate.
     $('#shift').insertAdjacentHTML('beforeend', `<div class="me-photo">
       ${me.photo_url ? `<img src="${esc(me.photo_url)}" alt="Your photo">` : `<div class="me-photo-none" aria-hidden="true">${esc(me.name[0])}</div>`}
@@ -123,7 +123,7 @@
   }
 
   // Location is shared whenever this page is open (on shift or not). Drivers can't switch
-  // it off themselves unless an admin allows it (Settings → Driver location). On a low
+  // it off themselves unless a manager allows it (Settings → Driver location). On a low
   // phone battery (and not charging) the admin's setting decides: share less often, pause
   // until charging, or carry on. Phones only share while the page is open and the screen
   // is on, so the screen stays on during a shift, except on a low battery.

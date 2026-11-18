@@ -1,4 +1,5 @@
 process.removeAllListeners('warning');
+const { seedTestSite } = require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { openDb } = require('../src/db');
@@ -8,7 +9,7 @@ const posts = []; let discordDown = false;
 const discordFetch = async (url, init) => { if (discordDown) return { ok: false, status: 500 }; posts.push({ url, body: JSON.parse(init.body) }); return { ok: true, status: 204 }; };
 let server; let base;
 before(async () => {
-  const db = openDb(':memory:');
+  const db = seedTestSite(openDb(':memory:'));
   ensureAdmin(db, { email: 'admin@test.local', password: 'adminpass1', name: 'Admin' });
   const app = createApp(db, { noTimers: true, discordFetch });
   await new Promise((r) => { server = app.listen(0, r); });

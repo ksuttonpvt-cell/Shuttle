@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<script>/* apply the saved light/dark choice and any look preview before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;var q=new URLSearchParams(location.search).get("look");if(q==="corwin"||q==="classic")localStorage.setItem("shuttle.look",q);else if(q==="off")localStorage.removeItem("shuttle.look");var l=localStorage.getItem("shuttle.look");if(l==="corwin"||l==="classic")document.documentElement.dataset.look=l}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Shuttle Admin</title>
+<script>/* apply the saved light/dark choice and any look preview before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;var q=new URLSearchParams(location.search).get("look");if(q==="branded"||q==="classic")localStorage.setItem("shuttle.look",q);else if(q==="off")localStorage.removeItem("shuttle.look");var l=localStorage.getItem("shuttle.look");if(l==="branded"||l==="classic")document.documentElement.dataset.look=l}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shuttle Manager</title>
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/css/app.css">
 </head>
@@ -208,7 +208,7 @@
       <p class="small muted" style="margin:.25rem 0 0">Every evening at this time, drivers still on duty are taken off shift (they stop getting new-ride alerts and their vehicle is freed). Rides they're finishing stay with them. Clear the time to turn this off.</p>
       <label>Sign everyone out automatically at</label>
       <input name="auto_sign_out" type="time" style="max-width:200px">
-      <p class="small muted" style="margin:.25rem 0 0">Every night at this time, all staff (admins, advisors and drivers) are signed out on every device and must sign in again. Clear the time to turn this off.</p>
+      <p class="small muted" style="margin:.25rem 0 0">Every night at this time, all staff (managers, advisors and drivers) are signed out on every device and must sign in again. Clear the time to turn this off.</p>
       <label>Delete customer info automatically at</label>
       <input name="clear_customer_info" type="time" style="max-width:200px">
       <p class="small muted" style="margin:.25rem 0 0">Every night at this time, finished rides (completed or cancelled) lose the customer's name, phone, email, address and notes, and their tracking links stop working. The text-message log is emptied too. Ride counts, times, drivers and cancel reasons are kept for reports. Rides that aren't finished yet keep their details. Clear the time to turn this off.</p>
@@ -221,7 +221,7 @@
         <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
       </select>
       <label class="check" style="margin-top:1rem"><input type="checkbox" name="public_requests"> Let customers request rides online (the /request page)</label>
-      <label class="check"><input type="checkbox" name="staff_signup"> Let new staff ask for an account from the sign-in page (an admin approves each one)</label>
+      <label class="check"><input type="checkbox" name="staff_signup"> Let new staff ask for an account from the sign-in page (a manager approves each one)</label>
       <h3 style="margin:1rem 0 .2rem">Driver location</h3>
       <p class="small muted" style="margin:0 0 .3rem">Drivers' phones share their location whenever the driver page is open. On a low battery (Android phones; iPhones don't tell websites their battery level):</p>
       <div class="grid cols-2" style="gap:.5rem">
@@ -238,13 +238,13 @@
     <h2>Your branding</h2>
     <p class="small muted" style="margin-top:0">Your name, colors, logo, app icon and banner show on every page: sign-in, the staff and driver pages, the customer request and tracking pages, the browser tab, and phones' home screens. Try the <b>Branded</b> look on just this device first, then switch it on for everyone.</p>
     <div class="actions" style="margin:.2rem 0 .8rem">
-      <a class="btn btn-ghost" href="/admin?look=corwin#settings">👀 Preview the Branded look on this device</a>
+      <a class="btn btn-ghost" href="/admin?look=branded#settings">👀 Preview the Branded look on this device</a>
       <a class="btn btn-ghost" href="/admin?look=off#settings">Stop preview</a>
     </div>
     <form id="lookForm">
       <div class="seg" role="radiogroup" aria-label="Look for everyone">
         <input type="radio" name="look" value="classic" id="lookClassic"><label for="lookClassic">Classic</label>
-        <input type="radio" name="look" value="corwin" id="lookCorwin"><label for="lookCorwin">Branded</label>
+        <input type="radio" name="look" value="branded" id="lookBranded"><label for="lookBranded">Branded</label>
       </div>
       <label style="margin-top:.8rem">Name shown in the header and the browser tab</label>
       <input name="brand_name" placeholder="Your business name">
@@ -416,7 +416,7 @@
         <label>Name emails come from</label><input name="from_name" maxlength="80" placeholder="">
         <label>Replies go to <span class="small muted">(optional, a shared mailbox)</span></label><input name="reply_to" type="email" placeholder="service@yourdealership.com">
         <label class="check" style="margin-top:.6rem"><input type="checkbox" name="send_reset"> Password reset links (“Forgot password?”)</label>
-        <label class="check"><input type="checkbox" name="send_approved"> “Your account is ready” when an admin approves a new person</label>
+        <label class="check"><input type="checkbox" name="send_approved"> “Your account is ready” when a manager approves a new person</label>
         <label class="check"><input type="checkbox" name="send_booked"> “Your ride is booked” to customers who give an email address (with their tracking link)</label>
         <label>Daily shuttle &amp; server report to <span class="small muted">(up to 5 addresses, comma between)</span></label><input name="report_to" placeholder="manager@yourdealership.com">
         <div id="emOptsMsg"></div>
@@ -473,7 +473,7 @@
         <div id="perfOut" class="small muted">Loading…</div>
         <details style="margin-top:.6rem"><summary class="small">What each part means, and what helps</summary>
           <ul class="small" style="padding-left:1.1rem;margin:.4rem 0">
-            <li><b>Finding the address (DNS):</b> the phone asking where corwinshuttleservice.com is. Slow here means the Wi-Fi or router's DNS. On the Ubiquiti router, set the DNS servers to 1.1.1.1 and 1.0.0.1, and make sure there's no local DNS record or host override for the site's address.</li>
+            <li><b>Finding the address (DNS):</b> the phone asking where your site's address is. Slow here means the Wi-Fi or router's DNS. On the Ubiquiti router, set the DNS servers to 1.1.1.1 and 1.0.0.1, and make sure there's no local DNS record or host override for the site's address.</li>
             <li><b>Connecting:</b> reaching Cloudflare. Slow here means weak Wi-Fi or cell signal.</li>
             <li><b>Waiting for the shuttle PC:</b> Cloudflare passing the request to the PC and back. Slow here means the PC was asleep or busy, or the Cloudflare connection was reconnecting (see Shuttle Control).</li>
             <li><b>Downloading / building the page:</b> the phone itself. Older phones take longer.</li>
@@ -514,6 +514,10 @@
         <div class="table-wrap" id="srvBackups"></div>
       </div>
     </div>
+    <div class="card danger-card">
+      <div class="card-head"><h2>Remove all staff</h2><button type="button" class="btn-sm btn-dark" id="wipeBtn">Remove all staff…</button></div>
+      <p class="small muted" style="margin:-.4rem 0 0">Removes every account except super admins: they're signed out everywhere and can't sign in again, and their emails can be used for new accounts. Their names stay on past rides, shifts and reports. Account requests waiting for approval are deleted. A backup is made first.</p>
+    </div>
     <div class="card">
       <div class="card-head"><h2>Daily reports</h2><button type="button" class="btn-ghost btn-sm" id="drBuild">Build today's so far</button></div>
       <p class="small muted" style="margin-top:-.4rem">Saved every night at midnight for the day before: the shuttle's day (rides, people, on time, drive and wait times, shifts, GPS gaps) and the server's (requests, errors, response times, slowest requests, page speed on devices, the most common errors). No customer names, numbers or addresses. <span id="drEmail"></span></p>
@@ -541,15 +545,15 @@
 (async () => {
   const { $, $$, api, esc, fmtTime, statusBadge, typeBadge } = App;
   const me = await App.requireUser('admin');
-  const ROLE = { admin: 'Admin', advisor: 'Advisor', bdc: 'BDC', driver: 'Driver' };
+  const ROLE = { admin: 'Manager', advisor: 'Advisor', bdc: 'BDC', driver: 'Driver' };
   const roleOf = (u) => (u.role === 'advisor' && u.team === 'bdc' ? 'bdc' : u.role); // BDC = an advisor on the BDC team
   // Some people have several roles (an advisor who also drives, BDC who drives…).
   const rolesOfU = (u) => (u.roles && u.roles.length ? u.roles : [roleOf(u)]);
   const roleNames = (u) => rolesOfU(u).map((r) => ROLE[r]).join(' + ');
-  const ROLE_HELP = { advisor: 'Service advisor', bdc: 'BDC (books rides by phone, has its own page)', driver: 'Shuttle driver', admin: 'Admin (full access)' };
-  const PAGE_NAME_OF = { advisor: 'Advisor desk', bdc: 'BDC page', driver: 'Driver page', admin: 'Admin' };
+  const ROLE_HELP = { advisor: 'Service advisor', bdc: 'BDC (books rides by phone, has its own page)', driver: 'Shuttle driver', admin: 'Manager (full access)' };
+  const PAGE_NAME_OF = { advisor: 'Advisor desk', bdc: 'BDC page', driver: 'Driver page', admin: 'Manager page' };
   function rolePicker(selected = ['advisor'], { start = '', compact = false, lockAdmin = false } = {}) {
-    const boxes = ['advisor', 'bdc', 'driver', 'admin'].map((k) => `<label class="check${compact ? ' role-chip' : ''}"><input type="checkbox" name="roles" value="${k}" ${selected.includes(k) ? 'checked' : ''} ${lockAdmin && k === 'admin' ? 'disabled title="You can\'t remove your own admin access"' : ''}> ${compact ? ROLE[k] : ROLE_HELP[k]}</label>`).join('');
+    const boxes = ['advisor', 'bdc', 'driver', 'admin'].map((k) => `<label class="check${compact ? ' role-chip' : ''}"><input type="checkbox" name="roles" value="${k}" ${selected.includes(k) ? 'checked' : ''} ${lockAdmin && k === 'admin' ? 'disabled title="You can\'t remove your own manager access"' : ''}> ${compact ? ROLE[k] : ROLE_HELP[k]}</label>`).join('');
     if (compact) return `<span class="role-pick role-pick-compact">${boxes}</span>`;
     return `<div class="role-pick" data-role-pick data-start="${esc(start || '')}">${boxes}
       <div data-start-wrap hidden><label>Opens to</label><select name="start_page"></select>
@@ -697,6 +701,7 @@
         ${u.active ? '<button type="button" class="btn-blue btn-sm" data-act="link">Send reset link</button>' : ''}
         <button type="button" class="btn-ghost btn-sm" data-act="pw">Set password</button>
         ${u.id !== me.id ? `<button type="button" class="btn-ghost btn-sm" data-act="toggle">${u.active ? 'Disable account' : 'Enable account'}</button>` : ''}
+        ${u.id !== me.id && (!u.super_admin || me.super_admin) ? '<button type="button" class="btn-ghost btn-sm btn-danger-text" data-act="delete">Delete account</button>' : ''}
       </div>
       <p class="small muted" style="margin:.4rem 0 0">${u.active ? 'Disabling signs them out everywhere and stops them signing in. Their past rides stay in reports.' : 'This account is disabled and can’t sign in.'}</p>`);
     const f = $('[data-details]', m);
@@ -721,6 +726,10 @@
       const b = ev.target.closest('[data-act]'); if (!b) return;
       try {
         if (b.dataset.act === 'link') { m.close(); await sendResetLink(u); }
+        if (b.dataset.act === 'delete') {
+          if (!confirm(`Delete ${u.name}'s account?\n\nThey're signed out everywhere and can't sign in again. Their name stays on past rides and reports, and their email can be used for a new account. This can't be undone.`)) return;
+          await api(`/api/users/${u.id}`, { method: 'DELETE' }); m.close(); loadUsers(); return;
+        }
         if (b.dataset.act === 'pw') {
           const pw = prompt(`New password for ${u.name} (8+ characters):`, genPw());
           if (pw) { await api(`/api/users/${u.id}`, { method: 'PATCH', body: { password: pw } }); App.flash($('.msg', m), `Password updated. ${u.name} signs in with their email and: ${pw}`, true); }
@@ -734,7 +743,7 @@
   }
 
   // ---------- forgot-password requests ----------
-  // Shown on every tab, so an admin sees it right away.
+  // Shown on every tab, so a manager sees it right away.
   function showResetAlert() {
     const asked = users.filter((u) => u.reset_requested_at && u.active);
     const joining = users.filter((u) => u.signup_at && !u.active);
@@ -1251,7 +1260,7 @@
 
   // ---------- page speed on real devices ----------
   const secs = (v) => (v == null ? '—' : v >= 10000 ? `${Math.round(v / 1000)} s` : v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${v} ms`);
-  const PAGE_NAME = { '/': 'Home', '/admin': 'Admin', '/advisor': 'Advisor', '/driver': 'Driver', '/login': 'Sign in', '/request': 'Customer request', '/t': 'Customer tracking', '/reset': 'Password reset' };
+  const PAGE_NAME = { '/': 'Home', '/admin': 'Manager', '/advisor': 'Advisor', '/driver': 'Driver', '/login': 'Sign in', '/request': 'Customer request', '/t': 'Customer tracking', '/reset': 'Password reset' };
   async function loadPerf() {
     const d = await api(`/api/server/perf?days=${$('#perfDays').value}`);
     if (!d.count) { $('#perfOut').innerHTML = 'No page loads measured yet. They appear here as people open the site (after this update reaches the phones).'; return; }
@@ -1492,6 +1501,29 @@
   }, 2000);
 
   const serverVisible = () => !$('[data-pane="server"]').classList.contains('hidden') && !document.hidden;
+  // Remove all staff except super admins (with a preview and a typed confirmation).
+  $('#wipeBtn').onclick = async () => {
+    let d; try { d = await api('/api/server/staff-wipe'); } catch (err) { return alert(err.message); }
+    const ROLE_NAME = { admin: 'Manager', advisor: 'Advisor', bdc: 'BDC', driver: 'Driver' };
+    const m = App.modal(`<h2>Remove all staff?</h2>
+      ${d.remove.length || d.requests ? `<p>These <b>${d.remove.length}</b> account${d.remove.length === 1 ? '' : 's'} will be removed${d.requests ? `, plus <b>${d.requests}</b> account request${d.requests === 1 ? '' : 's'} waiting for approval` : ''}:</p>
+      <div class="wipe-list">${d.remove.map((u) => `<div>${esc(u.name)} <span class="small muted">${esc(u.roles.map((r) => ROLE_NAME[r] || r).join(' + '))}</span></div>`).join('') || '<div class="muted">No accounts</div>'}</div>
+      <p class="small">Kept: <b>${esc(d.keep.join(', '))}</b> (super admin${d.keep.length === 1 ? '' : 's'}). Past rides and reports keep everyone's names. A backup is made first.</p>
+      <form><label>Type <b>REMOVE STAFF</b> to confirm</label><input name="confirm" autocomplete="off" spellcheck="false">
+      <div class="msg"></div><div class="actions"><button class="btn-dark">Remove staff</button><button type="button" class="btn-ghost" data-close>Cancel</button></div></form>`
+      : '<p>There are no accounts to remove. Only super admins are left.</p><div class="actions"><button data-close>OK</button></div>'}`);
+    const f = $('form', m); if (!f) return;
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const r = await api('/api/server/staff-wipe', { body: { confirm: f.elements.confirm.value } });
+        m.close();
+        App.modal(`<h2>Done</h2><p>Removed ${r.removed} account${r.removed === 1 ? '' : 's'}${r.requests ? ` and ${r.requests} account request${r.requests === 1 ? '' : 's'}` : ''}.${r.backup ? ` The backup from just before is <b>${esc(r.backup)}</b> (under Backups, until tonight's clear).` : ''}</p><div class="actions"><button data-close>OK</button></div>`);
+        loadBackups(); if (typeof loadUsers === 'function') loadUsers().catch(() => {});
+      } catch (err) { App.flash($('.msg', m), err.message); }
+    };
+  };
+
   // Daily reports (saved at midnight).
   async function loadDaily() {
     const d = await api('/api/server/daily-reports');
@@ -1628,7 +1660,7 @@
     e.preventDefault();
     try {
       await api('/api/settings', { method: 'PATCH', body: { look: lf.elements.look.value, brand_color: lf.elements.brand_color.value, brand_dark: lf.elements.brand_dark.value, brand_name: lf.elements.brand_name.value.trim().slice(0, 60) } });
-      App.flash($('#lookMsg'), lf.elements.look.value === 'corwin' ? 'Saved. Everyone now gets the Branded look.' : 'Saved. Everyone gets the Classic look.', true);
+      App.flash($('#lookMsg'), lf.elements.look.value === 'branded' ? 'Saved. Everyone now gets the Branded look.' : 'Saved. Everyone gets the Classic look.', true);
       try { localStorage.removeItem('shuttle.look'); } catch { /* ignore */ }
       setTimeout(() => location.reload(), 900);
     } catch (err) { App.flash($('#lookMsg'), err.message); }
@@ -1713,7 +1745,7 @@
     e.target.disabled = false; e.target.textContent = 'Send a test to me';
   };
   $('#emRemove').onclick = async () => {
-    if (!confirm('Remove the email account? Reset requests will go to admins again.')) return;
+    if (!confirm('Remove the email account? Reset requests will go to managers again.')) return;
     await api('/api/email', { method: 'PUT', body: { clear: true } }); loadEmail();
   };
 

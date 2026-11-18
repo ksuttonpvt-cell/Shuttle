@@ -1,5 +1,37 @@
 [
   {
+    "version": "2.21.0",
+    "date": "2026-11-18",
+    "title": "Managers, and deleting a person",
+    "changes": [
+      "The Admin role is now called Manager everywhere: the top bar, the Manager page, staff list, role choices and messages. Super admins keep their name and still get the Server page.",
+      "Delete account: managers and super admins can delete a person from Staff & logins → Edit. They're signed out everywhere and can't sign in again, their email can be used for a new account, and their name stays on past rides and reports. Rides they hadn't started go back in line.",
+      "Nobody can delete their own account, and only a super admin can delete a super admin."
+    ]
+  },
+  {
+    "version": "2.20.0",
+    "date": "2026-11-18",
+    "title": "Ready for other businesses: a blank slate with a Setup page",
+    "changes": [
+      "A brand-new install now starts blank (no business name, address or location built in) and opens on a Setup page: make the first admin account, then enter the business (dealership or shuttle service, name, phone, where the shuttle starts, time zone and colors).",
+      "Setup is protected by a one-time setup code shown only on the computer running the site, so nobody who finds the address first can take it over.",
+      "Existing sites aren't touched: your name, address, settings, staff and rides stay exactly as they are, and you never see the Setup page.",
+      "Cities in reports work anywhere in the US, not just around Boulder.",
+      "The README is now a guide for anyone installing or offering the software, and the sample data (npm run seed:demo) is placed around your own location."
+    ]
+  },
+  {
+    "version": "2.19.0",
+    "date": "2026-11-18",
+    "title": "Remove all staff except super admins",
+    "changes": [
+      "New in Admin → Server: Remove all staff. It shows exactly who will be removed and who's kept, asks you to type REMOVE STAFF, and makes a backup first.",
+      "Removed people are signed out everywhere, can't sign in again, and disappear from every list. Their emails can be used for new accounts. Account requests waiting for approval are deleted.",
+      "History is kept: past rides, shifts, GPS miles and reports keep everyone's names. Rides a removed driver hadn't started go back in line for the drivers who are left."
+    ]
+  },
+  {
     "version": "2.18.2",
     "date": "2026-11-18",
     "title": "Cloudflare connection: no more fighting copies",

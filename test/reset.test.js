@@ -1,4 +1,5 @@
 process.removeAllListeners('warning');
+const { seedTestSite } = require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { openDb } = require('../src/db');
@@ -7,7 +8,7 @@ const { createApp, ensureAdmin } = require('../src/app');
 const pushes = [];
 let server; let base;
 before(async () => {
-  const db = openDb(':memory:');
+  const db = seedTestSite(openDb(':memory:'));
   ensureAdmin(db, { email: 'admin@test.local', password: 'adminpass1', name: 'Admin' });
   const pushSender = async (sub, payload) => { pushes.push(JSON.parse(payload)); };
   const app = createApp(db, { publicUrl: 'https://shuttle.test', pushSender });

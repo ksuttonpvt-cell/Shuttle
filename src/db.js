@@ -185,7 +185,8 @@ function openDb(file) {
   addColumn('users', 'last_battery', 'TEXT');
   addColumn('users', 'team', 'TEXT');
   addColumn('users', 'extra_roles', 'TEXT');
-  addColumn('users', 'photo', 'TEXT');       // driver's photo for customers (small JPEG, data URL)
+  addColumn('users', 'photo', 'TEXT');
+  addColumn('users', 'removed_at', 'TEXT');  // account removed (staff wipe): can't sign in, hidden; name kept for history       // driver's photo for customers (small JPEG, data URL)
   addColumn('users', 'photo_v', 'INTEGER');  // changes when the photo does
   addColumn('rides', 'arrived_at', 'TEXT');  // driver tapped "I'm here"
   addColumn('rides', 'customer_reply', 'TEXT');    // customer's answer: coming | need5

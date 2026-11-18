@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<script>/* apply the saved light/dark choice and any look preview before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;var q=new URLSearchParams(location.search).get("look");if(q==="corwin"||q==="classic")localStorage.setItem("shuttle.look",q);else if(q==="off")localStorage.removeItem("shuttle.look");var l=localStorage.getItem("shuttle.look");if(l==="corwin"||l==="classic")document.documentElement.dataset.look=l}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
+<script>/* apply the saved light/dark choice and any look preview before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;var q=new URLSearchParams(location.search).get("look");if(q==="branded"||q==="classic")localStorage.setItem("shuttle.look",q);else if(q==="off")localStorage.removeItem("shuttle.look");var l=localStorage.getItem("shuttle.look");if(l==="branded"||l==="classic")document.documentElement.dataset.look=l}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shuttle Sign In</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#111111">
@@ -40,14 +40,14 @@
     </form>
     <form id="signup" class="hidden">
       <h2 style="margin-top:0">Ask for an account</h2>
-      <p class="small muted">For staff. A shuttle admin approves new accounts; then you sign in with this email and password.</p>
+      <p class="small muted">For staff. A shuttle manager approves new accounts; then you sign in with this email and password.</p>
       <label for="sname">Your name</label><input id="sname" name="name" autocomplete="name" required maxlength="100">
       <label for="semail">Work email</label><input id="semail" name="email" type="email" autocomplete="email" required>
       <label for="sphone">Mobile phone <span class="muted">(optional, for reset links by text)</span></label><input id="sphone" name="phone" type="tel" autocomplete="tel">
       <label>I'm a…</label>
       <div class="seg" style="grid-template-columns:repeat(3,1fr)"><input type="radio" name="role" id="srAdvisor" value="advisor" required><label for="srAdvisor">Service advisor</label><input type="radio" name="role" id="srBdc" value="bdc"><label for="srBdc">BDC</label><input type="radio" name="role" id="srDriver" value="driver"><label for="srDriver">Shuttle driver</label></div>
       <label for="spass">Choose a password <span class="muted">(at least 8 characters)</span></label><input id="spass" name="password" type="password" autocomplete="new-password" required minlength="8">
-      <label for="snote">Anything the admin should know? <span class="muted">(optional)</span></label><input id="snote" name="note" maxlength="300" placeholder="e.g. New advisor, started Monday">
+      <label for="snote">Anything the manager should know? <span class="muted">(optional)</span></label><input id="snote" name="note" maxlength="300" placeholder="e.g. New advisor, started Monday">
       <div id="smsg"></div>
       <button class="btn-block btn-lg" style="margin-top:1rem">Send my request</button>
       <p class="small" style="text-align:center;margin-top:.8rem"><button type="button" class="linklike" id="backFromSignup">← Back to sign in</button></p>
@@ -100,8 +100,8 @@
     try {
       const r = await App.api('/api/password-reset/request', { body: { email: App.$('#femail').value } });
       App.flash(App.$('#fmsg'), r.auto
-        ? 'Sent! If that email has an account, a reset link is on its way to that email (and by text if your phone number is on file). It works for 1 hour. Nothing after a few minutes? Check spam, or ask a shuttle admin.'
-        : "Got it. If that email has an account, a shuttle admin has been alerted and will send you a reset link. You can also ask them in person.", true);
+        ? 'Sent! If that email has an account, a reset link is on its way to that email (and by text if your phone number is on file). It works for 1 hour. Nothing after a few minutes? Check spam, or ask a shuttle manager.'
+        : "Got it. If that email has an account, a shuttle manager has been alerted and will send you a reset link. You can also ask them in person.", true);
     } catch (err) { App.flash(App.$('#fmsg'), err.message); }
     btn.disabled = false;
   };

@@ -34,12 +34,15 @@ const SESSION_DAYS = 14;
 const RIDE_STATUSES = ['requested', 'assigned', 'en_route', 'onboard', 'completed', 'cancelled'];
 const OPEN_STATUSES = ['requested', 'assigned', 'en_route', 'onboard'];
 
+// Starting values for a brand-new install (filled in on the Setup page). An existing install
+// keeps its own: every setting is saved in its database the first time it starts.
+const PC_ZONE = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'; } catch { return 'America/New_York'; } })();
 const DEFAULT_SETTINGS = {
-  dealer_name: 'Corwin Toyota of Boulder',
-  dealer_address: '2465 48th Ct, Boulder, CO 80301',
+  dealer_name: '',
+  dealer_address: '',
   dealer_phone: '',
-  dealer_lat: '40.0236',
-  dealer_lng: '-105.2405',
+  dealer_lat: '39.8283',   // the middle of the US until Setup puts the real spot here
+  dealer_lng: '-98.5795',
   public_requests: '1',
   customer_actions: '1', // customers can say they're running late or cancel from their tracking page
   staff_signup: '1', // new staff can ask for an account from the sign-in page (an admin approves it)
@@ -49,21 +52,21 @@ const DEFAULT_SETTINGS = {
   gps_low_battery_pct: '20',
   gps_low_battery_mode: 'slow', // slow | pause | normal
   driver_gps_toggle: '0',
-  timezone: 'America/Denver',
-  service_radius_mi: '15.5',
+  timezone: PC_ZONE,
+  service_radius_mi: '15',
   dropoff_wait_min: '30',   // drop offs leave at least this many minutes after booking, unless urgent
   auto_end_shift: '20:00', // every driver is taken off shift at this local time each day ('' = off)
   auto_sign_out: '00:00',  // everyone is signed out at this local time each day ('' = off)
   ride_offers: '1',
   discord_invite: '',       // optional "Join our Discord" link shown in the Help window
   easter_egg: '1',          // Easter egg: tacos rain for 10 seconds every Tuesday at noon
-  look: 'corwin',           // 'corwin' (your branding: name, logo, colors) or 'classic', for everyone
+  look: 'branded',          // 'branded' (your name, logo and colors) or 'classic', for everyone
   business_type: 'dealership', // dealership | shuttle (hotel, airport parking, office, events…)
   place_word: '',           // what riders call your base: blank = "dealership" (or "office" for a shuttle service)
   request_path: '',         // optional short link for customers to request a ride, e.g. "ride" -> yoursite.com/ride
-  brand_color: '#eb0a1e',   // Corwin look: accent (buttons, stripes)
-  brand_dark: '#0d0f12',    // Corwin look: header and banner background
-  brand_name: '',           // Corwin look: name shown in the header (blank = dealership name); first word is big        // offer waiting rides to the closest free driver, who can accept or pass
+  brand_color: '#eb0a1e',   // Branded look: accent (buttons, stripes)
+  brand_dark: '#0d0f12',    // Branded look: header and banner background
+  brand_name: '',           // Branded look: name shown in the header (blank = business name); first word is big        // offer waiting rides to the closest free driver, who can accept or pass
   clear_customer_info: '00:00',
   backup_time: '00:00',    // nightly database backup: at midnight, right after the day's report is saved and customer info is cleared ('' = off) // finished rides lose their customer details at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
@@ -184,15 +187,20 @@ function createApp(db, opts = {}) {
   }
   const now = () => new Date().toISOString();
 
+  // A brand-new install (nothing saved yet) starts on the Setup page; an existing one is set up.
+  // Written down the first time, so every copy of the site (one per core) agrees.
+  const freshInstall = q('SELECT COUNT(*) AS n FROM settings').get().n === 0;
+  q("INSERT OR IGNORE INTO settings (key, value) VALUES ('setup_done', ?)").run(freshInstall ? '0' : '1');
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) {
     q('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(k, v);
   }
-  // The Corwin look became the site's look (Nov 2026). Switch existing sites over once;
+  // The branded look became the site's look (Nov 2026). Switch existing sites over once;
   // a later choice in Admin → Settings → Look sticks.
   if (!q("SELECT 1 FROM settings WHERE key = 'look_corwin_switched'").get()) {
-    q("UPDATE settings SET value = 'corwin' WHERE key = 'look'").run();
+    q("UPDATE settings SET value = 'branded' WHERE key = 'look'").run();
     q("INSERT INTO settings (key, value) VALUES ('look_corwin_switched', '1')").run();
   }
+  q("UPDATE settings SET value = 'branded' WHERE key = 'look' AND value = 'corwin'").run(); // its old name
   // Settings are read many times per request, so they're kept until the database changes.
   // The uploaded logo image isn't loaded here (only whether there is one).
   let settingsCache = null; let settingsAt = -1;
@@ -247,7 +255,7 @@ function createApp(db, opts = {}) {
   });
   // BDC team members are advisors (same access) with their own page.
   const STAFF_ROLES = ['admin', 'advisor', 'driver', 'bdc'];
-  const RESERVED_PATHS = new Set(['admin', 'advisor', 'bdc', 'driver', 'login', 'logout', 'request', 'reset', 't', 's', 'api', 'brand', 'icons', 'js', 'css', 'vendor', 'img', 'healthz', 'sw.js', 'manifest.webmanifest', 'favicon.ico', 'robots.txt']);
+  const RESERVED_PATHS = new Set(['setup', 'admin', 'advisor', 'bdc', 'driver', 'login', 'logout', 'request', 'reset', 't', 's', 'api', 'brand', 'icons', 'js', 'css', 'vendor', 'img', 'healthz', 'sw.js', 'manifest.webmanifest', 'favicon.ico', 'robots.txt']);
   const brandName = () => { const s = getSettings(); return String(s.brand_name || s.dealer_name || 'Shuttle').trim(); };
   const asRole = (r) => (r === 'bdc' ? { role: 'advisor', team: 'bdc' } : { role: r, team: null });
   // Several roles: `role` (+ team) is a person's strongest role (admin, then advisor or BDC,
@@ -346,7 +354,7 @@ function createApp(db, opts = {}) {
   const push = createPush(db, { sender: opts.pushSender });
   // ---------- customer links ----------
   // Tracking links use a short code: 8 letters and digits that can't be mixed up
-  // (no 0/O, 1/I/L or U), e.g. corwinshuttleservice.com/t/K7M2Q9XA. Upper or lower case both work.
+  // (no 0/O, 1/I/L or U), e.g. yoursite.com/t/K7M2Q9XA. Upper or lower case both work.
   const CODE_CHARS = '23456789ABCDEFGHJKMNPQRSTVWXYZ';
   const CODE_RE = /^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/;
   function newTrackCode() {
@@ -468,7 +476,7 @@ function createApp(db, opts = {}) {
     const user = q('SELECT * FROM users WHERE email = ?').get(email);
     const ok = await verifyPasswordAsync(password, user && user.password_hash); // same time whether or not the email exists
     if (user && ok && !user.active && user.signup_at) {
-      return bad(res, 'Your account is waiting for a shuttle admin to approve it. You can sign in as soon as they do.', 403);
+      return bad(res, 'Your account is waiting for a shuttle manager to approve it. You can sign in as soon as they do.', 403);
     }
     if (!user || !user.active || !ok) {
       recordFailure(key); recordFailure(emailKey);
@@ -590,7 +598,7 @@ function createApp(db, opts = {}) {
       if (!(user.reset_requested_at && Date.now() - new Date(user.reset_requested_at) < 3600000)) {
         q('UPDATE users SET reset_requested_at = ? WHERE id = ?').run(now(), user.id);
         const admins = q("SELECT id FROM users WHERE role = 'admin' AND active = 1").all().map((a) => a.id);
-        quietly(push.notifyUsers(admins, { title: '🔑 Password reset requested', body: `${user.name} (${user.email}) forgot their password. Open Admin → Staff & logins to send a reset link.`, tag: `reset-${user.id}`, url: '/admin#users' }));
+        quietly(push.notifyUsers(admins, { title: '🔑 Password reset requested', body: `${user.name} (${user.email}) forgot their password. Open Manager → Staff & logins to send a reset link.`, tag: `reset-${user.id}`, url: '/admin#users' }));
         live.soon('drivers', 300); // the staff list shows the request
       }
     })().catch((e) => console.error('Password reset failed:', e.message));
@@ -663,7 +671,7 @@ function createApp(db, opts = {}) {
 
   app.get('/api/password-reset/:token', (req, res) => {
     const user = validReset(req.params.token);
-    if (!user) return bad(res, 'This reset link has expired or was already used. Ask a shuttle admin for a new one.', 404);
+    if (!user) return bad(res, 'This reset link has expired or was already used. Ask a shuttle manager for a new one.', 404);
     res.json({ name: user.name, email: user.email });
   });
 
@@ -671,7 +679,7 @@ function createApp(db, opts = {}) {
     const ipKey = `resetuse|${clientIp(req)}`;
     if (throttled(ipKey, 20)) return bad(res, 'Too many attempts. Try again in 15 minutes.', 429);
     const user = validReset(req.params.token);
-    if (!user) { recordFailure(ipKey); return bad(res, 'This reset link has expired or was already used. Ask a shuttle admin for a new one.', 404); }
+    if (!user) { recordFailure(ipKey); return bad(res, 'This reset link has expired or was already used. Ask a shuttle manager for a new one.', 404); }
     const err = validatePassword(req.body.password);
     if (err) return bad(res, err);
     const hash = await hashPasswordAsync(String(req.body.password));
@@ -689,7 +697,7 @@ function createApp(db, opts = {}) {
   // ---------- users (admin) ----------
   // Staff list with emails and phone numbers: admins only.
   app.get('/api/users', requireRole('admin'), (req, res) => {
-    const rows = q('SELECT * FROM users ORDER BY role, name').all();
+    const rows = q('SELECT * FROM users WHERE removed_at IS NULL ORDER BY role, name').all();
     res.json({ users: rows.map(publicUser) });
   });
 
@@ -698,7 +706,7 @@ function createApp(db, opts = {}) {
   // admin approves it (and picks the role). Nobody can ask to be an admin. Same answer
   // whether or not the email already has an account.
   app.post('/api/signup', async (req, res) => {
-    if (getSettings().staff_signup === '0') return bad(res, 'Ask a shuttle admin to make your account.', 403);
+    if (getSettings().staff_signup === '0') return bad(res, 'Ask a shuttle manager to make your account.', 403);
     const b = req.body || {};
     const name = str(b.name, 100); const email = str(b.email, 200); const role = b.role;
     if (!name || name.length < 2) return bad(res, 'Enter your name.');
@@ -707,10 +715,10 @@ function createApp(db, opts = {}) {
     const err = validatePassword(b.password);
     if (err) return bad(res, err);
     const key = `signup|${clientIp(req)}`;
-    if (limits.count(key, 3600000) >= 5) return bad(res, 'Too many requests from here. Try again later, or ask a shuttle admin.', 429);
+    if (limits.count(key, 3600000) >= 5) return bad(res, 'Too many requests from here. Try again later, or ask a shuttle manager.', 429);
     limits.hit(key, 3600000);
     const hash = await hashPasswordAsync(b.password);
-    const done = { ok: true, message: 'Thanks! A shuttle admin will look at your request. Once they approve it, sign in with this email and password.' };
+    const done = { ok: true, message: 'Thanks! A shuttle manager will look at your request. Once they approve it, sign in with this email and password.' };
     if (q('SELECT id FROM users WHERE email = ?').get(email)) return res.json(done);
     let id;
     try {
@@ -719,7 +727,7 @@ function createApp(db, opts = {}) {
         .run(name, email, str(b.phone, 40), r.role, r.team, hash, now(), str(b.note, 300)).lastInsertRowid);
     } catch { return res.json(done); } // the same email at the same moment
     const admins = q("SELECT id FROM users WHERE role = 'admin' AND active = 1").all().map((a) => a.id);
-    quietly(push.notifyUsers(admins, { title: '🙋 New account request', body: `${name} (${email}) wants to be a ${role}. Open Admin → Staff & logins to approve.`, tag: `signup-${id}`, url: '/admin#users' }));
+    quietly(push.notifyUsers(admins, { title: '🙋 New account request', body: `${name} (${email}) wants to be a ${role}. Open Manager → Staff & logins to approve.`, tag: `signup-${id}`, url: '/admin#users' }));
     console.log(new Date().toLocaleString(), `[staff] ${name} asked for a ${role} account.`);
     live.soon('drivers', 300);
     res.json(done);
@@ -780,7 +788,7 @@ function createApp(db, opts = {}) {
     const rr = rolesFrom(b);
     if (rr) {
       if (rr.error) return bad(res, rr.error);
-      if (user.id === req.user.id && rr.role !== 'admin') return bad(res, "You can't remove your own admin access.");
+      if (user.id === req.user.id && rr.role !== 'admin') return bad(res, "You can't remove your own manager access.");
       if (rr.role !== 'admin' && user.super_admin && !isSuper(req.user)) return bad(res, 'Only a super admin can change a super admin.', 403);
       user.role = rr.role; user.team = rr.team; user.extra_roles = rr.extra_roles; user.start_page = rr.start_page;
       if (user.role !== 'admin') user.super_admin = 0;
@@ -790,7 +798,7 @@ function createApp(db, opts = {}) {
     if (b.super_admin != null) {
       if (!isSuper(req.user)) return bad(res, 'Only a super admin can give or remove super admin.', 403);
       if (user.id === req.user.id && !b.super_admin) return bad(res, "You can't remove your own super admin access.");
-      if (b.super_admin && user.role !== 'admin') return bad(res, 'Only admins can be super admins.');
+      if (b.super_admin && user.role !== 'admin') return bad(res, 'Only managers can be super admins.');
       user.super_admin = b.super_admin ? 1 : 0;
     }
     const emailChanged = b.email != null && String(b.email).trim().toLowerCase() !== origEmail;
@@ -997,7 +1005,7 @@ function createApp(db, opts = {}) {
       if (!vehicleId) return bad(res, 'Pick the vehicle you are driving.');
       const v = q('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
       if (!v || v.status !== 'available') return bad(res, 'That vehicle is not available.');
-      if (v.use === 'loaner') return bad(res, "That's a loaner, not a shuttle. An admin can mark it as a shuttle under Vehicles.");
+      if (v.use === 'loaner') return bad(res, "That's a loaner, not a shuttle. A manager can mark it as a shuttle under Vehicles.");
       const taken = q('SELECT name FROM users WHERE vehicle_id = ? AND on_duty = 1 AND id <> ?').get(vehicleId, req.user.id);
       if (taken) return bad(res, `${taken.name} is already driving that vehicle.`);
     } else vehicleId = null;
@@ -1430,7 +1438,7 @@ function createApp(db, opts = {}) {
       if (mi > radius) {
         const phone = contactPhone();
         return { error: `That address is ${mi.toFixed(1)} miles from the ${placeWord()}. The shuttle only goes up to ${radius} miles. ${
-          forCustomer ? `Please call the service department${phone ? ` at ${phone}` : ''} and we'll help you make other arrangements.` : '(An admin can book it if needed.)'}` };
+          forCustomer ? `Please call the service department${phone ? ` at ${phone}` : ''} and we'll help you make other arrangements.` : '(A manager can book it if needed.)'}` };
       }
     }
     return { r, adjusted };
@@ -1675,7 +1683,7 @@ function createApp(db, opts = {}) {
     });
   });
 
-  // ---------- dealership logo (Corwin look) ----------
+  // ---------- logo (Branded look) ----------
   // Stored in the database so it's included in backups. SVGs are served so they can't run
   // scripts even if opened directly.
   const LOGO_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
@@ -2024,7 +2032,8 @@ function createApp(db, opts = {}) {
       let v = String(req.body[k]).slice(0, 300);
       if ((k === 'dealer_lat' || k === 'dealer_lng') && Number.isNaN(Number(v))) return bad(res, 'Latitude/longitude must be numbers.');
       if (YES_NO_SETTINGS.includes(k)) v = req.body[k] && req.body[k] !== '0' ? '1' : '0';
-      if (k === 'look' && !['classic', 'corwin'].includes(v)) return bad(res, 'Pick Classic or Branded.');
+      if (k === 'look' && v === 'corwin') v = 'branded'; // its old name
+      if (k === 'look' && !['classic', 'branded'].includes(v)) return bad(res, 'Pick Classic or Branded.');
       if (k === 'business_type' && !['dealership', 'shuttle'].includes(v)) return bad(res, 'Pick a dealership or a shuttle service.');
       if (k === 'place_word') { v = v.trim().toLowerCase(); if (v && !/^[a-z][a-z '&-]{1,29}$/.test(v)) return bad(res, 'Use a short word for your base, like hotel, office or terminal.'); }
       if (k === 'request_path') {
@@ -2589,7 +2598,7 @@ function createApp(db, opts = {}) {
     if (p.calls !== 'dealership') return bad(res, 'Calls go from your own phone at this dealership.', 409);
     const ride = rideForContact(req, res); if (!ride) return;
     const mine = toE164(req.user.phone || '');
-    if (!mine) return bad(res, 'Your mobile number isn’t on file. Ask an admin to add it under Staff & logins, so the call can ring you.');
+    if (!mine) return bad(res, 'Your mobile number isn’t on file. Ask a manager to add it under Staff & logins, so the call can ring you.');
     const key = `call|${req.user.id}`;
     if (limits.count(key, 3600000) >= 30) return bad(res, 'That’s a lot of calls this hour. Try again later.', 429);
     limits.hit(key, 3600000);
@@ -2714,7 +2723,7 @@ function createApp(db, opts = {}) {
     });
   });
   app.post('/api/sms/test', requireRole('admin'), async (req, res) => {
-    if (!sms.configured) return bad(res, 'Set up the dealership number first (Admin → Phone & email).');
+    if (!sms.configured) return bad(res, 'Set up the dealership number first (Manager → Phone & email).');
     const to = toE164(req.body.to);
     if (!to) return bad(res, 'Enter a valid mobile number.');
     const body = `Test message from the ${getSettings().dealer_name} shuttle website. Customer texts are working.`;
@@ -2964,6 +2973,68 @@ function createApp(db, opts = {}) {
     if (!needBackups(res)) return;
     res.json({ backups: opts.backups.list(), pending_restore: opts.backups.pendingRestore(), time: getSettings().backup_time || '' });
   });
+  // ---------- remove all staff except super admins ----------
+  // Accounts are retired, not erased: they can't sign in again (email freed, password wiped,
+  // signed out everywhere) and disappear from every list, but their names stay on past rides,
+  // shifts, GPS miles and reports. Account requests waiting for approval are deleted.
+  // A backup is made first. Super admins only (like the rest of /api/server).
+  // Retire one account (inside a transaction): no sign-in, hidden everywhere, email freed;
+  // its name stays on past rides, shifts and reports.
+  function retireUser(id, at = now()) {
+    q(`UPDATE users SET active = 0, removed_at = ?, email = ?, password_hash = '!', phone = NULL, photo = NULL, photo_v = NULL, on_duty = 0,
+       vehicle_id = NULL, route_json = NULL, reset_requested_at = NULL, signup_at = NULL, signup_note = NULL, start_page = NULL, super_admin = 0 WHERE id = ?`)
+      .run(at, `removed-${id}@removed.invalid`, id);
+    for (const sql of ['DELETE FROM sessions WHERE user_id = ?', 'DELETE FROM push_subscriptions WHERE user_id = ?', 'DELETE FROM password_resets WHERE user_id = ?']) q(sql).run(id);
+    q("UPDATE ride_offers SET status = 'expired', responded_at = ? WHERE driver_id = ? AND status = 'pending'").run(at, id);
+    q('UPDATE spectate_links SET revoked_at = ? WHERE driver_id = ? AND revoked_at IS NULL').run(at, id);
+    closeShifts('driver_id = ?', [id], 'removed');
+    // Rides they hadn't started go back in line for the drivers who are left.
+    q(`UPDATE rides SET driver_id = NULL, vehicle_id = NULL, arrived_at = NULL, status = 'requested', updated_at = ? WHERE driver_id = ? AND status IN ('assigned','en_route')`).run(at, id);
+  }
+  const wipeTargets = () => q("SELECT id, name, role, team, extra_roles, signup_at, active FROM users WHERE removed_at IS NULL AND NOT (role = 'admin' AND super_admin = 1) ORDER BY name").all();
+  app.get('/api/server/staff-wipe', requireRole('admin'), (req, res) => {
+    const t = wipeTargets();
+    res.json({ remove: t.filter((u) => !u.signup_at || u.active).map((u) => ({ id: u.id, name: u.name, roles: rolesOf(u) })),
+      requests: t.filter((u) => u.signup_at && !u.active).length,
+      keep: q("SELECT name FROM users WHERE removed_at IS NULL AND role = 'admin' AND super_admin = 1 ORDER BY name").all().map((u) => u.name) });
+  });
+  app.post('/api/server/staff-wipe', requireRole('admin'), (req, res) => {
+    if (String((req.body && req.body.confirm) || '').trim().toUpperCase() !== 'REMOVE STAFF') return bad(res, 'Type REMOVE STAFF to confirm.');
+    let backup = null;
+    if (opts.backups) { try { backup = opts.backups.make('manual'); } catch (e) { return bad(res, `The backup before removing staff failed, so nothing was changed: ${e.message}`, 500); } }
+    const t = wipeTargets();
+    const requests = t.filter((u) => u.signup_at && !u.active).map((u) => u.id);
+    const staff = t.filter((u) => !requests.includes(u.id)).map((u) => u.id);
+    const at = now();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const id of requests) q('DELETE FROM users WHERE id = ?').run(id);
+      for (const id of staff) retireUser(id, at);
+      db.exec('COMMIT');
+    } catch (e) { try { db.exec('ROLLBACK'); } catch { /* done */ } return bad(res, `Removing staff failed, so nothing was changed: ${e.message}`, 500); }
+    ridesChanged(); live.soon('drivers', 300); live.soon('rides', 300);
+    console.log(new Date().toLocaleString(), `[staff] ${req.user.name} removed all staff except super admins: ${staff.length} account(s) and ${requests.length} account request(s).${backup ? ` Backup first: ${backup.name}.` : ''}`);
+    res.json({ removed: staff.length, requests: requests.length, backup: backup ? backup.name : null });
+  });
+
+  // ---------- delete one person (managers and super admins) ----------
+  // Same as above for one account. Nobody can delete themselves, and only a super admin can
+  // delete a super admin. An account request that was never approved is simply deleted.
+  app.delete('/api/users/:id', requireRole('admin'), (req, res) => {
+    const u = q('SELECT * FROM users WHERE id = ? AND removed_at IS NULL').get(Number(req.params.id));
+    if (!u) return bad(res, 'That person was not found.', 404);
+    if (u.id === req.user.id) return bad(res, 'You can\'t delete your own account.');
+    if (u.super_admin && u.role === 'admin' && !isSuper(req.user)) return bad(res, 'Only a super admin can delete a super admin.', 403);
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      if (u.signup_at && !u.active) q('DELETE FROM users WHERE id = ?').run(u.id); else retireUser(u.id);
+      db.exec('COMMIT');
+    } catch (e) { try { db.exec('ROLLBACK'); } catch { /* done */ } return bad(res, `Deleting failed, so nothing was changed: ${e.message}`, 500); }
+    ridesChanged(); live.soon('drivers', 300); live.soon('rides', 300);
+    console.log(new Date().toLocaleString(), `[staff] ${req.user.name} deleted ${u.name}'s account.`);
+    res.json({ ok: true });
+  });
+
   app.post('/api/server/backups', requireRole('admin'), (req, res) => {
     if (!needBackups(res)) return;
     try { res.status(201).json({ backup: opts.backups.make('manual') }); } catch (e) { bad(res, `Backup failed: ${e.message}`, 500); }
@@ -3044,7 +3115,7 @@ function createApp(db, opts = {}) {
   });
   app.post('/api/feedback/test', requireRole('admin'), async (req, res) => {
     if (!getSettings().discord_webhook) return bad(res, 'Add the Discord webhook link first.');
-    const out = await postToDiscord({ kind: 'help', message: 'Test message from the shuttle website. Help & suggestions are connected. ✅', from: `${req.user.name} (admin)`, page: 'Admin → Settings' });
+    const out = await postToDiscord({ kind: 'help', message: 'Test message from the shuttle website. Help & suggestions are connected. ✅', from: `${req.user.name} (manager)`, page: 'Manager → Settings' });
     if (!out.sent) return bad(res, `Discord didn't accept it: ${out.error}`, 502);
     res.json({ ok: true });
   });
@@ -3185,7 +3256,7 @@ function createApp(db, opts = {}) {
     const s = getSettings();
     const color = /^#[0-9a-f]{6}$/i.test(s.brand_color || '') ? s.brand_color : DEFAULT_SETTINGS.brand_color;
     const dark = /^#[0-9a-f]{6}$/i.test(s.brand_dark || '') ? s.brand_dark : DEFAULT_SETTINGS.brand_dark;
-    const look = s.look === 'corwin' ? 'corwin' : 'classic';
+    const look = s.look === 'classic' ? 'classic' : 'branded';
     const logo = s.brand_logo ? (s.brand_logo_v || '1') : '';
     const name = String(s.brand_name || s.dealer_name || '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
     const iv = s.brand_icon_512 ? `?v=${s.brand_icon_v || 1}` : '';
@@ -3196,15 +3267,83 @@ function createApp(db, opts = {}) {
         .replace(/<title>([^<]*)<\/title>/, (m, t) => `<title>${t}${name ? ` · ${name}` : ''}</title>`)
         .replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-brand-name="${name}" data-place="${placeWord().replace(/[&<>"']/g, '')}" ${banner ? 'data-banner="1" ' : ''}data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" data-build="${buildId()}" style="--brand:${color};--brand-dark:${dark}${banner}">`));
   };
+  // ---------- first-run setup ----------
+  // A new install opens on /setup: the owner makes the first admin account (with the setup
+  // code printed on the server PC, so a stranger who finds the address can't) and fills in the
+  // business: name, kind, phone, where it is, time zone and colors.
+  const setupDone = () => getSettings().setup_done === '1';
+  const noUsers = () => q('SELECT COUNT(*) AS n FROM users').get().n === 0;
+  if (!setupDone() && !getSettings().setup_code) setSetting('setup_code', `${randomToken(6).replace(/[^A-Za-z0-9]/g, 'x').slice(0, 4)}-${randomToken(6).replace(/[^A-Za-z0-9]/g, 'x').slice(0, 4)}`.toUpperCase());
+  if (jobsHere && !setupDone()) {
+    console.log(`\n  NEW INSTALL: open http://localhost:${process.env.PORT || 3000}/setup to set up your shuttle site.\n  Setup code: ${getSettings().setup_code}\n`);
+  }
+  app.get('/setup', (req, res, next) => (setupDone() ? res.redirect('/') : page('setup.html')(req, res, next)));
+  app.get('/api/setup', (req, res) => {
+    const s = getSettings();
+    res.json({ done: setupDone(), need_admin: noUsers(), signed_in: !!(req.user && req.user.role === 'admin'),
+      values: { business_type: s.business_type, dealer_name: s.dealer_name, dealer_phone: s.dealer_phone, place_word: s.place_word, dealer_address: s.dealer_address, timezone: s.timezone, brand_color: s.brand_color, brand_dark: s.brand_dark } });
+  });
+  app.post('/api/setup', async (req, res) => {
+    if (setupDone()) return bad(res, 'This site is already set up. Sign in to change its settings.', 409);
+    const b = req.body || {};
+    const making = noUsers();
+    if (making) {
+      const key = `setup|${clientIp(req)}`;
+      if (limits.count(key, 3600000) >= 10) return bad(res, 'Too many tries. Wait an hour, or restart the site to get a new setup code.', 429);
+      if (String(b.code || '').trim().toUpperCase() !== getSettings().setup_code) { limits.hit(key, 3600000); return bad(res, 'That setup code isn’t right. It’s shown in the window on the computer running the site (and in its log).'); }
+    } else if (!(req.user && req.user.role === 'admin')) return bad(res, 'Sign in as a manager to finish setting up.', 401);
+    // The business.
+    const name = str(b.dealer_name, 100);
+    if (!name || name.length < 2) return bad(res, 'Enter your business name.');
+    if (!['dealership', 'shuttle'].includes(b.business_type)) return bad(res, 'Pick a car dealership or a shuttle service.');
+    const word = String(b.place_word || '').trim().toLowerCase();
+    if (word && !/^[a-z][a-z '&-]{1,29}$/.test(word)) return bad(res, 'Use a short word for your base, like hotel, office or terminal.');
+    const lat = num(b.dealer_lat); const lng = num(b.dealer_lng);
+    if (lat == null || lng == null || Math.abs(lat) > 90 || Math.abs(lng) > 180) return bad(res, 'Pick your address from the list, or tap the map where your shuttle starts.');
+    let zone = String(b.timezone || ''); try { new Intl.DateTimeFormat('en-US', { timeZone: zone }); } catch { zone = ''; }
+    if (!zone) return bad(res, 'Pick your time zone.');
+    const hex = (v, d) => (/^#[0-9a-f]{6}$/i.test(v || '') ? v : d);
+    // The first admin (a super admin: they can also use the Server page).
+    let admin = null;
+    if (making) {
+      const a = b.admin || {};
+      const aname = str(a.name, 100); const email = str(a.email, 200);
+      if (!aname || !email || !ADDR_RE.test(email)) return bad(res, 'Enter your name and email for your manager account.');
+      const err = validatePassword(a.password); if (err) return bad(res, err);
+      admin = { aname, email, hash: await hashPasswordAsync(a.password) };
+    }
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      if (admin) {
+        if (!noUsers()) throw Object.assign(new Error('Someone just set this site up. Sign in instead.'), { code: 409 });
+        const id = Number(q("INSERT INTO users (name, email, role, password_hash, super_admin) VALUES (?, ?, 'admin', ?, 1)").run(admin.aname, admin.email, admin.hash).lastInsertRowid);
+        admin.id = id;
+      }
+      for (const [k, v] of Object.entries({ dealer_name: name, business_type: b.business_type, place_word: word, dealer_phone: str(b.dealer_phone, 40) || '',
+        dealer_address: str(b.dealer_address, 300) || '', dealer_lat: String(lat), dealer_lng: String(lng), timezone: zone,
+        brand_color: hex(b.brand_color, '#eb0a1e'), brand_dark: hex(b.brand_dark, '#0d0f12'), setup_done: '1' })) setSetting(k, v);
+      q("DELETE FROM settings WHERE key = 'setup_code'").run();
+      db.exec('COMMIT');
+    } catch (e) { try { db.exec('ROLLBACK'); } catch { /* done */ } return bad(res, e.message, e.code === 409 ? 409 : 500); }
+    if (admin) { // signed straight in
+      const token = randomToken(32);
+      q('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, admin.id, new Date(Date.now() + SESSION_DAYS * 86400000).toISOString());
+      setSessionCookie(req, res, token, SESSION_DAYS * 86400);
+    }
+    console.log(new Date().toLocaleString(), `[setup] ${name} is set up${admin ? `; first admin ${admin.email}` : ''}.`);
+    res.json({ ok: true, home: '/admin' });
+  });
+
   app.get('/', (req, res) => {
+    if (!setupDone() && (noUsers() || (req.user && req.user.role === 'admin'))) return res.redirect('/setup');
     if (!req.user) return res.redirect('/login');
     res.redirect(homeOf(req.user));
   });
-  app.get('/login', page('login.html'));
+  app.get('/login', (req, res, next) => (!setupDone() && noUsers() ? res.redirect('/setup') : next()), page('login.html'));
   app.get('/advisor', page('advisor.html'));
   app.get('/bdc', page('bdc.html'));
   app.get('/driver', page('driver.html'));
-  app.get('/admin', page('admin.html'));
+  app.get('/admin', (req, res, next) => (!setupDone() && (noUsers() || (req.user && req.user.role === 'admin')) ? res.redirect('/setup') : next()), page('admin.html'));
   app.get('/request', page('request.html'));
   // The short link for customers (Admin → Settings), e.g. yoursite.com/ride.
   app.get('/:slug', (req, res, next) => (getSettings().request_path && req.params.slug.toLowerCase() === getSettings().request_path ? page('request.html')(req, res, next) : next()));
@@ -3242,7 +3381,7 @@ function createApp(db, opts = {}) {
     index: false, maxAge: '30d',
     setHeaders: (res, file) => { if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-store'); },
   }));
-  // Brand fonts for the Corwin look (bundled, so pages don't depend on an outside font site).
+  // Brand fonts for the Branded look (bundled, so pages don't depend on an outside font site).
   app.use('/vendor/fonts/barlow', express.static(path.join(path.dirname(require.resolve('@fontsource/barlow/package.json')), 'files'), { maxAge: '30d' }));
   app.use('/vendor/fonts/barlow-sc', express.static(path.join(path.dirname(require.resolve('@fontsource/barlow-semi-condensed/package.json')), 'files'), { maxAge: '30d' }));
   app.use('/vendor/leaflet', express.static(path.join(path.dirname(require.resolve('leaflet/package.json')), 'dist'), { maxAge: '30d' }));
@@ -3270,13 +3409,15 @@ function createApp(db, opts = {}) {
   return app;
 }
 
+// The first admin from ADMIN_EMAIL in .env, if given. Without it, the first admin is made on
+// the Setup page (with the setup code shown on the server PC).
 function ensureAdmin(db, { email, password, name } = {}) {
   const count = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
-  if (count > 0) return null;
+  if (count > 0 || !email) return null;
   const pw = password || randomToken(9);
-  const em = email || 'admin@example.com';
+  const em = email;
   db.prepare("INSERT INTO users (name, email, role, password_hash) VALUES (?, ?, 'admin', ?)")
-    .run(name || 'Shuttle Admin', em, hashPassword(pw));
+    .run(name || 'Shuttle Manager', em, hashPassword(pw));
   return { email: em, password: password ? null : pw };
 }
 
