@@ -76,3 +76,37 @@ test('remove all staff except super admins: accounts retired, history kept', asy
   // Nothing left to remove but the new account.
   assert.deepEqual((await a('/api/server/staff-wipe')).data.remove.map((u) => u.name), ['Sam Driver']);
 });
+
+test('delete one person: managers and super admins can; history is kept', async () => {
+  const a = client(); await a('/api/login', { body: { email: 'boss@wipe.test', password: 'adminpass1' } }); // super admin
+  const mk = async (name, email, roles) => (await a('/api/users', { body: { name, email, roles, password: 'password123' } })).data.user;
+  const mgr = await mk('Mia Manager', 'mia@wipe.test', ['admin']);
+  const drv = await mk('Dee Driver', 'dee@wipe.test', ['driver']);
+  const adv = await mk('Abe Advisor', 'abe@wipe.test', ['advisor']);
+  const m = client(); await m('/api/login', { body: { email: 'mia@wipe.test', password: 'password123' } });
+  const ab = client(); await ab('/api/login', { body: { email: 'abe@wipe.test', password: 'password123' } });
+  const d = client(); await d('/api/login', { body: { email: 'dee@wipe.test', password: 'password123' } });
+  // A finished ride by Dee, for history.
+  const v = (await a('/api/vehicles', { body: { name: 'Van 9', seats: 6, use: 'shuttle' } })).data.vehicle;
+  await d('/api/driver/shift', { body: { on_duty: true, vehicle_id: v.id } });
+  const r = (await ab('/api/rides', { body: { type: 'pickup', customer_name: 'Hist Ride', customer_phone: '303-555-0100', address: '1 Main', lat: 40.01, lng: -105.27, scheduled_at: new Date(Date.now() + 600000).toISOString(), passengers: 1 } })).data.ride;
+  await d(`/api/rides/${r.id}`, { method: 'PATCH', body: { driver_id: drv.id } });
+  for (const st of ['en_route', 'onboard', 'completed']) await d(`/api/rides/${r.id}`, { method: 'PATCH', body: { status: st } });
+
+  assert.equal((await ab(`/api/users/${drv.id}`, { method: 'DELETE' })).status, 403, 'advisors can\'t');
+  const boss = (await a('/api/me')).data.user;
+  assert.equal((await m(`/api/users/${boss.id}`, { method: 'DELETE' })).status, 403, 'a manager can\'t delete a super admin');
+  assert.equal((await m(`/api/users/${mgr.id}`, { method: 'DELETE' })).status, 400, 'nobody deletes themselves');
+  // A manager deletes the driver.
+  assert.equal((await m(`/api/users/${drv.id}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await d('/api/me')).data.user, null, 'signed out');
+  assert.ok((await client()('/api/login', { body: { email: 'dee@wipe.test', password: 'password123' } })).status >= 400);
+  assert.ok(!(await a('/api/users')).data.users.some((u) => u.id === drv.id));
+  assert.equal((await m(`/api/users/${drv.id}`, { method: 'DELETE' })).status, 404, 'already gone');
+  const ride = (await a('/api/rides?scope=recent')).data.rides.find((x) => x.id === r.id);
+  assert.equal(ride.driver_name, 'Dee Driver', 'history keeps the name');
+  assert.equal((await mk('Dee Driver', 'dee@wipe.test', ['driver'])).email, 'dee@wipe.test', 'email can be reused');
+  // The super admin deletes the manager.
+  assert.equal((await a(`/api/users/${mgr.id}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await m('/api/me')).data.user, null);
+});

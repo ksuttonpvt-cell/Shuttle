@@ -691,3 +691,5 @@ html[data-banner] .center-page { background: linear-gradient(rgba(0,0,0,.5), rgb
 
 .danger-card { border-color: color-mix(in srgb, var(--red, #c4121f) 45%, var(--line)); }
 .wipe-list { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: .4rem .6rem; display: grid; gap: .2rem; }
+
+.btn-danger-text { color: var(--red, #c4121f); }

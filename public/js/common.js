@@ -153,7 +153,7 @@ const App = (() => {
   function renderTopbar(user, settings) {
     const el = $('#topbar'); if (!el) return;
     const links = [];
-    if (user.role === 'admin') links.push(['/admin', 'Admin'], ['/advisor', 'Advisor'], ['/bdc', 'BDC'], ['/driver', 'Driver']);
+    if (user.role === 'admin') links.push(['/admin', 'Manager'], ['/advisor', 'Advisor'], ['/bdc', 'BDC'], ['/driver', 'Driver']);
     else {
       // People with several roles get a link to each of their pages.
       const roles = user.roles || [user.role];
@@ -168,7 +168,7 @@ const App = (() => {
       <a class="brand brand-classic" href="/"><span class="logo">🚐</span><span>Shuttle<small>${esc(settings.dealer_name)}</small></span></a>
       <a class="brand brand-branded" href="/">${brandMark(settings.dealer_name, 'Shuttle')}</a>
       <nav>${nav}<button id="helpBtn" title="Ask for help or suggest an idea">💬 Help</button><button id="themeBtn" title="Light or dark screen"></button><button id="pwBtn" title="Change password">Password</button><button id="logoutBtn">Sign out</button></nav>
-      <span class="who">${esc(user.name)} · ${esc((user.roles || [user.role]).map((r) => ({ admin: 'Admin', advisor: 'Advisor', bdc: 'BDC', driver: 'Driver' }[r] || r)).join(' + '))}</span>
+      <span class="who">${esc(user.name)} · ${esc((user.roles || [user.role]).map((r) => ({ admin: 'Manager', advisor: 'Advisor', bdc: 'BDC', driver: 'Driver' }[r] || r)).join(' + '))}</span>
       ${App.version ? `<button type="button" id="verBtn" class="ver-pill" title="Version — see what's new">v${esc(App.version)}${seenVersion() !== App.version ? '<span class="ver-new">NEW</span>' : ''}</button>` : ''}`;
     if ($('#verBtn')) $('#verBtn').onclick = () => whatsNew();
     $('#logoutBtn').onclick = async () => { await api('/api/logout', { body: {} }); location.href = '/login'; };
@@ -424,7 +424,7 @@ const App = (() => {
     const mi = milesFromDealer(lat, lng, s); const max = Number(s.service_radius_mi) || 0;
     if (max > 0 && mi > max) {
       const admin = App.user && App.user.role === 'admin';
-      return { ok: false, text: `⚠️ ${mi.toFixed(1)} miles from the ${place()}. That's outside the ${max}-mile shuttle area.${admin ? ' As an admin you can still book it.' : ''}` };
+      return { ok: false, text: `⚠️ ${mi.toFixed(1)} miles from the ${place()}. That's outside the ${max}-mile shuttle area.${admin ? ' As a manager you can still book it.' : ''}` };
     }
     return { ok: true, text: `📍 Spot marked · ${mi.toFixed(1)} miles from the ${place()}` };
   }

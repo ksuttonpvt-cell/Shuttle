@@ -14,7 +14,7 @@
     <div class="progress" data-progress></div>
 
     <section data-step="you" data-title="You">
-      <h2 class="step-q">Your admin account</h2>
+      <h2 class="step-q">Your manager account</h2>
       <p class="small muted" style="margin-top:0">You'll use this to sign in and run the site. You can add staff afterwards.</p>
       <label>Setup code *</label>
       <input name="code" required autocomplete="off" spellcheck="false" placeholder="ABCD-1234" style="max-width:220px;text-transform:uppercase">
@@ -54,7 +54,7 @@
 
     <section data-step="look" data-title="Look" hidden>
       <h2 class="step-q">Your colors</h2>
-      <p class="small muted" style="margin-top:0">Used for buttons and the header on every page. You can add your logo, an app icon and a banner later in Admin → Settings.</p>
+      <p class="small muted" style="margin-top:0">Used for buttons and the header on every page. You can add your logo, an app icon and a banner later in Manager → Settings.</p>
       <div class="look-swatches">
         <div><label>Accent color</label><input type="color" name="brand_color" value="#eb0a1e"></div>
         <div><label>Header color</label><input type="color" name="brand_dark" value="#0d0f12"></div>
@@ -79,7 +79,7 @@
   const info = await api('/api/setup');
   if (info.done) { location.href = '/'; return; }
   const f = $('#f');
-  // Signed in already (the first admin came from the .env file): no account step.
+  // Signed in already (the first manager came from the .env file): no account step.
   if (!info.need_admin) { const s = f.querySelector('[data-step="you"]'); s.remove(); }
   const v = info.values || {};
   if (v.dealer_name) f.elements.dealer_name.value = v.dealer_name;
@@ -107,7 +107,7 @@
       if (step === 'look') {
         const d = Object.fromEntries(new FormData(f));
         $('#summary').innerHTML = `<b>Ready to go</b><div>${d.business_type === 'shuttle' ? 'Shuttle service' : 'Car dealership'}: <b>${esc(d.dealer_name)}</b></div>
-          <div>📍 ${esc(d.dealer_address)}</div><div>🕒 ${esc(sel.options[sel.selectedIndex].text)} time</div>${info.need_admin ? `<div>👤 Admin: ${esc(d.admin_email)}</div>` : ''}`;
+          <div>📍 ${esc(d.dealer_address)}</div><div>🕒 ${esc(sel.options[sel.selectedIndex].text)} time</div>${info.need_admin ? `<div>👤 Manager: ${esc(d.admin_email)}</div>` : ''}`;
       }
     },
   });
@@ -121,7 +121,7 @@
       const r = await api('/api/setup', { body });
       f.hidden = true;
       $('#done').classList.remove('hidden');
-      $('#done').innerHTML = `<h2>🎉 You're all set</h2><p>Next, in Admin: add your vehicles and staff, and (if you like) your logo, app icon and texting.</p><div class="actions"><a class="btn btn-lg" href="${r.home}">Open Admin</a></div>`;
+      $('#done').innerHTML = `<h2>🎉 You're all set</h2><p>Next, on the Manager page: add your vehicles and staff, and (if you like) your logo, app icon and texting.</p><div class="actions"><a class="btn btn-lg" href="${r.home}">Open the Manager page</a></div>`;
     } catch (err) { App.flash($('#msg'), err.message); }
   };
 })();

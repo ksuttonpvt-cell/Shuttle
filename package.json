@@ -1,6 +1,6 @@
 {
   "name": "shuttle",
-  "version": "2.20.0",
+  "version": "2.21.0",
   "description": "Shuttle dispatch website: advisors, drivers, admin, maps, QR codes",
   "main": "src/server.js",
   "scripts": {

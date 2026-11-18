@@ -8,7 +8,7 @@ Every install is its own business: its own name, logo, colors, app icon, web add
 
 | Page | Who | What they do |
 |---|---|---|
-| **Admin** `/admin` | Admins | Live dashboard and map, ride history, reports, staff and roles, vehicles, QR codes and links, phone & email, branding, settings. Super admins also get the **Server** page. |
+| **Manager** `/admin` | Managers | Live dashboard and map, ride history, reports, staff and roles, vehicles, QR codes and links, phone & email, branding, settings. Super admins also get the **Server** page. |
 | **Advisor desk** `/advisor` | Service advisors / front desk | Book pick ups and drop offs step by step, see the ranked shuttle queue and live vans, assign drivers, send tracking links. |
 | **BDC desk** `/bdc` | Phone team | Find a customer's ride by name, phone or RO number while on the phone, book rides for an advisor, tell callers the current wait. |
 | **Driver app** `/driver` | Drivers (phone) | Start a shift in a van, share GPS, “Do this next”, ride offers, route planner, **I'm here**, Navigate / Call / Text. |
@@ -18,7 +18,7 @@ Every install is its own business: its own name, logo, colors, app icon, web add
 Highlights:
 - **Smart queue and routes:** urgent and overdue rides first, routes that stop at your base mid-trip, seat limits, rotation offers for drivers near the base, real road times (OpenStreetMap / OSRM).
 - **Ride-app touches:** driver card, “N stops before you”, arrival alert with a wait timer and no-show, a live wait estimate for staff and customers.
-- **Roles:** admin, advisor, BDC and driver, with several roles per person.
+- **Roles:** manager, advisor, BDC and driver (plus super admins, who also get the Server page), with several roles per person. Managers can delete accounts; history keeps everyone's names.
 - **Phone & email your way:** staff use their own phones, or a business number (Twilio) for calls and texts that hides personal numbers; your own email account for password links and confirmations.
 - **Reports:** per driver and van (shifts, hours, miles, drive and wait times, no-shows), busiest hours, a downloadable ride log, and a daily shuttle + server report.
 - **Runs itself:** uses every processor core, installs updates on its own, backs up every night, clears customer details every night, and comes with **Shuttle Control** for the PC it runs on.
@@ -47,14 +47,14 @@ Requires **Node.js 22.13 or newer** (the database is Node's built-in SQLite; not
 
 ### Setup (first visit)
 A new install opens **/setup**:
-1. **Your admin account**, with the **setup code** from the server window or log. That way only the person who installed it can claim it. If the first admin came from `ADMIN_EMAIL` in `.env`, they sign in instead and skip this step.
+1. **Your manager account**, with the **setup code** from the server window or log. That way only the person who installed it can claim it. If the first admin came from `ADMIN_EMAIL` in `.env`, they sign in instead and skip this step.
 2. **Your business:** car dealership or shuttle service, name, phone, and what riders call your base (dealership, hotel, office…).
 3. **Where the shuttle starts:** the address on a map, and the time zone.
-4. **Colors.** Then Admin opens. Add vehicles and staff, and optionally a logo, app icon, banner, texting and email.
+4. **Colors.** Then the Manager page opens. Add vehicles and staff, and optionally a logo, app icon, banner, texting and email.
 
 Want sample data to try it? `npm run seed:demo` adds a few vans, staff (password `shuttle123`) and rides.
 
-## Make it yours (Admin → Settings)
+## Make it yours (Manager → Settings)
 - **Your business:** dealership or shuttle service, name, address, phone, and the word for your base. Drivers and customers see that word everywhere, including route stops, texts and emails.
 - **Your branding:** name, colors, logo, **app icon** (browser tab, phone home screen, notifications) and a **banner** photo for the sign-in and customer pages. Every browser tab shows your name.
 - **Web address:** your own address, with a **Check** that confirms it reaches this site. Links, texts, emails and QR codes use it. There's also an optional short request link like `/ride`.

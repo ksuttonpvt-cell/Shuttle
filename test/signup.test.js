@@ -35,14 +35,14 @@ test('new staff ask for an account from the sign-in page; an admin approves it',
   assert.equal((await ask({ password: 'short' })).status, 400);
   assert.equal((await ask({ email: 'nope' })).status, 400);
   const r = await ask({});
-  assert.equal(r.status, 200); assert.match(r.data.message, /admin will look at your request/);
+  assert.equal(r.status, 200); assert.match(r.data.message, /manager will look at your request/);
   // Same answer for an email that already has an account, and nothing changes.
   assert.deepEqual((await anon('/api/signup', { body: { name: 'Fake Boss', email: 'boss@signup.test', role: 'driver', password: 'mypassword1' } })).data, r.data);
 
   // Waiting: can't sign in yet (only told why with the right password).
   const me = client();
   const wait = await me('/api/login', { body: { email: 'riley@signup.test', password: 'mypassword1' } });
-  assert.equal(wait.status, 403); assert.match(wait.data.error, /waiting for a shuttle admin/);
+  assert.equal(wait.status, 403); assert.match(wait.data.error, /waiting for a shuttle manager/);
   assert.equal((await me('/api/login', { body: { email: 'riley@signup.test', password: 'wrongpass99' } })).status, 401);
 
   // The admin sees it, approves as an advisor instead.

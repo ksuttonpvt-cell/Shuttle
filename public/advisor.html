@@ -100,7 +100,7 @@
     $('#drivers').innerHTML = drivers.length ? `<div class="table-wrap"><table><tr><th>Driver</th><th>Status</th><th>Vehicle</th><th>Open rides</th></tr>
       ${drivers.map((x) => `<tr><td>${esc(x.name)}${x.phone ? `<br><a class="small" href="${App.telLink(x.phone)}">${esc(x.phone)}</a>` : ''}</td>
       <td>${x.on_duty ? '<span class="badge s-completed">On duty</span>' : '<span class="badge s-requested">Off</span>'}</td>
-      <td>${esc(x.vehicle_name || '—')}</td><td>${x.open_rides}</td></tr>`).join('')}</table></div>` : '<div class="empty">No drivers yet. An admin can add them.</div>';
+      <td>${esc(x.vehicle_name || '—')}</td><td>${x.open_rides}</td></tr>`).join('')}</table></div>` : '<div class="empty">No drivers yet. A manager can add them.</div>';
     draw(shown, []); // drivers are drawn live below
     const today = await api('/api/rides?scope=today' + mine);
     const start = new Date(); start.setHours(0, 0, 0, 0);

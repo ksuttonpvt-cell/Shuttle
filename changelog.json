@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.21.0",
+    "date": "2026-11-18",
+    "title": "Managers, and deleting a person",
+    "changes": [
+      "The Admin role is now called Manager everywhere: the top bar, the Manager page, staff list, role choices and messages. Super admins keep their name and still get the Server page.",
+      "Delete account: managers and super admins can delete a person from Staff & logins → Edit. They're signed out everywhere and can't sign in again, their email can be used for a new account, and their name stays on past rides and reports. Rides they hadn't started go back in line.",
+      "Nobody can delete their own account, and only a super admin can delete a super admin."
+    ]
+  },
+  {
     "version": "2.20.0",
     "date": "2026-11-18",
     "title": "Ready for other businesses: a blank slate with a Setup page",

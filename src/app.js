@@ -476,7 +476,7 @@ function createApp(db, opts = {}) {
     const user = q('SELECT * FROM users WHERE email = ?').get(email);
     const ok = await verifyPasswordAsync(password, user && user.password_hash); // same time whether or not the email exists
     if (user && ok && !user.active && user.signup_at) {
-      return bad(res, 'Your account is waiting for a shuttle admin to approve it. You can sign in as soon as they do.', 403);
+      return bad(res, 'Your account is waiting for a shuttle manager to approve it. You can sign in as soon as they do.', 403);
     }
     if (!user || !user.active || !ok) {
       recordFailure(key); recordFailure(emailKey);
@@ -598,7 +598,7 @@ function createApp(db, opts = {}) {
       if (!(user.reset_requested_at && Date.now() - new Date(user.reset_requested_at) < 3600000)) {
         q('UPDATE users SET reset_requested_at = ? WHERE id = ?').run(now(), user.id);
         const admins = q("SELECT id FROM users WHERE role = 'admin' AND active = 1").all().map((a) => a.id);
-        quietly(push.notifyUsers(admins, { title: '🔑 Password reset requested', body: `${user.name} (${user.email}) forgot their password. Open Admin → Staff & logins to send a reset link.`, tag: `reset-${user.id}`, url: '/admin#users' }));
+        quietly(push.notifyUsers(admins, { title: '🔑 Password reset requested', body: `${user.name} (${user.email}) forgot their password. Open Manager → Staff & logins to send a reset link.`, tag: `reset-${user.id}`, url: '/admin#users' }));
         live.soon('drivers', 300); // the staff list shows the request
       }
     })().catch((e) => console.error('Password reset failed:', e.message));
@@ -671,7 +671,7 @@ function createApp(db, opts = {}) {
 
   app.get('/api/password-reset/:token', (req, res) => {
     const user = validReset(req.params.token);
-    if (!user) return bad(res, 'This reset link has expired or was already used. Ask a shuttle admin for a new one.', 404);
+    if (!user) return bad(res, 'This reset link has expired or was already used. Ask a shuttle manager for a new one.', 404);
     res.json({ name: user.name, email: user.email });
   });
 
@@ -679,7 +679,7 @@ function createApp(db, opts = {}) {
     const ipKey = `resetuse|${clientIp(req)}`;
     if (throttled(ipKey, 20)) return bad(res, 'Too many attempts. Try again in 15 minutes.', 429);
     const user = validReset(req.params.token);
-    if (!user) { recordFailure(ipKey); return bad(res, 'This reset link has expired or was already used. Ask a shuttle admin for a new one.', 404); }
+    if (!user) { recordFailure(ipKey); return bad(res, 'This reset link has expired or was already used. Ask a shuttle manager for a new one.', 404); }
     const err = validatePassword(req.body.password);
     if (err) return bad(res, err);
     const hash = await hashPasswordAsync(String(req.body.password));
@@ -706,7 +706,7 @@ function createApp(db, opts = {}) {
   // admin approves it (and picks the role). Nobody can ask to be an admin. Same answer
   // whether or not the email already has an account.
   app.post('/api/signup', async (req, res) => {
-    if (getSettings().staff_signup === '0') return bad(res, 'Ask a shuttle admin to make your account.', 403);
+    if (getSettings().staff_signup === '0') return bad(res, 'Ask a shuttle manager to make your account.', 403);
     const b = req.body || {};
     const name = str(b.name, 100); const email = str(b.email, 200); const role = b.role;
     if (!name || name.length < 2) return bad(res, 'Enter your name.');
@@ -715,10 +715,10 @@ function createApp(db, opts = {}) {
     const err = validatePassword(b.password);
     if (err) return bad(res, err);
     const key = `signup|${clientIp(req)}`;
-    if (limits.count(key, 3600000) >= 5) return bad(res, 'Too many requests from here. Try again later, or ask a shuttle admin.', 429);
+    if (limits.count(key, 3600000) >= 5) return bad(res, 'Too many requests from here. Try again later, or ask a shuttle manager.', 429);
     limits.hit(key, 3600000);
     const hash = await hashPasswordAsync(b.password);
-    const done = { ok: true, message: 'Thanks! A shuttle admin will look at your request. Once they approve it, sign in with this email and password.' };
+    const done = { ok: true, message: 'Thanks! A shuttle manager will look at your request. Once they approve it, sign in with this email and password.' };
     if (q('SELECT id FROM users WHERE email = ?').get(email)) return res.json(done);
     let id;
     try {
@@ -727,7 +727,7 @@ function createApp(db, opts = {}) {
         .run(name, email, str(b.phone, 40), r.role, r.team, hash, now(), str(b.note, 300)).lastInsertRowid);
     } catch { return res.json(done); } // the same email at the same moment
     const admins = q("SELECT id FROM users WHERE role = 'admin' AND active = 1").all().map((a) => a.id);
-    quietly(push.notifyUsers(admins, { title: '🙋 New account request', body: `${name} (${email}) wants to be a ${role}. Open Admin → Staff & logins to approve.`, tag: `signup-${id}`, url: '/admin#users' }));
+    quietly(push.notifyUsers(admins, { title: '🙋 New account request', body: `${name} (${email}) wants to be a ${role}. Open Manager → Staff & logins to approve.`, tag: `signup-${id}`, url: '/admin#users' }));
     console.log(new Date().toLocaleString(), `[staff] ${name} asked for a ${role} account.`);
     live.soon('drivers', 300);
     res.json(done);
@@ -788,7 +788,7 @@ function createApp(db, opts = {}) {
     const rr = rolesFrom(b);
     if (rr) {
       if (rr.error) return bad(res, rr.error);
-      if (user.id === req.user.id && rr.role !== 'admin') return bad(res, "You can't remove your own admin access.");
+      if (user.id === req.user.id && rr.role !== 'admin') return bad(res, "You can't remove your own manager access.");
       if (rr.role !== 'admin' && user.super_admin && !isSuper(req.user)) return bad(res, 'Only a super admin can change a super admin.', 403);
       user.role = rr.role; user.team = rr.team; user.extra_roles = rr.extra_roles; user.start_page = rr.start_page;
       if (user.role !== 'admin') user.super_admin = 0;
@@ -798,7 +798,7 @@ function createApp(db, opts = {}) {
     if (b.super_admin != null) {
       if (!isSuper(req.user)) return bad(res, 'Only a super admin can give or remove super admin.', 403);
       if (user.id === req.user.id && !b.super_admin) return bad(res, "You can't remove your own super admin access.");
-      if (b.super_admin && user.role !== 'admin') return bad(res, 'Only admins can be super admins.');
+      if (b.super_admin && user.role !== 'admin') return bad(res, 'Only managers can be super admins.');
       user.super_admin = b.super_admin ? 1 : 0;
     }
     const emailChanged = b.email != null && String(b.email).trim().toLowerCase() !== origEmail;
@@ -1005,7 +1005,7 @@ function createApp(db, opts = {}) {
       if (!vehicleId) return bad(res, 'Pick the vehicle you are driving.');
       const v = q('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
       if (!v || v.status !== 'available') return bad(res, 'That vehicle is not available.');
-      if (v.use === 'loaner') return bad(res, "That's a loaner, not a shuttle. An admin can mark it as a shuttle under Vehicles.");
+      if (v.use === 'loaner') return bad(res, "That's a loaner, not a shuttle. A manager can mark it as a shuttle under Vehicles.");
       const taken = q('SELECT name FROM users WHERE vehicle_id = ? AND on_duty = 1 AND id <> ?').get(vehicleId, req.user.id);
       if (taken) return bad(res, `${taken.name} is already driving that vehicle.`);
     } else vehicleId = null;
@@ -1438,7 +1438,7 @@ function createApp(db, opts = {}) {
       if (mi > radius) {
         const phone = contactPhone();
         return { error: `That address is ${mi.toFixed(1)} miles from the ${placeWord()}. The shuttle only goes up to ${radius} miles. ${
-          forCustomer ? `Please call the service department${phone ? ` at ${phone}` : ''} and we'll help you make other arrangements.` : '(An admin can book it if needed.)'}` };
+          forCustomer ? `Please call the service department${phone ? ` at ${phone}` : ''} and we'll help you make other arrangements.` : '(A manager can book it if needed.)'}` };
       }
     }
     return { r, adjusted };
@@ -2598,7 +2598,7 @@ function createApp(db, opts = {}) {
     if (p.calls !== 'dealership') return bad(res, 'Calls go from your own phone at this dealership.', 409);
     const ride = rideForContact(req, res); if (!ride) return;
     const mine = toE164(req.user.phone || '');
-    if (!mine) return bad(res, 'Your mobile number isn’t on file. Ask an admin to add it under Staff & logins, so the call can ring you.');
+    if (!mine) return bad(res, 'Your mobile number isn’t on file. Ask a manager to add it under Staff & logins, so the call can ring you.');
     const key = `call|${req.user.id}`;
     if (limits.count(key, 3600000) >= 30) return bad(res, 'That’s a lot of calls this hour. Try again later.', 429);
     limits.hit(key, 3600000);
@@ -2723,7 +2723,7 @@ function createApp(db, opts = {}) {
     });
   });
   app.post('/api/sms/test', requireRole('admin'), async (req, res) => {
-    if (!sms.configured) return bad(res, 'Set up the dealership number first (Admin → Phone & email).');
+    if (!sms.configured) return bad(res, 'Set up the dealership number first (Manager → Phone & email).');
     const to = toE164(req.body.to);
     if (!to) return bad(res, 'Enter a valid mobile number.');
     const body = `Test message from the ${getSettings().dealer_name} shuttle website. Customer texts are working.`;
@@ -2978,6 +2978,19 @@ function createApp(db, opts = {}) {
   // signed out everywhere) and disappear from every list, but their names stay on past rides,
   // shifts, GPS miles and reports. Account requests waiting for approval are deleted.
   // A backup is made first. Super admins only (like the rest of /api/server).
+  // Retire one account (inside a transaction): no sign-in, hidden everywhere, email freed;
+  // its name stays on past rides, shifts and reports.
+  function retireUser(id, at = now()) {
+    q(`UPDATE users SET active = 0, removed_at = ?, email = ?, password_hash = '!', phone = NULL, photo = NULL, photo_v = NULL, on_duty = 0,
+       vehicle_id = NULL, route_json = NULL, reset_requested_at = NULL, signup_at = NULL, signup_note = NULL, start_page = NULL, super_admin = 0 WHERE id = ?`)
+      .run(at, `removed-${id}@removed.invalid`, id);
+    for (const sql of ['DELETE FROM sessions WHERE user_id = ?', 'DELETE FROM push_subscriptions WHERE user_id = ?', 'DELETE FROM password_resets WHERE user_id = ?']) q(sql).run(id);
+    q("UPDATE ride_offers SET status = 'expired', responded_at = ? WHERE driver_id = ? AND status = 'pending'").run(at, id);
+    q('UPDATE spectate_links SET revoked_at = ? WHERE driver_id = ? AND revoked_at IS NULL').run(at, id);
+    closeShifts('driver_id = ?', [id], 'removed');
+    // Rides they hadn't started go back in line for the drivers who are left.
+    q(`UPDATE rides SET driver_id = NULL, vehicle_id = NULL, arrived_at = NULL, status = 'requested', updated_at = ? WHERE driver_id = ? AND status IN ('assigned','en_route')`).run(at, id);
+  }
   const wipeTargets = () => q("SELECT id, name, role, team, extra_roles, signup_at, active FROM users WHERE removed_at IS NULL AND NOT (role = 'admin' AND super_admin = 1) ORDER BY name").all();
   app.get('/api/server/staff-wipe', requireRole('admin'), (req, res) => {
     const t = wipeTargets();
@@ -2996,22 +3009,30 @@ function createApp(db, opts = {}) {
     db.exec('BEGIN IMMEDIATE');
     try {
       for (const id of requests) q('DELETE FROM users WHERE id = ?').run(id);
-      for (const id of staff) {
-        q(`UPDATE users SET active = 0, removed_at = ?, email = ?, password_hash = '!', phone = NULL, photo = NULL, photo_v = NULL, on_duty = 0,
-           vehicle_id = NULL, route_json = NULL, reset_requested_at = NULL, signup_at = NULL, signup_note = NULL, start_page = NULL WHERE id = ?`)
-          .run(at, `removed-${id}@removed.invalid`, id);
-        for (const sql of ['DELETE FROM sessions WHERE user_id = ?', 'DELETE FROM push_subscriptions WHERE user_id = ?', 'DELETE FROM password_resets WHERE user_id = ?']) q(sql).run(id);
-        q("UPDATE ride_offers SET status = 'expired', responded_at = ? WHERE driver_id = ? AND status = 'pending'").run(at, id);
-        q('UPDATE spectate_links SET revoked_at = ? WHERE driver_id = ? AND revoked_at IS NULL').run(at, id);
-        closeShifts('driver_id = ?', [id], 'removed');
-        // Rides they hadn't started go back in line for the drivers who are left.
-        q(`UPDATE rides SET driver_id = NULL, vehicle_id = NULL, arrived_at = NULL, status = 'requested', updated_at = ? WHERE driver_id = ? AND status IN ('assigned','en_route')`).run(at, id);
-      }
+      for (const id of staff) retireUser(id, at);
       db.exec('COMMIT');
     } catch (e) { try { db.exec('ROLLBACK'); } catch { /* done */ } return bad(res, `Removing staff failed, so nothing was changed: ${e.message}`, 500); }
     ridesChanged(); live.soon('drivers', 300); live.soon('rides', 300);
     console.log(new Date().toLocaleString(), `[staff] ${req.user.name} removed all staff except super admins: ${staff.length} account(s) and ${requests.length} account request(s).${backup ? ` Backup first: ${backup.name}.` : ''}`);
     res.json({ removed: staff.length, requests: requests.length, backup: backup ? backup.name : null });
+  });
+
+  // ---------- delete one person (managers and super admins) ----------
+  // Same as above for one account. Nobody can delete themselves, and only a super admin can
+  // delete a super admin. An account request that was never approved is simply deleted.
+  app.delete('/api/users/:id', requireRole('admin'), (req, res) => {
+    const u = q('SELECT * FROM users WHERE id = ? AND removed_at IS NULL').get(Number(req.params.id));
+    if (!u) return bad(res, 'That person was not found.', 404);
+    if (u.id === req.user.id) return bad(res, 'You can\'t delete your own account.');
+    if (u.super_admin && u.role === 'admin' && !isSuper(req.user)) return bad(res, 'Only a super admin can delete a super admin.', 403);
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      if (u.signup_at && !u.active) q('DELETE FROM users WHERE id = ?').run(u.id); else retireUser(u.id);
+      db.exec('COMMIT');
+    } catch (e) { try { db.exec('ROLLBACK'); } catch { /* done */ } return bad(res, `Deleting failed, so nothing was changed: ${e.message}`, 500); }
+    ridesChanged(); live.soon('drivers', 300); live.soon('rides', 300);
+    console.log(new Date().toLocaleString(), `[staff] ${req.user.name} deleted ${u.name}'s account.`);
+    res.json({ ok: true });
   });
 
   app.post('/api/server/backups', requireRole('admin'), (req, res) => {
@@ -3094,7 +3115,7 @@ function createApp(db, opts = {}) {
   });
   app.post('/api/feedback/test', requireRole('admin'), async (req, res) => {
     if (!getSettings().discord_webhook) return bad(res, 'Add the Discord webhook link first.');
-    const out = await postToDiscord({ kind: 'help', message: 'Test message from the shuttle website. Help & suggestions are connected. ✅', from: `${req.user.name} (admin)`, page: 'Admin → Settings' });
+    const out = await postToDiscord({ kind: 'help', message: 'Test message from the shuttle website. Help & suggestions are connected. ✅', from: `${req.user.name} (manager)`, page: 'Manager → Settings' });
     if (!out.sent) return bad(res, `Discord didn't accept it: ${out.error}`, 502);
     res.json({ ok: true });
   });
@@ -3270,7 +3291,7 @@ function createApp(db, opts = {}) {
       const key = `setup|${clientIp(req)}`;
       if (limits.count(key, 3600000) >= 10) return bad(res, 'Too many tries. Wait an hour, or restart the site to get a new setup code.', 429);
       if (String(b.code || '').trim().toUpperCase() !== getSettings().setup_code) { limits.hit(key, 3600000); return bad(res, 'That setup code isn’t right. It’s shown in the window on the computer running the site (and in its log).'); }
-    } else if (!(req.user && req.user.role === 'admin')) return bad(res, 'Sign in as an admin to finish setting up.', 401);
+    } else if (!(req.user && req.user.role === 'admin')) return bad(res, 'Sign in as a manager to finish setting up.', 401);
     // The business.
     const name = str(b.dealer_name, 100);
     if (!name || name.length < 2) return bad(res, 'Enter your business name.');
@@ -3287,7 +3308,7 @@ function createApp(db, opts = {}) {
     if (making) {
       const a = b.admin || {};
       const aname = str(a.name, 100); const email = str(a.email, 200);
-      if (!aname || !email || !ADDR_RE.test(email)) return bad(res, 'Enter your name and email for your admin account.');
+      if (!aname || !email || !ADDR_RE.test(email)) return bad(res, 'Enter your name and email for your manager account.');
       const err = validatePassword(a.password); if (err) return bad(res, err);
       admin = { aname, email, hash: await hashPasswordAsync(a.password) };
     }
@@ -3396,7 +3417,7 @@ function ensureAdmin(db, { email, password, name } = {}) {
   const pw = password || randomToken(9);
   const em = email;
   db.prepare("INSERT INTO users (name, email, role, password_hash) VALUES (?, ?, 'admin', ?)")
-    .run(name || 'Shuttle Admin', em, hashPassword(pw));
+    .run(name || 'Shuttle Manager', em, hashPassword(pw));
   return { email: em, password: password ? null : pw };
 }
 
