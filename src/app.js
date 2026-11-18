@@ -34,12 +34,15 @@ const SESSION_DAYS = 14;
 const RIDE_STATUSES = ['requested', 'assigned', 'en_route', 'onboard', 'completed', 'cancelled'];
 const OPEN_STATUSES = ['requested', 'assigned', 'en_route', 'onboard'];
 
+// Starting values for a brand-new install (filled in on the Setup page). An existing install
+// keeps its own: every setting is saved in its database the first time it starts.
+const PC_ZONE = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'; } catch { return 'America/New_York'; } })();
 const DEFAULT_SETTINGS = {
-  dealer_name: 'Corwin Toyota of Boulder',
-  dealer_address: '2465 48th Ct, Boulder, CO 80301',
+  dealer_name: '',
+  dealer_address: '',
   dealer_phone: '',
-  dealer_lat: '40.0236',
-  dealer_lng: '-105.2405',
+  dealer_lat: '39.8283',   // the middle of the US until Setup puts the real spot here
+  dealer_lng: '-98.5795',
   public_requests: '1',
   customer_actions: '1', // customers can say they're running late or cancel from their tracking page
   staff_signup: '1', // new staff can ask for an account from the sign-in page (an admin approves it)
@@ -49,21 +52,21 @@ const DEFAULT_SETTINGS = {
   gps_low_battery_pct: '20',
   gps_low_battery_mode: 'slow', // slow | pause | normal
   driver_gps_toggle: '0',
-  timezone: 'America/Denver',
-  service_radius_mi: '15.5',
+  timezone: PC_ZONE,
+  service_radius_mi: '15',
   dropoff_wait_min: '30',   // drop offs leave at least this many minutes after booking, unless urgent
   auto_end_shift: '20:00', // every driver is taken off shift at this local time each day ('' = off)
   auto_sign_out: '00:00',  // everyone is signed out at this local time each day ('' = off)
   ride_offers: '1',
   discord_invite: '',       // optional "Join our Discord" link shown in the Help window
   easter_egg: '1',          // Easter egg: tacos rain for 10 seconds every Tuesday at noon
-  look: 'corwin',           // 'corwin' (your branding: name, logo, colors) or 'classic', for everyone
+  look: 'branded',          // 'branded' (your name, logo and colors) or 'classic', for everyone
   business_type: 'dealership', // dealership | shuttle (hotel, airport parking, office, events…)
   place_word: '',           // what riders call your base: blank = "dealership" (or "office" for a shuttle service)
   request_path: '',         // optional short link for customers to request a ride, e.g. "ride" -> yoursite.com/ride
-  brand_color: '#eb0a1e',   // Corwin look: accent (buttons, stripes)
-  brand_dark: '#0d0f12',    // Corwin look: header and banner background
-  brand_name: '',           // Corwin look: name shown in the header (blank = dealership name); first word is big        // offer waiting rides to the closest free driver, who can accept or pass
+  brand_color: '#eb0a1e',   // Branded look: accent (buttons, stripes)
+  brand_dark: '#0d0f12',    // Branded look: header and banner background
+  brand_name: '',           // Branded look: name shown in the header (blank = business name); first word is big        // offer waiting rides to the closest free driver, who can accept or pass
   clear_customer_info: '00:00',
   backup_time: '00:00',    // nightly database backup: at midnight, right after the day's report is saved and customer info is cleared ('' = off) // finished rides lose their customer details at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
@@ -184,15 +187,20 @@ function createApp(db, opts = {}) {
   }
   const now = () => new Date().toISOString();
 
+  // A brand-new install (nothing saved yet) starts on the Setup page; an existing one is set up.
+  // Written down the first time, so every copy of the site (one per core) agrees.
+  const freshInstall = q('SELECT COUNT(*) AS n FROM settings').get().n === 0;
+  q("INSERT OR IGNORE INTO settings (key, value) VALUES ('setup_done', ?)").run(freshInstall ? '0' : '1');
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) {
     q('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(k, v);
   }
-  // The Corwin look became the site's look (Nov 2026). Switch existing sites over once;
+  // The branded look became the site's look (Nov 2026). Switch existing sites over once;
   // a later choice in Admin → Settings → Look sticks.
   if (!q("SELECT 1 FROM settings WHERE key = 'look_corwin_switched'").get()) {
-    q("UPDATE settings SET value = 'corwin' WHERE key = 'look'").run();
+    q("UPDATE settings SET value = 'branded' WHERE key = 'look'").run();
     q("INSERT INTO settings (key, value) VALUES ('look_corwin_switched', '1')").run();
   }
+  q("UPDATE settings SET value = 'branded' WHERE key = 'look' AND value = 'corwin'").run(); // its old name
   // Settings are read many times per request, so they're kept until the database changes.
   // The uploaded logo image isn't loaded here (only whether there is one).
   let settingsCache = null; let settingsAt = -1;
@@ -247,7 +255,7 @@ function createApp(db, opts = {}) {
   });
   // BDC team members are advisors (same access) with their own page.
   const STAFF_ROLES = ['admin', 'advisor', 'driver', 'bdc'];
-  const RESERVED_PATHS = new Set(['admin', 'advisor', 'bdc', 'driver', 'login', 'logout', 'request', 'reset', 't', 's', 'api', 'brand', 'icons', 'js', 'css', 'vendor', 'img', 'healthz', 'sw.js', 'manifest.webmanifest', 'favicon.ico', 'robots.txt']);
+  const RESERVED_PATHS = new Set(['setup', 'admin', 'advisor', 'bdc', 'driver', 'login', 'logout', 'request', 'reset', 't', 's', 'api', 'brand', 'icons', 'js', 'css', 'vendor', 'img', 'healthz', 'sw.js', 'manifest.webmanifest', 'favicon.ico', 'robots.txt']);
   const brandName = () => { const s = getSettings(); return String(s.brand_name || s.dealer_name || 'Shuttle').trim(); };
   const asRole = (r) => (r === 'bdc' ? { role: 'advisor', team: 'bdc' } : { role: r, team: null });
   // Several roles: `role` (+ team) is a person's strongest role (admin, then advisor or BDC,
@@ -346,7 +354,7 @@ function createApp(db, opts = {}) {
   const push = createPush(db, { sender: opts.pushSender });
   // ---------- customer links ----------
   // Tracking links use a short code: 8 letters and digits that can't be mixed up
-  // (no 0/O, 1/I/L or U), e.g. corwinshuttleservice.com/t/K7M2Q9XA. Upper or lower case both work.
+  // (no 0/O, 1/I/L or U), e.g. yoursite.com/t/K7M2Q9XA. Upper or lower case both work.
   const CODE_CHARS = '23456789ABCDEFGHJKMNPQRSTVWXYZ';
   const CODE_RE = /^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/;
   function newTrackCode() {
@@ -1675,7 +1683,7 @@ function createApp(db, opts = {}) {
     });
   });
 
-  // ---------- dealership logo (Corwin look) ----------
+  // ---------- logo (Branded look) ----------
   // Stored in the database so it's included in backups. SVGs are served so they can't run
   // scripts even if opened directly.
   const LOGO_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
@@ -2024,7 +2032,8 @@ function createApp(db, opts = {}) {
       let v = String(req.body[k]).slice(0, 300);
       if ((k === 'dealer_lat' || k === 'dealer_lng') && Number.isNaN(Number(v))) return bad(res, 'Latitude/longitude must be numbers.');
       if (YES_NO_SETTINGS.includes(k)) v = req.body[k] && req.body[k] !== '0' ? '1' : '0';
-      if (k === 'look' && !['classic', 'corwin'].includes(v)) return bad(res, 'Pick Classic or Branded.');
+      if (k === 'look' && v === 'corwin') v = 'branded'; // its old name
+      if (k === 'look' && !['classic', 'branded'].includes(v)) return bad(res, 'Pick Classic or Branded.');
       if (k === 'business_type' && !['dealership', 'shuttle'].includes(v)) return bad(res, 'Pick a dealership or a shuttle service.');
       if (k === 'place_word') { v = v.trim().toLowerCase(); if (v && !/^[a-z][a-z '&-]{1,29}$/.test(v)) return bad(res, 'Use a short word for your base, like hotel, office or terminal.'); }
       if (k === 'request_path') {
@@ -3226,7 +3235,7 @@ function createApp(db, opts = {}) {
     const s = getSettings();
     const color = /^#[0-9a-f]{6}$/i.test(s.brand_color || '') ? s.brand_color : DEFAULT_SETTINGS.brand_color;
     const dark = /^#[0-9a-f]{6}$/i.test(s.brand_dark || '') ? s.brand_dark : DEFAULT_SETTINGS.brand_dark;
-    const look = s.look === 'corwin' ? 'corwin' : 'classic';
+    const look = s.look === 'classic' ? 'classic' : 'branded';
     const logo = s.brand_logo ? (s.brand_logo_v || '1') : '';
     const name = String(s.brand_name || s.dealer_name || '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
     const iv = s.brand_icon_512 ? `?v=${s.brand_icon_v || 1}` : '';
@@ -3237,15 +3246,83 @@ function createApp(db, opts = {}) {
         .replace(/<title>([^<]*)<\/title>/, (m, t) => `<title>${t}${name ? ` · ${name}` : ''}</title>`)
         .replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-brand-name="${name}" data-place="${placeWord().replace(/[&<>"']/g, '')}" ${banner ? 'data-banner="1" ' : ''}data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" data-build="${buildId()}" style="--brand:${color};--brand-dark:${dark}${banner}">`));
   };
+  // ---------- first-run setup ----------
+  // A new install opens on /setup: the owner makes the first admin account (with the setup
+  // code printed on the server PC, so a stranger who finds the address can't) and fills in the
+  // business: name, kind, phone, where it is, time zone and colors.
+  const setupDone = () => getSettings().setup_done === '1';
+  const noUsers = () => q('SELECT COUNT(*) AS n FROM users').get().n === 0;
+  if (!setupDone() && !getSettings().setup_code) setSetting('setup_code', `${randomToken(6).replace(/[^A-Za-z0-9]/g, 'x').slice(0, 4)}-${randomToken(6).replace(/[^A-Za-z0-9]/g, 'x').slice(0, 4)}`.toUpperCase());
+  if (jobsHere && !setupDone()) {
+    console.log(`\n  NEW INSTALL: open http://localhost:${process.env.PORT || 3000}/setup to set up your shuttle site.\n  Setup code: ${getSettings().setup_code}\n`);
+  }
+  app.get('/setup', (req, res, next) => (setupDone() ? res.redirect('/') : page('setup.html')(req, res, next)));
+  app.get('/api/setup', (req, res) => {
+    const s = getSettings();
+    res.json({ done: setupDone(), need_admin: noUsers(), signed_in: !!(req.user && req.user.role === 'admin'),
+      values: { business_type: s.business_type, dealer_name: s.dealer_name, dealer_phone: s.dealer_phone, place_word: s.place_word, dealer_address: s.dealer_address, timezone: s.timezone, brand_color: s.brand_color, brand_dark: s.brand_dark } });
+  });
+  app.post('/api/setup', async (req, res) => {
+    if (setupDone()) return bad(res, 'This site is already set up. Sign in to change its settings.', 409);
+    const b = req.body || {};
+    const making = noUsers();
+    if (making) {
+      const key = `setup|${clientIp(req)}`;
+      if (limits.count(key, 3600000) >= 10) return bad(res, 'Too many tries. Wait an hour, or restart the site to get a new setup code.', 429);
+      if (String(b.code || '').trim().toUpperCase() !== getSettings().setup_code) { limits.hit(key, 3600000); return bad(res, 'That setup code isn’t right. It’s shown in the window on the computer running the site (and in its log).'); }
+    } else if (!(req.user && req.user.role === 'admin')) return bad(res, 'Sign in as an admin to finish setting up.', 401);
+    // The business.
+    const name = str(b.dealer_name, 100);
+    if (!name || name.length < 2) return bad(res, 'Enter your business name.');
+    if (!['dealership', 'shuttle'].includes(b.business_type)) return bad(res, 'Pick a car dealership or a shuttle service.');
+    const word = String(b.place_word || '').trim().toLowerCase();
+    if (word && !/^[a-z][a-z '&-]{1,29}$/.test(word)) return bad(res, 'Use a short word for your base, like hotel, office or terminal.');
+    const lat = num(b.dealer_lat); const lng = num(b.dealer_lng);
+    if (lat == null || lng == null || Math.abs(lat) > 90 || Math.abs(lng) > 180) return bad(res, 'Pick your address from the list, or tap the map where your shuttle starts.');
+    let zone = String(b.timezone || ''); try { new Intl.DateTimeFormat('en-US', { timeZone: zone }); } catch { zone = ''; }
+    if (!zone) return bad(res, 'Pick your time zone.');
+    const hex = (v, d) => (/^#[0-9a-f]{6}$/i.test(v || '') ? v : d);
+    // The first admin (a super admin: they can also use the Server page).
+    let admin = null;
+    if (making) {
+      const a = b.admin || {};
+      const aname = str(a.name, 100); const email = str(a.email, 200);
+      if (!aname || !email || !ADDR_RE.test(email)) return bad(res, 'Enter your name and email for your admin account.');
+      const err = validatePassword(a.password); if (err) return bad(res, err);
+      admin = { aname, email, hash: await hashPasswordAsync(a.password) };
+    }
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      if (admin) {
+        if (!noUsers()) throw Object.assign(new Error('Someone just set this site up. Sign in instead.'), { code: 409 });
+        const id = Number(q("INSERT INTO users (name, email, role, password_hash, super_admin) VALUES (?, ?, 'admin', ?, 1)").run(admin.aname, admin.email, admin.hash).lastInsertRowid);
+        admin.id = id;
+      }
+      for (const [k, v] of Object.entries({ dealer_name: name, business_type: b.business_type, place_word: word, dealer_phone: str(b.dealer_phone, 40) || '',
+        dealer_address: str(b.dealer_address, 300) || '', dealer_lat: String(lat), dealer_lng: String(lng), timezone: zone,
+        brand_color: hex(b.brand_color, '#eb0a1e'), brand_dark: hex(b.brand_dark, '#0d0f12'), setup_done: '1' })) setSetting(k, v);
+      q("DELETE FROM settings WHERE key = 'setup_code'").run();
+      db.exec('COMMIT');
+    } catch (e) { try { db.exec('ROLLBACK'); } catch { /* done */ } return bad(res, e.message, e.code === 409 ? 409 : 500); }
+    if (admin) { // signed straight in
+      const token = randomToken(32);
+      q('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, admin.id, new Date(Date.now() + SESSION_DAYS * 86400000).toISOString());
+      setSessionCookie(req, res, token, SESSION_DAYS * 86400);
+    }
+    console.log(new Date().toLocaleString(), `[setup] ${name} is set up${admin ? `; first admin ${admin.email}` : ''}.`);
+    res.json({ ok: true, home: '/admin' });
+  });
+
   app.get('/', (req, res) => {
+    if (!setupDone() && (noUsers() || (req.user && req.user.role === 'admin'))) return res.redirect('/setup');
     if (!req.user) return res.redirect('/login');
     res.redirect(homeOf(req.user));
   });
-  app.get('/login', page('login.html'));
+  app.get('/login', (req, res, next) => (!setupDone() && noUsers() ? res.redirect('/setup') : next()), page('login.html'));
   app.get('/advisor', page('advisor.html'));
   app.get('/bdc', page('bdc.html'));
   app.get('/driver', page('driver.html'));
-  app.get('/admin', page('admin.html'));
+  app.get('/admin', (req, res, next) => (!setupDone() && (noUsers() || (req.user && req.user.role === 'admin')) ? res.redirect('/setup') : next()), page('admin.html'));
   app.get('/request', page('request.html'));
   // The short link for customers (Admin → Settings), e.g. yoursite.com/ride.
   app.get('/:slug', (req, res, next) => (getSettings().request_path && req.params.slug.toLowerCase() === getSettings().request_path ? page('request.html')(req, res, next) : next()));
@@ -3283,7 +3360,7 @@ function createApp(db, opts = {}) {
     index: false, maxAge: '30d',
     setHeaders: (res, file) => { if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-store'); },
   }));
-  // Brand fonts for the Corwin look (bundled, so pages don't depend on an outside font site).
+  // Brand fonts for the Branded look (bundled, so pages don't depend on an outside font site).
   app.use('/vendor/fonts/barlow', express.static(path.join(path.dirname(require.resolve('@fontsource/barlow/package.json')), 'files'), { maxAge: '30d' }));
   app.use('/vendor/fonts/barlow-sc', express.static(path.join(path.dirname(require.resolve('@fontsource/barlow-semi-condensed/package.json')), 'files'), { maxAge: '30d' }));
   app.use('/vendor/leaflet', express.static(path.join(path.dirname(require.resolve('leaflet/package.json')), 'dist'), { maxAge: '30d' }));
@@ -3311,11 +3388,13 @@ function createApp(db, opts = {}) {
   return app;
 }
 
+// The first admin from ADMIN_EMAIL in .env, if given. Without it, the first admin is made on
+// the Setup page (with the setup code shown on the server PC).
 function ensureAdmin(db, { email, password, name } = {}) {
   const count = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
-  if (count > 0) return null;
+  if (count > 0 || !email) return null;
   const pw = password || randomToken(9);
-  const em = email || 'admin@example.com';
+  const em = email;
   db.prepare("INSERT INTO users (name, email, role, password_hash) VALUES (?, ?, 'admin', ?)")
     .run(name || 'Shuttle Admin', em, hashPassword(pw));
   return { email: em, password: password ? null : pw };

@@ -1,4 +1,5 @@
 process.removeAllListeners('warning');
+const { seedTestSite } = require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -22,7 +23,7 @@ async function fakeSender(sub, payload) {
 
 let server; let base; let theApp;
 before(async () => {
-  const db = openDb(':memory:');
+  const db = seedTestSite(openDb(':memory:'));
   ensureAdmin(db, { email: 'admin@test.local', password: 'adminpass1', name: 'Admin' });
   const app = createApp(db, { pushSender: fakeSender, sms: { configured: false } });
   theApp = app;
@@ -47,7 +48,7 @@ function client() {
 const settle = () => new Promise((r) => setTimeout(r, 50));
 
 test('keys are made once and real encryption works', () => {
-  const db = openDb(':memory:');
+  const db = seedTestSite(openDb(':memory:'));
   const a = createPush(db); const b = createPush(db);
   assert.equal(a.publicKey, b.publicKey, 'same key after a restart');
   const details = webpush.generateRequestDetails(fakeSubscription(0), 'hello', {

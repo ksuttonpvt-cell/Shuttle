@@ -385,60 +385,60 @@ th { font-size: .78rem; text-transform: uppercase; color: var(--muted); letter-s
   box-shadow: 0 6px 20px rgba(0,0,0,.3);
 }
 
-/* ---------- Corwin look (dealership branding) ----------
-   Turned on for everyone in Admin → Settings → Look, or previewed on one device with ?look=corwin.
+/* ---------- Branded look (your name, logo and colors) ----------
+   Turned on for everyone in Admin → Settings → Look, or previewed on one device with ?look=branded.
    --brand (accent) and --brand-dark (header) come from the settings. */
-.brand-corwin, .brand-block { display: none; }
+.brand-branded, .brand-block { display: none; }
 .look-preview { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 2500; background: #111; color: #fff;
   padding: .45rem .5rem .45rem .9rem; border-radius: 99px; font-size: .85rem; display: flex; gap: .6rem; align-items: center; box-shadow: 0 6px 20px rgba(0,0,0,.3); }
 .look-preview button { padding: .3rem .7rem; font-size: .8rem; border-radius: 99px; background: #fff; color: #111; flex: none; }
 .look-preview > span { white-space: nowrap; }
 @media (max-width: 480px) { .look-preview .lp-long { display: none; } }
-html[data-look="corwin"] {
+html[data-look="branded"] {
   --red: var(--brand, #eb0a1e);
   --red-dark: color-mix(in srgb, var(--brand, #eb0a1e) 82%, #000);
   --ink: #16191d;
   --bg: #eef0f3;
 }
-html[data-look="corwin"] .brand-classic, html[data-look="corwin"] .hero-emoji { display: none; }
-html[data-look="corwin"] .brand-corwin { display: flex; flex-direction: column; align-items: flex-start; gap: 0; line-height: 1.05; }
-html[data-look="corwin"] .brand-block { display: flex; flex-direction: column; align-items: center; gap: .15rem; margin-bottom: .6rem; }
-html[data-look="corwin"] .wordmark { font-weight: 800; letter-spacing: .22em; font-size: 1.25rem; text-transform: uppercase; color: #fff; }
-html[data-look="corwin"] .brand-sub { font-size: .66rem; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; color: rgba(255,255,255,.72); }
-html[data-look="corwin"] .brand-logo { max-height: 34px; max-width: 200px; display: block; }
-html[data-look="corwin"] .brand-block .brand-logo { max-height: 56px; max-width: 260px; }
-html[data-look="corwin"] .brand-block .wordmark { font-size: 2rem; }
-html[data-look="corwin"] .brand-block .brand-sub { font-size: .75rem; }
+html[data-look="branded"] .brand-classic, html[data-look="branded"] .hero-emoji { display: none; }
+html[data-look="branded"] .brand-branded { display: flex; flex-direction: column; align-items: flex-start; gap: 0; line-height: 1.05; }
+html[data-look="branded"] .brand-block { display: flex; flex-direction: column; align-items: center; gap: .15rem; margin-bottom: .6rem; }
+html[data-look="branded"] .wordmark { font-weight: 800; letter-spacing: .22em; font-size: 1.25rem; text-transform: uppercase; color: #fff; }
+html[data-look="branded"] .brand-sub { font-size: .66rem; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; color: rgba(255,255,255,.72); }
+html[data-look="branded"] .brand-logo { max-height: 34px; max-width: 200px; display: block; }
+html[data-look="branded"] .brand-block .brand-logo { max-height: 56px; max-width: 260px; }
+html[data-look="branded"] .brand-block .wordmark { font-size: 2rem; }
+html[data-look="branded"] .brand-block .brand-sub { font-size: .75rem; }
 /* On the sign-in card (light background), the wordmark is dark with an accent rule. */
-html[data-look="corwin"] .brand-block-card .wordmark { color: var(--ink); }
-html[data-look="corwin"] .brand-block-card .brand-sub { color: var(--muted); }
-html[data-look="corwin"] .brand-block-card::after { content: ""; width: 48px; height: 3px; background: var(--brand); border-radius: 2px; margin-top: .5rem; }
-html[data-look="corwin"] .topbar { background: var(--brand-dark); border-bottom: 3px solid var(--brand); }
-html[data-look="corwin"] .topbar nav a.active, html[data-look="corwin"] .topbar nav a:hover, html[data-look="corwin"] .topbar nav button:hover { background: rgba(255,255,255,.12); }
-html[data-look="corwin"] .hero { background: var(--brand-dark); border-bottom: 4px solid var(--brand); padding: 1.6rem 1rem 1.3rem; }
-html[data-look="corwin"] .hero h1 { text-transform: uppercase; letter-spacing: .06em; font-size: 1.25rem; font-weight: 800; }
-html[data-look="corwin"] h1, html[data-look="corwin"] h2 { letter-spacing: .01em; }
-html[data-look="corwin"] .card h2 { font-weight: 800; }
-html[data-look="corwin"] .tabs button.active { background: var(--brand-dark); border-color: var(--brand-dark); box-shadow: inset 0 -3px 0 var(--brand); }
-html[data-look="corwin"] .chips button.active { background: var(--brand-dark); border-color: var(--brand-dark); }
-html[data-look="corwin"] .auth-card { border-top: 4px solid var(--brand); }
-html[data-look="corwin"] .stat { border-top: 3px solid var(--brand); }
-html[data-look="corwin"] .btn-dark { background: var(--brand-dark); color: #fff; border-color: rgba(255,255,255,.18); }
+html[data-look="branded"] .brand-block-card .wordmark { color: var(--ink); }
+html[data-look="branded"] .brand-block-card .brand-sub { color: var(--muted); }
+html[data-look="branded"] .brand-block-card::after { content: ""; width: 48px; height: 3px; background: var(--brand); border-radius: 2px; margin-top: .5rem; }
+html[data-look="branded"] .topbar { background: var(--brand-dark); border-bottom: 3px solid var(--brand); }
+html[data-look="branded"] .topbar nav a.active, html[data-look="branded"] .topbar nav a:hover, html[data-look="branded"] .topbar nav button:hover { background: rgba(255,255,255,.12); }
+html[data-look="branded"] .hero { background: var(--brand-dark); border-bottom: 4px solid var(--brand); padding: 1.6rem 1rem 1.3rem; }
+html[data-look="branded"] .hero h1 { text-transform: uppercase; letter-spacing: .06em; font-size: 1.25rem; font-weight: 800; }
+html[data-look="branded"] h1, html[data-look="branded"] h2 { letter-spacing: .01em; }
+html[data-look="branded"] .card h2 { font-weight: 800; }
+html[data-look="branded"] .tabs button.active { background: var(--brand-dark); border-color: var(--brand-dark); box-shadow: inset 0 -3px 0 var(--brand); }
+html[data-look="branded"] .chips button.active { background: var(--brand-dark); border-color: var(--brand-dark); }
+html[data-look="branded"] .auth-card { border-top: 4px solid var(--brand); }
+html[data-look="branded"] .stat { border-top: 3px solid var(--brand); }
+html[data-look="branded"] .btn-dark { background: var(--brand-dark); color: #fff; border-color: rgba(255,255,255,.18); }
 .look-swatches { display: flex; gap: 1rem; flex-wrap: wrap; align-items: end; }
 .look-swatches input[type=color] { width: 64px; height: 40px; padding: 2px; border-radius: 8px; }
 .logo-preview { background: var(--brand-dark, #0d0f12); border-radius: 10px; padding: .8rem 1rem; display: inline-flex; align-items: center; min-height: 56px; }
 .logo-preview img { max-height: 40px; max-width: 240px; }
 @media (prefers-color-scheme: dark) {
-  html[data-look="corwin"]:not([data-theme="light"]) { --ink: #e9ebef; --bg: #0b0d10; }
+  html[data-look="branded"]:not([data-theme="light"]) { --ink: #e9ebef; --bg: #0b0d10; }
 }
-html[data-look="corwin"][data-theme="dark"] { --ink: #e9ebef; --bg: #0b0d10; }
+html[data-look="branded"][data-theme="dark"] { --ink: #e9ebef; --bg: #0b0d10; }
 @media (prefers-color-scheme: dark) {
-  html[data-look="corwin"]:not([data-theme="light"]) .tabs button.active, html[data-look="corwin"]:not([data-theme="light"]) .chips button.active { background: #2a2f37; border-color: #2a2f37; color: #fff; }
+  html[data-look="branded"]:not([data-theme="light"]) .tabs button.active, html[data-look="branded"]:not([data-theme="light"]) .chips button.active { background: #2a2f37; border-color: #2a2f37; color: #fff; }
 }
-html[data-look="corwin"][data-theme="dark"] .tabs button.active, html[data-look="corwin"][data-theme="dark"] .chips button.active { background: #2a2f37; border-color: #2a2f37; color: #fff; }
-@media (max-width: 700px) { html[data-look="corwin"] .topbar .brand-sub { display: none; } html[data-look="corwin"] .topbar .wordmark { font-size: 1.05rem; } }
+html[data-look="branded"][data-theme="dark"] .tabs button.active, html[data-look="branded"][data-theme="dark"] .chips button.active { background: #2a2f37; border-color: #2a2f37; color: #fff; }
+@media (max-width: 700px) { html[data-look="branded"] .topbar .brand-sub { display: none; } html[data-look="branded"] .topbar .wordmark { font-size: 1.05rem; } }
 
-/* ---------- Corwin look: dressed up ----------
+/* ---------- Branded look: dressed up ----------
    Brand type (Barlow, bundled), richer header and banners, polished cards and buttons. */
 @font-face { font-family: "Barlow"; font-weight: 400; font-display: swap; src: url(/vendor/fonts/barlow/barlow-latin-400-normal.woff2) format("woff2"); }
 @font-face { font-family: "Barlow"; font-weight: 600; font-display: swap; src: url(/vendor/fonts/barlow/barlow-latin-600-normal.woff2) format("woff2"); }
@@ -447,71 +447,71 @@ html[data-look="corwin"][data-theme="dark"] .tabs button.active, html[data-look=
 @font-face { font-family: "Barlow Semi Condensed"; font-weight: 700; font-display: swap; src: url(/vendor/fonts/barlow-sc/barlow-semi-condensed-latin-700-normal.woff2) format("woff2"); }
 @font-face { font-family: "Barlow Semi Condensed"; font-weight: 800; font-display: swap; src: url(/vendor/fonts/barlow-sc/barlow-semi-condensed-latin-800-normal.woff2) format("woff2"); }
 
-html[data-look="corwin"] body { font-family: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 16.5px;
+html[data-look="branded"] body { font-family: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 16.5px;
   background: radial-gradient(1200px 380px at 50% -120px, color-mix(in srgb, var(--brand) 9%, transparent), transparent 70%), var(--bg); }
-html[data-look="corwin"] h1, html[data-look="corwin"] h2, html[data-look="corwin"] h3, html[data-look="corwin"] .wordmark,
-html[data-look="corwin"] .stat b, html[data-look="corwin"] .ride-name, html[data-look="corwin"] .tabs button, html[data-look="corwin"] .route-total {
+html[data-look="branded"] h1, html[data-look="branded"] h2, html[data-look="branded"] h3, html[data-look="branded"] .wordmark,
+html[data-look="branded"] .stat b, html[data-look="branded"] .ride-name, html[data-look="branded"] .tabs button, html[data-look="branded"] .route-total {
   font-family: "Barlow Semi Condensed", "Barlow", system-ui, sans-serif; }
 /* Header: deep gradient, red rule, pill navigation */
-html[data-look="corwin"] .topbar { background: linear-gradient(180deg, color-mix(in srgb, var(--brand-dark) 82%, #3a3f47), var(--brand-dark)); box-shadow: 0 2px 14px rgba(0,0,0,.25); padding: .7rem 1.1rem; }
-html[data-look="corwin"] .topbar nav a, html[data-look="corwin"] .topbar nav button { border-radius: 99px; font-weight: 600; letter-spacing: .02em; }
-html[data-look="corwin"] .topbar nav a.active { background: var(--brand); color: #fff; }
-html[data-look="corwin"] .wordmark { letter-spacing: .26em; }
+html[data-look="branded"] .topbar { background: linear-gradient(180deg, color-mix(in srgb, var(--brand-dark) 82%, #3a3f47), var(--brand-dark)); box-shadow: 0 2px 14px rgba(0,0,0,.25); padding: .7rem 1.1rem; }
+html[data-look="branded"] .topbar nav a, html[data-look="branded"] .topbar nav button { border-radius: 99px; font-weight: 600; letter-spacing: .02em; }
+html[data-look="branded"] .topbar nav a.active { background: var(--brand); color: #fff; }
+html[data-look="branded"] .wordmark { letter-spacing: .26em; }
 /* Banners on customer pages: racing-stripe accents and a soft glow */
-html[data-look="corwin"] .hero { position: relative; overflow: hidden; padding: 2.1rem 1rem 1.7rem;
+html[data-look="branded"] .hero { position: relative; overflow: hidden; padding: 2.1rem 1rem 1.7rem;
   background: radial-gradient(600px 220px at 50% 0%, rgba(255,255,255,.08), transparent 70%), linear-gradient(180deg, color-mix(in srgb, var(--brand-dark) 80%, #3a3f47), var(--brand-dark)); }
-html[data-look="corwin"] .hero::before, html[data-look="corwin"] .hero::after { content: ""; position: absolute; top: -40%; bottom: -40%; width: 26px; background: var(--brand); transform: skewX(-24deg); opacity: .9; }
-html[data-look="corwin"] .hero::before { right: 9%; } html[data-look="corwin"] .hero::after { right: calc(9% + 38px); width: 10px; opacity: .55; }
-html[data-look="corwin"] .hero > * { position: relative; z-index: 1; }
-html[data-look="corwin"] .hero h1 { font-size: 1.55rem; letter-spacing: .08em; }
+html[data-look="branded"] .hero::before, html[data-look="branded"] .hero::after { content: ""; position: absolute; top: -40%; bottom: -40%; width: 26px; background: var(--brand); transform: skewX(-24deg); opacity: .9; }
+html[data-look="branded"] .hero::before { right: 9%; } html[data-look="branded"] .hero::after { right: calc(9% + 38px); width: 10px; opacity: .55; }
+html[data-look="branded"] .hero > * { position: relative; z-index: 1; }
+html[data-look="branded"] .hero h1 { font-size: 1.55rem; letter-spacing: .08em; }
 /* Cards, headings, tiles */
-html[data-look="corwin"] .card { border-radius: 16px; border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); box-shadow: 0 1px 2px rgba(0,0,0,.05), 0 8px 24px rgba(16,24,40,.06); }
-html[data-look="corwin"] .card > h2:first-child, html[data-look="corwin"] .card-head h2 { display: flex; align-items: center; gap: .5rem; font-size: 1.2rem; letter-spacing: .02em; }
-html[data-look="corwin"] .card > h2:first-child::before, html[data-look="corwin"] .card-head h2::before { content: ""; width: 5px; height: 1.05em; border-radius: 3px; background: var(--brand); flex: none; }
-html[data-look="corwin"] .stat { border-radius: 16px; border-top: 0; position: relative; overflow: hidden; padding-left: 1.15rem; }
-html[data-look="corwin"] .stat::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: var(--brand); }
-html[data-look="corwin"] .stat b { font-size: 2rem; font-weight: 800; letter-spacing: .01em; }
-html[data-look="corwin"] .stat span { text-transform: uppercase; letter-spacing: .06em; font-size: .72rem; font-weight: 700; }
-html[data-look="corwin"] .stat .stat-note { text-transform: none; letter-spacing: 0; font-weight: 400; }
-html[data-look="corwin"] .ride { border-radius: 14px; transition: transform .15s ease, box-shadow .15s ease; }
-html[data-look="corwin"] .ride:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(16,24,40,.08); }
-html[data-look="corwin"] .ride-name { font-size: 1.12rem; font-weight: 800; letter-spacing: .01em; }
-html[data-look="corwin"] .badge { letter-spacing: .05em; }
+html[data-look="branded"] .card { border-radius: 16px; border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); box-shadow: 0 1px 2px rgba(0,0,0,.05), 0 8px 24px rgba(16,24,40,.06); }
+html[data-look="branded"] .card > h2:first-child, html[data-look="branded"] .card-head h2 { display: flex; align-items: center; gap: .5rem; font-size: 1.2rem; letter-spacing: .02em; }
+html[data-look="branded"] .card > h2:first-child::before, html[data-look="branded"] .card-head h2::before { content: ""; width: 5px; height: 1.05em; border-radius: 3px; background: var(--brand); flex: none; }
+html[data-look="branded"] .stat { border-radius: 16px; border-top: 0; position: relative; overflow: hidden; padding-left: 1.15rem; }
+html[data-look="branded"] .stat::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: var(--brand); }
+html[data-look="branded"] .stat b { font-size: 2rem; font-weight: 800; letter-spacing: .01em; }
+html[data-look="branded"] .stat span { text-transform: uppercase; letter-spacing: .06em; font-size: .72rem; font-weight: 700; }
+html[data-look="branded"] .stat .stat-note { text-transform: none; letter-spacing: 0; font-weight: 400; }
+html[data-look="branded"] .ride { border-radius: 14px; transition: transform .15s ease, box-shadow .15s ease; }
+html[data-look="branded"] .ride:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(16,24,40,.08); }
+html[data-look="branded"] .ride-name { font-size: 1.12rem; font-weight: 800; letter-spacing: .01em; }
+html[data-look="branded"] .badge { letter-spacing: .05em; }
 /* Buttons and tabs */
-html[data-look="corwin"] button, html[data-look="corwin"] .btn { border-radius: 10px; font-weight: 700; letter-spacing: .02em; }
-html[data-look="corwin"] button:not(.btn-ghost):not(.pstep):not(.choice):not([data-goto]):not(.linklike):not(.tabs button):not(.chips button):not(.tchip):not(.linkish):not(.mini-seg button):not(.upd-x):not(.cust-btn),
-html[data-look="corwin"] .btn:not(.btn-ghost) { box-shadow: 0 1px 0 rgba(255,255,255,.18) inset, 0 4px 12px color-mix(in srgb, var(--brand) 22%, transparent); }
-html[data-look="corwin"] .btn-lg { text-transform: uppercase; letter-spacing: .08em; font-size: 1rem; padding: 1rem 1.2rem; }
-html[data-look="corwin"] .tabs { background: var(--card); padding: .3rem; border-radius: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.05); gap: .2rem; }
-html[data-look="corwin"] .tabs button { border: 0; background: transparent; text-transform: uppercase; letter-spacing: .06em; font-size: .88rem; border-radius: 10px; }
-html[data-look="corwin"] .tabs button:hover { background: var(--hover); }
-html[data-look="corwin"] .tabs button.active { background: var(--brand-dark); color: #fff; box-shadow: inset 0 -3px 0 var(--brand); }
+html[data-look="branded"] button, html[data-look="branded"] .btn { border-radius: 10px; font-weight: 700; letter-spacing: .02em; }
+html[data-look="branded"] button:not(.btn-ghost):not(.pstep):not(.choice):not([data-goto]):not(.linklike):not(.tabs button):not(.chips button):not(.tchip):not(.linkish):not(.mini-seg button):not(.upd-x):not(.cust-btn),
+html[data-look="branded"] .btn:not(.btn-ghost) { box-shadow: 0 1px 0 rgba(255,255,255,.18) inset, 0 4px 12px color-mix(in srgb, var(--brand) 22%, transparent); }
+html[data-look="branded"] .btn-lg { text-transform: uppercase; letter-spacing: .08em; font-size: 1rem; padding: 1rem 1.2rem; }
+html[data-look="branded"] .tabs { background: var(--card); padding: .3rem; border-radius: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.05); gap: .2rem; }
+html[data-look="branded"] .tabs button { border: 0; background: transparent; text-transform: uppercase; letter-spacing: .06em; font-size: .88rem; border-radius: 10px; }
+html[data-look="branded"] .tabs button:hover { background: var(--hover); }
+html[data-look="branded"] .tabs button.active { background: var(--brand-dark); color: #fff; box-shadow: inset 0 -3px 0 var(--brand); }
 /* Choice cards and step progress */
-html[data-look="corwin"] .choice { border-radius: 16px; transition: border-color .15s, box-shadow .15s, transform .15s; }
-html[data-look="corwin"] .choice:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(16,24,40,.08); }
-html[data-look="corwin"] .choice b { font-family: "Barlow Semi Condensed", "Barlow", sans-serif; font-weight: 800; letter-spacing: .02em; }
-html[data-look="corwin"] .choice-icon { background: linear-gradient(145deg, color-mix(in srgb, var(--brand) 80%, #fff), var(--brand)); box-shadow: 0 6px 14px color-mix(in srgb, var(--brand) 35%, transparent); }
-html[data-look="corwin"] .progress { position: relative; }
-html[data-look="corwin"] .pstep i { width: 30px; height: 30px; font-weight: 800; }
+html[data-look="branded"] .choice { border-radius: 16px; transition: border-color .15s, box-shadow .15s, transform .15s; }
+html[data-look="branded"] .choice:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(16,24,40,.08); }
+html[data-look="branded"] .choice b { font-family: "Barlow Semi Condensed", "Barlow", sans-serif; font-weight: 800; letter-spacing: .02em; }
+html[data-look="branded"] .choice-icon { background: linear-gradient(145deg, color-mix(in srgb, var(--brand) 80%, #fff), var(--brand)); box-shadow: 0 6px 14px color-mix(in srgb, var(--brand) 35%, transparent); }
+html[data-look="branded"] .progress { position: relative; }
+html[data-look="branded"] .pstep i { width: 30px; height: 30px; font-weight: 800; }
 /* Sign-in page: dark band with stripes behind the card */
-html[data-look="corwin"] .center-page { background:
+html[data-look="branded"] .center-page { background:
   linear-gradient(180deg, var(--brand-dark) 0 42%, transparent 42%),
   linear-gradient(115deg, transparent 0 70%, var(--brand) 70% 72.5%, transparent 72.5% 74%, color-mix(in srgb, var(--brand) 55%, transparent) 74% 75%, transparent 75%) top / 100% 42% no-repeat; }
-html[data-look="corwin"] .auth-card { box-shadow: 0 20px 50px rgba(0,0,0,.25); border-radius: 18px; }
+html[data-look="branded"] .auth-card { box-shadow: 0 20px 50px rgba(0,0,0,.25); border-radius: 18px; }
 /* Inputs */
-html[data-look="corwin"] input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]), html[data-look="corwin"] select, html[data-look="corwin"] textarea { border-radius: 10px; }
-html[data-look="corwin"] input:focus, html[data-look="corwin"] select:focus, html[data-look="corwin"] textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 22%, transparent); }
+html[data-look="branded"] input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]), html[data-look="branded"] select, html[data-look="branded"] textarea { border-radius: 10px; }
+html[data-look="branded"] input:focus, html[data-look="branded"] select:focus, html[data-look="branded"] textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 22%, transparent); }
 /* Footer line on customer pages */
 .site-foot { display: none; }
-html[data-look="corwin"] .site-foot { display: block; text-align: center; color: var(--muted); font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; padding: 1.4rem 1rem 2.2rem; }
-html[data-look="corwin"] .site-foot b { color: var(--ink); letter-spacing: .14em; }
-html[data-look="corwin"] .choice { font-weight: 400; }
-html[data-look="corwin"] .choice span:last-child { font-weight: 400; }
+html[data-look="branded"] .site-foot { display: block; text-align: center; color: var(--muted); font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; padding: 1.4rem 1rem 2.2rem; }
+html[data-look="branded"] .site-foot b { color: var(--ink); letter-spacing: .14em; }
+html[data-look="branded"] .choice { font-weight: 400; }
+html[data-look="branded"] .choice span:last-child { font-weight: 400; }
 .progress { gap: .45rem; }
 .pstep span { font-size: .7rem; padding: 0 1px; }
 @media (max-width: 600px) {
-  html[data-look="corwin"] .hero::before { right: -6%; }
-  html[data-look="corwin"] .hero::after { right: calc(-6% + 38px); }
+  html[data-look="branded"] .hero::before { right: -6%; }
+  html[data-look="branded"] .hero::after { right: calc(-6% + 38px); }
 }
 
 /* Version badge (admins) and "What's new" */
@@ -577,7 +577,7 @@ ul.copies { margin: .4rem 0 0; padding-left: 1.1rem; }
 /* Customer tracking page */
 .cust-wrap { max-width: 600px; }
 .cust-big { font-size: 1.9rem; font-weight: 800; line-height: 1.15; margin: .2rem 0 .3rem; letter-spacing: -.01em; }
-html[data-look="corwin"] .cust-big { font-family: "Barlow Semi Condensed", "Barlow", system-ui, sans-serif; text-transform: uppercase; letter-spacing: .01em; }
+html[data-look="branded"] .cust-big { font-family: "Barlow Semi Condensed", "Barlow", system-ui, sans-serif; text-transform: uppercase; letter-spacing: .01em; }
 .cust-headline { font-size: 1.15rem; margin: .2rem 0 .5rem; }
 .cust-meta { font-size: 1rem; gap: .35rem; }
 .cust-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .5rem; }

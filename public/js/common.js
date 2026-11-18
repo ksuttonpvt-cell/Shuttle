@@ -166,7 +166,7 @@ const App = (() => {
     el.className = 'topbar';
     el.innerHTML = `
       <a class="brand brand-classic" href="/"><span class="logo">🚐</span><span>Shuttle<small>${esc(settings.dealer_name)}</small></span></a>
-      <a class="brand brand-corwin" href="/">${brandMark(settings.dealer_name, 'Shuttle')}</a>
+      <a class="brand brand-branded" href="/">${brandMark(settings.dealer_name, 'Shuttle')}</a>
       <nav>${nav}<button id="helpBtn" title="Ask for help or suggest an idea">💬 Help</button><button id="themeBtn" title="Light or dark screen"></button><button id="pwBtn" title="Change password">Password</button><button id="logoutBtn">Sign out</button></nav>
       <span class="who">${esc(user.name)} · ${esc((user.roles || [user.role]).map((r) => ({ admin: 'Admin', advisor: 'Advisor', bdc: 'BDC', driver: 'Driver' }[r] || r)).join(' + '))}</span>
       ${App.version ? `<button type="button" id="verBtn" class="ver-pill" title="Version — see what's new">v${esc(App.version)}${seenVersion() !== App.version ? '<span class="ver-new">NEW</span>' : ''}</button>` : ''}`;
@@ -237,7 +237,7 @@ const App = (() => {
 
   // ---------- your branding (the Branded look) ----------
   // The logo if one was uploaded, otherwise a wordmark made from the dealership name:
-  // "CORWIN" big, "TOYOTA OF BOULDER · SHUTTLE" small.
+  // first word big ("PINE"), the rest small ("LODGE HOTEL · SHUTTLE").
   function brandMark(dealerName, extra = '') {
     const logo = document.documentElement.dataset.logo;
     const name = document.documentElement.dataset.brandName || dealerName;
@@ -259,7 +259,7 @@ const App = (() => {
     if (preview && preview !== site && !$('#lookPreview')) {
       const pill = document.createElement('div');
       pill.id = 'lookPreview'; pill.className = 'look-preview no-print';
-      pill.innerHTML = `<span>Previewing the <b>${preview === 'corwin' ? 'Corwin' : 'Classic'}</b> look<span class="lp-long"> on this device</span></span><button type="button">Stop preview</button>`;
+      pill.innerHTML = `<span>Previewing the <b>${preview === 'branded' ? 'Branded' : 'Classic'}</b> look<span class="lp-long"> on this device</span></span><button type="button">Stop preview</button>`;
       pill.querySelector('button').onclick = () => { try { localStorage.removeItem('shuttle.look'); } catch { /* ignore */ } location.reload(); };
       document.body.appendChild(pill);
     }

@@ -1,4 +1,5 @@
 process.removeAllListeners('warning');
+const { seedTestSite } = require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
@@ -9,7 +10,7 @@ const { createBackups } = require('../src/backup');
 let server; let base; let dir;
 before(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shuttle-wipe-'));
-  const db = openDb(':memory:');
+  const db = seedTestSite(openDb(':memory:'));
   ensureAdmin(db, { email: 'boss@wipe.test', password: 'adminpass1', name: 'Ken Boss' });
   const app = createApp(db, { noTimers: true, superEmail: 'boss@wipe.test', restart: () => {}, backups: createBackups({ db, dir }) });
   await new Promise((r) => { server = app.listen(0, r); });

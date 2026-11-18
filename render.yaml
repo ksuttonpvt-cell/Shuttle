@@ -1,7 +1,7 @@
 # Render Blueprint: Dashboard → New → Blueprint → pick this repo.
 services:
   - type: web
-    name: corwin-shuttle
+    name: shuttle
     runtime: node
     plan: starter            # persistent disks need a paid plan
     region: oregon

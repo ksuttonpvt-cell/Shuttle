@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.20.0",
+    "date": "2026-11-18",
+    "title": "Ready for other businesses: a blank slate with a Setup page",
+    "changes": [
+      "A brand-new install now starts blank (no business name, address or location built in) and opens on a Setup page: make the first admin account, then enter the business (dealership or shuttle service, name, phone, where the shuttle starts, time zone and colors).",
+      "Setup is protected by a one-time setup code shown only on the computer running the site, so nobody who finds the address first can take it over.",
+      "Existing sites aren't touched: your name, address, settings, staff and rides stay exactly as they are, and you never see the Setup page.",
+      "Cities in reports work anywhere in the US, not just around Boulder.",
+      "The README is now a guide for anyone installing or offering the software, and the sample data (npm run seed:demo) is placed around your own location."
+    ]
+  },
+  {
     "version": "2.19.0",
     "date": "2026-11-18",
     "title": "Remove all staff except super admins",

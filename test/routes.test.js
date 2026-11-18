@@ -1,4 +1,5 @@
 process.removeAllListeners('warning');
+const { seedTestSite } = require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { openDb } = require('../src/db');
@@ -52,7 +53,7 @@ test('road router is used when it answers, and the estimate when it fails', asyn
 
 let server; let base;
 before(async () => {
-  const db = openDb(':memory:');
+  const db = seedTestSite(openDb(':memory:'));
   ensureAdmin(db, { email: 'admin@test.local', password: 'adminpass1', name: 'Admin' });
   const app = createApp(db, { publicUrl: 'https://shuttle.test', noTimers: true });
   await new Promise((r) => { server = app.listen(0, r); });
@@ -164,7 +165,7 @@ test('drivers plan, save and share routes; maps get live positions', async () =>
 });
 
 test('routes start where the van is now, not where the phone was hours ago, and maps show only what is ahead', async () => {
-  const db = openDb(':memory:');
+  const db = seedTestSite(openDb(':memory:'));
   ensureAdmin(db, { email: 'boss@route.test', password: 'adminpass1', name: 'Boss' });
   const app = createApp(db, { noTimers: true });
   const srv = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
@@ -244,7 +245,7 @@ test('trip planning: urgent and due-soon rides first, dealership stops along the
 });
 
 test('a dealership stop drops off the route once its customers are off and on', async () => {
-  const db = openDb(':memory:');
+  const db = seedTestSite(openDb(':memory:'));
   ensureAdmin(db, { email: 'boss@trip.test', password: 'adminpass1', name: 'Boss' });
   const app = createApp(db, { noTimers: true });
   const srv = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
@@ -277,7 +278,7 @@ test('a dealership stop drops off the route once its customers are off and on', 
 });
 
 test('rotation: a driver heading back to the dealership is offered a ride within 3 miles, and the route takes it in', async () => {
-  const db = openDb(':memory:');
+  const db = seedTestSite(openDb(':memory:'));
   ensureAdmin(db, { email: 'boss@rot.test', password: 'adminpass1', name: 'Boss' });
   const app = createApp(db, { noTimers: true });
   const srv = await new Promise((r) => { const s = app.listen(0, () => r(s)); });

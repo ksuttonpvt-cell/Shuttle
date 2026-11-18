@@ -1,4 +1,5 @@
 process.removeAllListeners('warning');
+const { seedTestSite } = require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { openDb } = require('../src/db');
@@ -6,7 +7,7 @@ const { createApp, ensureAdmin } = require('../src/app');
 
 let server; let base;
 before(async () => {
-  const db = openDb(':memory:');
+  const db = seedTestSite(openDb(':memory:'));
   ensureAdmin(db, { email: 'eve@mail.test', password: 'adminpass1', name: 'Ken' });
   const app = createApp(db, { noTimers: true, superEmail: 'eve@mail.test', restart: () => {} });
   await new Promise((r) => { server = app.listen(0, r); });
@@ -87,7 +88,7 @@ test('the built-in sender talks real SMTP: encrypts first, signs in, sends the m
 test('forgot password: the link goes straight to the person; admins only hear about it if it cannot be sent', async () => {
   const sent = []; const texts = [];
   let failMail = false;
-  const db = require('../src/db').openDb(':memory:');
+  const db = seedTestSite(require('../src/db').openDb(':memory:'));
   require('../src/app').ensureAdmin(db, { email: 'boss@mail.test', password: 'adminpass1', name: 'Boss' });
   const app = require('../src/app').createApp(db, { noTimers: true,
     mailer: { configured: true, config: () => ({ host: 'x', source: 'settings' }), send: async (m) => { if (failMail) throw new Error('down'); sent.push(m); } },

@@ -1,4 +1,5 @@
 process.removeAllListeners('warning');
+const { seedTestSite } = require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { openDb } = require('../src/db');
@@ -24,7 +25,7 @@ test('planner drops people off before picking more up when the van is full', asy
 
 let server; let base;
 before(async () => {
-  const db = openDb(':memory:');
+  const db = seedTestSite(openDb(':memory:'));
   ensureAdmin(db, { email: 'admin@test.local', password: 'adminpass1', name: 'Admin' });
   const app = createApp(db, { publicUrl: 'https://shuttle.test', noTimers: true });
   app.locals.db = db;

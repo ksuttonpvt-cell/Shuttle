@@ -1,4 +1,5 @@
 process.removeAllListeners('warning');
+const { seedTestSite } = require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { openDb } = require('../src/db');
@@ -6,7 +7,7 @@ const { createApp, ensureAdmin } = require('../src/app');
 
 let server; let base;
 before(async () => {
-  const db = openDb(':memory:');
+  const db = seedTestSite(openDb(':memory:'));
   ensureAdmin(db, { email: 'admin@test.local', password: 'adminpass1', name: 'Admin' });
   const app = createApp(db, { noTimers: true });
   await new Promise((r) => { server = app.listen(0, r); });
@@ -34,13 +35,13 @@ test('Corwin look: setting, page markup, preview script, and a safe logo upload'
 
   // Pages carry the look and colors before anything draws.
   let html = await (await fetch(`${base}/login`)).text();
-  assert.match(html, /<html lang="en" data-look="corwin" data-site-look="corwin" data-logo="" data-brand-name="Corwin Toyota of Boulder" data-place="dealership" data-egg="1" data-tz="America\/Denver" data-build="[0-9a-f]{10}" style="--brand:#eb0a1e;--brand-dark:#0d0f12">/);
-  assert.match(html, /localStorage\.setItem\("shuttle\.look",q\)/, 'preview with ?look=corwin');
+  assert.match(html, /<html lang="en" data-look="branded" data-site-look="branded" data-logo="" data-brand-name="Corwin Toyota of Boulder" data-place="dealership" data-egg="1" data-tz="America\/Denver" data-build="[0-9a-f]{10}" style="--brand:#eb0a1e;--brand-dark:#0d0f12">/);
+  assert.match(html, /localStorage\.setItem\("shuttle\.look",q\)/, 'preview with ?look=branded');
   assert.equal((await admin('/api/settings', { method: 'PATCH', body: { look: 'neon' } })).status, 400);
   assert.equal((await admin('/api/settings', { method: 'PATCH', body: { brand_color: 'red' } })).status, 400);
-  await admin('/api/settings', { method: 'PATCH', body: { look: 'corwin', brand_color: '#c8102e' } });
+  await admin('/api/settings', { method: 'PATCH', body: { look: 'branded', brand_color: '#c8102e' } });
   html = await (await fetch(`${base}/request`)).text();
-  assert.match(html, /data-look="corwin" data-site-look="corwin" data-logo="" data-brand-name="Corwin Toyota of Boulder" data-place="dealership" data-egg="1" data-tz="America\/Denver" data-build="[0-9a-f]{10}" style="--brand:#c8102e;/);
+  assert.match(html, /data-look="branded" data-site-look="branded" data-logo="" data-brand-name="Corwin Toyota of Boulder" data-place="dealership" data-egg="1" data-tz="America\/Denver" data-build="[0-9a-f]{10}" style="--brand:#c8102e;/);
 
   // Easter egg switch (on by default).
   await admin('/api/settings', { method: 'PATCH', body: { easter_egg: '0' } });
@@ -103,12 +104,15 @@ test('links and QR codes use https when visitors come through Cloudflare', async
   void admin;
 });
 
-test('existing sites switch to the Corwin look once; a later choice sticks', () => {
-  const db = openDb(':memory:');
+test('existing sites switch to the branded look once (and its old name "corwin" becomes "branded"); a later choice sticks', () => {
+  const db = seedTestSite(openDb(':memory:'));
   db.prepare("INSERT INTO settings (key, value) VALUES ('look', 'classic')").run(); // a site from before the switch
   createApp(db, { noTimers: true });
   const look = () => db.prepare("SELECT value FROM settings WHERE key = 'look'").get().value;
-  assert.equal(look(), 'corwin');
+  assert.equal(look(), 'branded');
+  db.prepare("UPDATE settings SET value = 'corwin' WHERE key = 'look'").run(); // saved under its old name
+  createApp(db, { noTimers: true });
+  assert.equal(look(), 'branded', 'renamed');
   db.prepare("UPDATE settings SET value = 'classic' WHERE key = 'look'").run(); // an admin picks Classic later
   createApp(db, { noTimers: true }); // restart
   assert.equal(look(), 'classic');

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script>/* apply the saved light/dark choice before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set Up Your Shuttle</title>
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="hero"><div class="hero-emoji" style="font-size:2rem">🚐</div><h1>Set up your shuttle site</h1><div class="muted" style="color:#ccc">A few questions and you're ready to go.</div></div>
+<main class="wrap" style="max-width:600px">
+  <form class="card" id="f" hidden>
+    <div class="progress" data-progress></div>
+
+    <section data-step="you" data-title="You">
+      <h2 class="step-q">Your admin account</h2>
+      <p class="small muted" style="margin-top:0">You'll use this to sign in and run the site. You can add staff afterwards.</p>
+      <label>Setup code *</label>
+      <input name="code" required autocomplete="off" spellcheck="false" placeholder="ABCD-1234" style="max-width:220px;text-transform:uppercase">
+      <p class="small muted" style="margin:.25rem 0 0">It's shown in the window on the computer running the site (and in its log), so only the person who installed it can set it up.</p>
+      <label>Your name *</label><input name="admin_name" required autocomplete="name">
+      <label>Your email (your sign-in) *</label><input name="admin_email" type="email" required autocomplete="username">
+      <label>Password * (8+ characters)</label><input name="admin_password" type="password" required minlength="8" autocomplete="new-password">
+    </section>
+
+    <section data-step="business" data-title="Business" hidden>
+      <h2 class="step-q">Your business</h2>
+      <div class="seg" role="radiogroup" aria-label="Kind of business">
+        <input type="radio" name="business_type" value="dealership" id="bt1" checked><label for="bt1">Car dealership</label>
+        <input type="radio" name="business_type" value="shuttle" id="bt2"><label for="bt2">Shuttle service</label>
+      </div>
+      <p class="small muted" style="margin:.3rem 0 0">A shuttle service is any other business with a shuttle: a hotel, airport parking, an office, events…</p>
+      <label>Business name *</label><input name="dealer_name" required maxlength="100" placeholder="e.g. Pine Lodge Hotel">
+      <label>Phone customers can call</label><input name="dealer_phone" type="tel" placeholder="(555) 555-0100">
+      <label>What riders call your home base</label><input name="place_word" maxlength="30" placeholder="dealership" style="max-width:280px">
+      <p class="small muted" style="margin:.25rem 0 0">Used in “bring you to the ___”. For example: dealership, hotel, office, terminal.</p>
+    </section>
+
+    <section data-step="where" data-title="Location" hidden>
+      <h2 class="step-q">Where does your shuttle start?</h2>
+      <input name="dealer_address" required autocomplete="off" placeholder="Street address">
+      <div data-results></div>
+      <input type="hidden" name="dealer_lat"><input type="hidden" name="dealer_lng">
+      <div class="map map-sm" id="map" style="margin-top:.5rem"></div>
+      <div class="small muted" id="pinmsg">Pick your address from the list, or tap the map to mark the spot.</div>
+      <label>Time zone *</label>
+      <select name="timezone" required>
+        <option value="America/New_York">Eastern</option><option value="America/Chicago">Central</option>
+        <option value="America/Denver">Mountain</option><option value="America/Phoenix">Mountain, no daylight saving (Arizona)</option>
+        <option value="America/Los_Angeles">Pacific</option><option value="America/Anchorage">Alaska</option><option value="Pacific/Honolulu">Hawaii</option>
+      </select>
+    </section>
+
+    <section data-step="look" data-title="Look" hidden>
+      <h2 class="step-q">Your colors</h2>
+      <p class="small muted" style="margin-top:0">Used for buttons and the header on every page. You can add your logo, an app icon and a banner later in Admin → Settings.</p>
+      <div class="look-swatches">
+        <div><label>Accent color</label><input type="color" name="brand_color" value="#eb0a1e"></div>
+        <div><label>Header color</label><input type="color" name="brand_dark" value="#0d0f12"></div>
+      </div>
+      <div class="review" id="summary" style="margin-top:1rem"></div>
+    </section>
+
+    <div id="msg"></div>
+    <div class="step-nav">
+      <button type="button" class="btn-ghost" data-back>← Back</button>
+      <button type="button" class="btn-dark" data-next>Next →</button>
+      <button type="submit" class="btn-lg" data-submit>Finish setup</button>
+    </div>
+  </form>
+  <div class="card hidden" id="done"></div>
+</main>
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/js/common.js"></script>
+<script>
+(async () => {
+  const { $, api, esc } = App;
+  const info = await api('/api/setup');
+  if (info.done) { location.href = '/'; return; }
+  const f = $('#f');
+  // Signed in already (the first admin came from the .env file): no account step.
+  if (!info.need_admin) { const s = f.querySelector('[data-step="you"]'); s.remove(); }
+  const v = info.values || {};
+  if (v.dealer_name) f.elements.dealer_name.value = v.dealer_name;
+  if (v.dealer_phone) f.elements.dealer_phone.value = v.dealer_phone;
+  if (v.business_type) f.querySelector(`[name=business_type][value="${v.business_type}"]`).checked = true;
+  // The browser's time zone is a good guess.
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const sel = f.elements.timezone;
+  if (zone && ![...sel.options].some((o) => o.value === zone)) sel.add(new Option(zone.replace(/_/g, ' '), zone));
+  sel.value = zone && [...sel.options].some((o) => o.value === zone) ? zone : 'America/New_York';
+  f.querySelectorAll('[name=business_type]').forEach((r) => { r.onchange = () => { f.elements.place_word.placeholder = r.value === 'shuttle' ? 'office' : 'dealership'; }; });
+  f.hidden = false;
+
+  App.settings = { dealer_lat: 39.8283, dealer_lng: -98.5795, service_radius_mi: 0 };
+  const map = App.makeMap($('#map'), { lat: 39.8283, lng: -98.5795 }, 4);
+  App.addressPicker({
+    input: f.elements.dealer_address, results: $('[data-results]', f), map, geocodePath: '/api/public/geocode',
+    onPick: ({ lat, lng }) => { f.elements.dealer_lat.value = lat; f.elements.dealer_lng.value = lng; $('#pinmsg').textContent = '📍 Spot marked. Drag the pin to fine-tune it.'; },
+  });
+  App.stepper(f, {
+    msg: $('#msg'),
+    check: { where: () => (f.elements.dealer_lat.value ? null : 'Pick your address from the list, or tap the map where your shuttle starts.') },
+    onShow: (step) => {
+      if (step === 'where') setTimeout(() => map.invalidateSize(), 50);
+      if (step === 'look') {
+        const d = Object.fromEntries(new FormData(f));
+        $('#summary').innerHTML = `<b>Ready to go</b><div>${d.business_type === 'shuttle' ? 'Shuttle service' : 'Car dealership'}: <b>${esc(d.dealer_name)}</b></div>
+          <div>📍 ${esc(d.dealer_address)}</div><div>🕒 ${esc(sel.options[sel.selectedIndex].text)} time</div>${info.need_admin ? `<div>👤 Admin: ${esc(d.admin_email)}</div>` : ''}`;
+      }
+    },
+  });
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(f));
+    const body = { code: d.code, business_type: d.business_type, dealer_name: d.dealer_name, dealer_phone: d.dealer_phone, place_word: d.place_word,
+      dealer_address: d.dealer_address, dealer_lat: Number(d.dealer_lat), dealer_lng: Number(d.dealer_lng), timezone: d.timezone, brand_color: d.brand_color, brand_dark: d.brand_dark,
+      admin: info.need_admin ? { name: d.admin_name, email: d.admin_email, password: d.admin_password } : undefined };
+    try {
+      const r = await api('/api/setup', { body });
+      f.hidden = true;
+      $('#done').classList.remove('hidden');
+      $('#done').innerHTML = `<h2>🎉 You're all set</h2><p>Next, in Admin: add your vehicles and staff, and (if you like) your logo, app icon and texting.</p><div class="actions"><a class="btn btn-lg" href="${r.home}">Open Admin</a></div>`;
+    } catch (err) { App.flash($('#msg'), err.message); }
+  };
+})();
+</script>
+</body>
+</html>

@@ -1,184 +1,93 @@
-# Dealership Shuttle
+# Shuttle
 
-A shuttle dispatch website for **Corwin Toyota of Boulder**. Service advisors book rides, drivers see what to pick up first, admins run the fleet and logins, and customers get a live tracking link or QR code.
+Dispatch and live tracking for a business shuttle: a car dealership's service shuttle, or a hotel, airport-parking, office or event shuttle. Advisors (or a front desk) book rides, drivers see what to do next on their phone, admins run the fleet and staff, and customers follow their ride live from a text link or QR code, like a ride app.
+
+Every install is its own business: its own name, logo, colors, app icon, web address, staff and data. A new install starts blank and opens on a **Setup** page.
 
 ## What's in it
 
-| Section | Who | What they can do |
+| Page | Who | What they do |
 |---|---|---|
-| **Advisor desk** `/advisor` | Service advisors | Book a pick up (customer → dealership) or drop off (dealership → customer) with address search and a map pin. See the ranked shuttle queue, assign drivers, edit or cancel rides, and send the customer a tracking link by text, email, or QR code. |
-| **Driver app** `/driver` | Shuttle drivers (phone friendly) | Start a shift in a vehicle, share live GPS, see **“Do this next”**, take unassigned rides, tap through *On my way → On board → Complete*, and use one-tap Navigate, Call, and Text. |
-| **Admin** `/admin` | Admins | Live dashboard and map, ride history with CSV export, staff accounts (create, edit, reset password, disable), vehicles (make/model, plate, VIN, seats, mileage, maintenance status), printable QR codes and links, and dealership settings. |
-| **Customer request** `/request` | Anyone (can be turned off) | A public form to request a ride. Print its QR code for the service drive. |
-| **Customer tracking** `/t/<code>` | The customer | Progress steps, driver first name, which vehicle to look for, place in line, and the driver's position on a map. |
+| **Admin** `/admin` | Admins | Live dashboard and map, ride history, reports, staff and roles, vehicles, QR codes and links, phone & email, branding, settings. Super admins also get the **Server** page. |
+| **Advisor desk** `/advisor` | Service advisors / front desk | Book pick ups and drop offs step by step, see the ranked shuttle queue and live vans, assign drivers, send tracking links. |
+| **BDC desk** `/bdc` | Phone team | Find a customer's ride by name, phone or RO number while on the phone, book rides for an advisor, tell callers the current wait. |
+| **Driver app** `/driver` | Drivers (phone) | Start a shift in a van, share GPS, “Do this next”, ride offers, route planner, **I'm here**, Navigate / Call / Text. |
+| **Request a ride** `/request` | Customers | Request a pick up or drop off (can be turned off), with the current wait shown. |
+| **Tracking** `/t/<code>` | The customer | Driver photo, van and plate, stops before them, live map and countdown, “Your shuttle is here”, running late / cancel. |
 
-### “What needs to be picked up first”
-Every open ride gets a queue number. Ride in progress (on board or en route) come first, then overdue, then urgent, then soonest. When two rides are due about the same time, the one closer to the driver (or the dealership) goes first. Each ride shows why it is in that spot, for example “Late by 5 min · Urgent · 1.2 mi away”. You can change the logic in `src/priority.js`.
+Highlights:
+- **Smart queue and routes:** urgent and overdue rides first, routes that stop at your base mid-trip, seat limits, rotation offers for drivers near the base, real road times (OpenStreetMap / OSRM).
+- **Ride-app touches:** driver card, “N stops before you”, arrival alert with a wait timer and no-show, a live wait estimate for staff and customers.
+- **Roles:** admin, advisor, BDC and driver, with several roles per person.
+- **Phone & email your way:** staff use their own phones, or a business number (Twilio) for calls and texts that hides personal numbers; your own email account for password links and confirmations.
+- **Reports:** per driver and van (shifts, hours, miles, drive and wait times, no-shows), busiest hours, a downloadable ride log, and a daily shuttle + server report.
+- **Runs itself:** uses every processor core, installs updates on its own, backs up every night, clears customer details every night, and comes with **Shuttle Control** for the PC it runs on.
 
-### Live map and driver routes
+## Install
 
-- **Live vans:** while a driver is on shift with location sharing on, their phone reports in every 5 seconds (sooner when moving). The advisor and admin maps move each van smoothly, with the driver's name and an arrow for the direction they're heading. A van turns grey if its phone hasn't reported in for 2 minutes. Customers' tracking pages update every 6 seconds.
-- **Route planner (driver page):** check off several rides and tap **Find the best route**. The app works out the quickest order from where the driver is, using real road driving times. Drop-off customers are collected at the dealership first, and the route ends back at the dealership. It shows the drive time and arrival time for each stop, draws the route on the map, and **Navigate whole route** opens it in Google Maps with every stop.
-- **Use this route** saves the route. Any unassigned rides on it become the driver's, advisors and admins see the route as a colored line on their maps, and customers see an estimated arrival time. Finished stops drop off automatically, and **Re-plan from here** reorders what's left.
-- **Seat limit:** routes never put more people in the van than its seat count (set under Vehicles). When needed, the planner drops people off before picking others up. The trip shows how many are aboard after each stop (👥 3/7), and the checklist warns when the checked rides can't fit. Ride offers skip a van that can't fit the party.
-- **Directions app:** each driver picks **Google Maps, Apple Maps or Waze** (remembered on their phone). Google Maps opens every stop at once; Apple Maps and Waze take one stop at a time, so the route card shows the next stop to tap.
-- **Ride offers:** when a ride is waiting for a driver, the closest free on-duty driver (no rides, or just finishing one) gets a ding, a phone notification and a pop-up: *Ride near you. Want it?* with **Take it** or **No thanks**. If they pass or don't answer within 90 seconds, it goes to the next closest driver. Advisors see "Offered to …" on the ride. Admins can turn this off in Settings.
-- Road times come from the free public OSRM routing server. If it can't be reached, the planner uses a straight-line estimate instead (shown as a dashed line). Set `ROUTING=off` in `.env` to always use the estimate.
+Requires **Node.js 22.13 or newer** (the database is Node's built-in SQLite; nothing else to install) and **Git**.
 
-### Booking a ride, one step at a time
+### On a Windows PC (with a Cloudflare Tunnel for the web address)
+1. Install **Node.js** (LTS) from nodejs.org and **Git** from git-scm.com.
+2. In PowerShell:
+   ```powershell
+   cd C:\
+   git clone <this repository's address> Shuttle
+   cd Shuttle
+   npm install --omit=dev
+   copy .env.example .env
+   ```
+3. Double-click **start-shuttle.bat**. The window shows a **setup code**. Open http://localhost:3000. It goes to **Setup** (below).
+4. To reach it from phones, use a **Cloudflare Tunnel** (free, HTTPS, no router changes). In Cloudflare: **Zero Trust → Networks → Tunnels → Create a tunnel**. Copy the install command it shows and paste it into **Shuttle Control.bat → Cloudflare → tunnel token**. Shuttle Control then runs and reconnects the tunnel. Add a **Public hostname** (for example `shuttle.yourbusiness.com` → `http://localhost:3000`), then enter that address in **Admin → Settings → Web address** and tap **Check**.
+5. To start it with Windows, put **start-shuttle-hidden.vbs** in the Startup folder (`shell:startup`), or make a Task Scheduler task “At startup” that runs `start-shuttle.bat`. Only one copy ever runs: a second start just says it's already running. Set the PC to never sleep.
 
-Advisors (and customers on the request page) book in five short steps with a progress bar, Back and Next: **pick up or drop off → customer name and phone → location → time and number of people → urgent or just needs a ride** (customers get notes and a review instead of "urgent"). Required answers are checked before moving on, Enter goes to the next step, and the last step shows a review before booking.
+### In the cloud
+- **Render:** New → Blueprint → this repository (`render.yaml`). Render asks for the first admin's email, name and password. Sign in, and Setup opens for the business details.
+- **Docker:** a `Dockerfile` is included. Mount a volume for `/data` and serve it over HTTPS.
 
-### Drop-off waiting time and urgent rides
+### Setup (first visit)
+A new install opens **/setup**:
+1. **Your admin account**, with the **setup code** from the server window or log. That way only the person who installed it can claim it. If the first admin came from `ADMIN_EMAIL` in `.env`, they sign in instead and skip this step.
+2. **Your business:** car dealership or shuttle service, name, phone, and what riders call your base (dealership, hotel, office…).
+3. **Where the shuttle starts:** the address on a map, and the time zone.
+4. **Colors.** Then Admin opens. Add vehicles and staff, and optionally a logo, app icon, banner, texting and email.
 
-Drop offs leave at least **30 minutes** after they're booked (change it in Admin → Settings → *Drop-off waiting time*; 0 turns it off), so the shuttle can line up rides. A drop off booked sooner is moved to the earliest time, and the advisor is told. **Urgent** rides skip the wait and go to the front of the line, but an advisor must give a reason (when booking or when switching a ride to urgent later). Drivers and advisors see the reason on the ride. Customers can't mark their own requests urgent.
+Want sample data to try it? `npm run seed:demo` adds a few vans, staff (password `shuttle123`) and rides.
 
-### Easter egg 🌮
+## Make it yours (Admin → Settings)
+- **Your business:** dealership or shuttle service, name, address, phone, and the word for your base. Drivers and customers see that word everywhere, including route stops, texts and emails.
+- **Your branding:** name, colors, logo, **app icon** (browser tab, phone home screen, notifications) and a **banner** photo for the sign-in and customer pages. Every browser tab shows your name.
+- **Web address:** your own address, with a **Check** that confirms it reaches this site. Links, texts, emails and QR codes use it. There's also an optional short request link like `/ride`.
+- **Phone & email** (its own tab):
+  - **Calls and texts:** from staff's own phones, or through a business number. With the business number, Call rings the staff member's phone and connects them; Text sends from that number and saves the message on the ride.
+  - **Customers and incoming calls:** choose which number customers see, and who calls to the shuttle number ring (the driver on that customer's ride, drivers on shift, or a desk phone).
+  - **Email:** a shared mailbox from your own email system. Staff members' own addresses aren't accepted. Choose which emails go out and who gets the daily report.
 
-Every **Tuesday at noon** (dealership time) it rains tacos for 10 seconds on every open page. Turn it on or off in Admin → Settings → **Easter egg** (there's a *Try it now* button too).
+## Running it
+- **Updates:** the site checks its Git repository every 5 minutes (`AUTO_UPDATE`, `UPDATE_CHECK_MINUTES`). When a new version is there, it installs it and restarts in a few seconds, and open screens switch over by themselves. Admin → Server shows the version and has **Check for updates now**.
+- **Every night at midnight:** the day's report is saved, finished rides lose their customer details, then the database is backed up (kept 14 days, in `data/backups`; any backup can be restored from Admin → Server).
+- **Server page** (super admins): health checks, live traffic, response times, page speed on real devices, the log, daily reports, backups and restore, cores / memory / bandwidth limits, restart, and **Remove all staff** (keeps super admins and all history).
+- **Shuttle Control** (on the PC, `Shuttle Control.bat`): status, live log, start / stop / restart, and the Cloudflare connection with the reason if it can't connect.
+- **Privacy:** customer names, phones, addresses and notes are cleared nightly from finished rides. Reports keep only counts, times and cities. Passwords are hashed; secrets (email password, Twilio token, tunnel token) stay on the server.
 
-### Corwin look (dealership branding)
+## Offering it to other businesses
+Each business gets **its own install**, either on its own PC (as above) or one you host for them (for example a Render service per business). Each install has its own database, branding, staff and web address, and starts on Setup. Installs update themselves from the repository they were cloned from, so when you publish a new version to that repository's `main` branch, every install picks it up within minutes.
 
-- **Admin → Settings → Look:** try the **Corwin** look on one device first (*Preview Corwin look on this device*, or add `?look=corwin` to any page address; `?look=off` stops it). When it's right, choose **Corwin** and **Save look** to switch everyone: staff pages, sign-in, and the customer request and tracking pages.
-- It uses a dark header and banners with an accent stripe and a **CORWIN / TOYOTA OF BOULDER** wordmark made from the dealership name (change the wording under *Name shown in the header*). The accent and header colors can be changed, and the official logo can be uploaded (PNG, JPG, WebP or SVG; a white logo on a transparent background looks best).
-
-### Help & suggestions (Discord)
-
-Every staff page has a **💬 Help** button: pick Help, Idea or Problem and type a message. Messages are saved (Admin → Settings → *Help & suggestions*) and, if you add a **Discord webhook** there, posted to that Discord channel (Discord: channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL). The webhook link stays on the server; @everyone pings are blocked. You can also add a "Join our Discord" invite link.
-
-### Server tools
-
-- **Admin → Server** (super admins only; the admin in `.env` is one, and super admins can give it to other admins under Staff → Edit): the site's health checks (web address through the Cloudflare Tunnel, road routing, database, updates, nightly backup, disk space), live numbers (people online, requests per minute, response time, processor, memory), a traffic chart for the last hour, the server log with filters and search, update history, **Restart the site**, and **backups**.
-- **Backups:** a full copy of the database is made every night at 12:30 AM (after customer info is cleared) and kept 14 days in `data/backups`. **Back up now** makes an extra copy, removed at the next midnight clear so customer details aren't kept. Any backup can be downloaded or **restored**: the site saves the current database first, restarts, and swaps the backup in.
-- **Shuttle Control** (on the server PC only): double-click **Shuttle Control.bat** for a window with the site's status, a live log, and **Start / Stop / Restart**, plus buttons to open the log and backup folders. It keeps working while the website is stopped. It's part of `start-shuttle.bat`, so it appears after that has been restarted once following this update.
-- **Cloudflare connection:** Shuttle Control shows whether the PC is connected to Cloudflare (how many connections, and through which data center, e.g. Denver). To let it run the connection for you, paste your **tunnel token** into its Cloudflare card: in the Cloudflare dashboard (one.dash.cloudflare.com → Networks → Tunnels → your tunnel → Configure) copy the Windows install command and paste the whole thing; only the token is kept, in `.env` on this PC. It then starts cloudflared with the website, reconnects it if it drops, and lets you pick the connection type (Automatic, QUIC, or HTTP/2 if it keeps dropping). If cloudflared isn't installed, **Download cloudflared** gets it. If cloudflared already runs as a Windows service, it's left alone and just shown.
-- **Less lag:** pages now get **instant updates**: new rides, assignments, offers and driver moves appear on every open screen right away instead of on the next 15-second check. Admin → Server has a **speed test** (time per trip through Cloudflare, and which data center) with tips if it's slow.
-- **Logs** are saved per day in `data/logs` and kept 14 days. Passwords are never written to them.
-- **No black window:** `start-shuttle-hidden.vbs` starts everything hidden (good for Task Scheduler or the Startup folder); use Shuttle Control to see or stop it.
-
-### Vehicles: shuttles vs loaners, fuel, and importing the fleet list
-
-- Each vehicle has a **fuel type** (Gas, Hybrid, Plug-in hybrid, Electric) and a **use**: **Shuttle** or **Loaner**. Drivers can only start a shift in an active **Shuttle**; loaners never show up for them.
-- **Import vehicle list** (Admin → Vehicles) takes the dealership's fleet export (.xlsx or .csv with VIN, Plate, Make, Model, Year, Odometer, Status). It shows a preview first, then adds new vehicles and updates existing ones by VIN (plate, mileage, status). Fuel is filled in from the model (bZ / 2026 C-HR = electric, PHEV = plug-in, H / Hybrid = hybrid). New vehicles come in as loaners, except service-department ones (status "Service"), which come in as shuttles. Active vehicles (Loaned, Available, On Hold, Service) stay active; Body Shop / Out of Service show as "In shop"; Retired as retired. Vehicles not on the list are never changed, and your Shuttle/Loaner choices, names and seats are kept when you import again.
-
-### Logins
-Each person has their **own email + password** (8+ characters). Passwords are hashed with scrypt, and sign-in is rate-limited. Admins create accounts and reset passwords, and anyone can change their own password from the top bar.
-
-**Customer privacy:** every night at midnight (Admin → Settings, *Delete customer info automatically at*), finished rides lose the customer's name, phone, email, address and notes, their tracking links stop working, and the text-message log is emptied. Ride counts, times, drivers and cancel reasons stay for reports. Rides that aren't finished keep their details until they are.
-
-**Forgot password?** On the sign-in screen, tap *Forgot your password?* and enter your email. Every admin sees a 🔑 banner in the admin page (and gets a phone notification if they turned notifications on). The admin taps **Send reset link**, then texts, emails, or shows the QR code to the person. The link works once, expires in 24 hours, and signs that person out of every old device. Admins can also make a link anytime from *Staff & logins → Send reset link*.
-
-### Driver lock-screen notifications
-Drivers can get new rides on their phone's lock screen, even when the shuttle app is closed. There's nothing to sign up for: the server makes its own notification keys the first time it starts.
-- **Android (Chrome):** open the site, sign in, go to the **Phone notifications** card, tap **Turn on notifications**, then **Allow**. **Install the Shuttle app** adds an icon to the home screen.
-- **iPhone (iOS 16.4 or newer):** in Safari tap **Share → Add to Home Screen**, open **Shuttle** from the home screen and sign in there, then tap **Turn on notifications**. Apple only allows notifications for sites added to the Home Screen.
-- **What they get:** a new ride (sent to drivers who are on duty), a ride assigned to them, and their ride being cancelled by someone else. **Send a test** checks it's working.
-- The site must be on **https** (the Cloudflare address), and the server needs normal internet access to reach Google's and Apple's notification services.
-
-### Customer texts (optional)
-The site can text customers automatically when their ride is booked, when the driver is on the way, and if the ride is cancelled. It uses **Twilio** (about 1¢ per text):
-1. Create an account at twilio.com and buy a phone number. US numbers also need the free "A2P 10DLC" business registration.
-2. Add `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM` to `.env`, then restart the site.
-3. In **Admin → Settings → Customer texts**, choose which messages to send, and use **Send test** to check it works. Recent texts and any failures are listed there.
-
-Without these settings no texts are sent, and the advisor's **Text** button still opens their own phone's messaging app.
-
-## Run it
-
-Requires **Node.js 22.13 or newer** (the database is Node's built-in SQLite, so nothing else to install).
-
-```bash
-npm install
-ADMIN_EMAIL=you@yourdealership.com ADMIN_PASSWORD='choose-a-strong-one' ADMIN_NAME='Your Name' npm start
-# open http://localhost:3000
-```
-
-On first start it creates that admin account. Without `ADMIN_PASSWORD`, it prints a random one in the console.
-
-Want sample data to try it out? Run `npm run seed:demo`. It adds 3 shuttles, an advisor, 2 drivers (password `shuttle123`), and a few rides.
-
-| Env var | Default | Purpose |
+## Settings file (`.env`)
+| Setting | Default | What it's for |
 |---|---|---|
-| `PORT` | `3000` | Web port |
-| `DB_FILE` | `data/shuttle.db` | Database file (back this up) |
-| `PUBLIC_URL` | from the request | Address used in QR codes and texted links, e.g. `https://shuttle.example.com` |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_NAME` | — | First admin account (only used when there are no users yet) |
+| `PORT` | `3000` | The site's port on this computer |
+| `CONTROL_PORT` | `3001` | Shuttle Control's port (this PC only) |
+| `DB_FILE` | `data/shuttle.db` | The database (backups go next to it) |
+| `ADMIN_EMAIL` / `ADMIN_NAME` / `ADMIN_PASSWORD` | — | Optional first admin. Without them, Setup makes one. |
+| `PUBLIC_URL` | from the request | Web address for links. Admin → Settings → Web address wins. |
+| `AUTO_UPDATE` / `UPDATE_CHECK_MINUTES` | `1` / `5` | Automatic updates |
+| `CORES` / `RAM_MB` | auto | Processor cores and memory limit. These win over Admin → Server. |
+| `SMTP_*`, `TWILIO_*` | — | Email and phone. Usually set in Admin → Phone & email. These win. |
+| `CLOUDFLARE_TUNNEL_TOKEN` / `TUNNEL_PROTOCOL` | — | Set from Shuttle Control |
+| `ROUTING=off` | — | Use straight-line estimates instead of road times |
 
-### Putting it online (Render, about 15 minutes)
-1. Merge this repo's pull request into `main`.
-2. Create an account at **render.com** and sign in with GitHub, allowing access to this repo.
-3. In the Render dashboard, choose **New → Blueprint**, then pick this repo. Render reads `render.yaml`.
-4. Render asks for **ADMIN_EMAIL**, **ADMIN_NAME** and **ADMIN_PASSWORD**. That becomes your admin login.
-5. Click **Apply**. After a few minutes the site is live at `https://corwin-shuttle.onrender.com` (or a similar address), with HTTPS.
-6. Sign in, then go to **Admin → Vehicles** to add the shuttles, **Staff & logins** to add advisors and drivers, and **Settings** to confirm the dealership pin.
-
-Cost: the Starter plan (about $7/month) plus a 1 GB disk (about $0.25/month). The disk is what keeps the rides and accounts saved between restarts. Every push to `main` redeploys automatically.
-
-**Own web address (optional):** in Render, open the service, go to **Settings → Custom Domains**, and add for example `shuttle.yourdealership.com`. Render shows one DNS record for whoever manages the dealership's domain to add. Then set `PUBLIC_URL` to that address under **Environment**, so the QR codes use it. Reprint any QR codes made before the change.
-
-### Running it on your own Windows 11 PC
-**1. Install the software (one time).** Install **Node.js** (the "LTS" version) from nodejs.org and **Git** from git-scm.com, accepting the default options.
-
-**2. Get the app.** Open **PowerShell** and run:
-```powershell
-cd C:\
-git clone https://github.com/ksuttonpvt-cell/Shuttle.git
-cd Shuttle
-npm install --omit=dev
-copy .env.example .env
-notepad .env
-```
-In Notepad, fill in your admin email, name and password, plus `PUBLIC_URL` (the web address from step 4), then save.
-
-**3. Try it.** Double-click `C:\Shuttle\start-shuttle.bat`, then open http://localhost:3000 on that PC.
-
-**4. Make it reachable from phones (free, with HTTPS).** Use a **Cloudflare Tunnel**. It needs no router changes and doesn't open any ports.
-1. Make a free account at cloudflare.com and add a domain you control. This could be the dealership's domain (ask whoever manages it), or a new one bought through Cloudflare for about $10 a year.
-2. In Cloudflare, go to **Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared**, and name it `shuttle`.
-3. Choose **Windows**, and run the install command it shows in PowerShell opened with **Run as administrator**. This installs the tunnel as a Windows service that starts on its own.
-4. Under **Public hostname**, enter `shuttle` plus your domain. For the service, choose type **HTTP** with URL **localhost:3000**. Save.
-5. The site is now at `https://shuttle.yourdomain.com`. Make sure `PUBLIC_URL` in `.env` matches it.
-
-**5. Keep it running after restarts.** Open **Task Scheduler** and choose **Create Task** (not "Basic").
-- **General:** name it `Shuttle`, and tick **Run whether user is logged on or not**.
-- **Triggers:** New → **At startup**.
-- **Actions:** New → Start a program → `C:\Shuttle\start-shuttle.bat`.
-- **Settings:** untick **Stop the task if it runs longer than**, and tick **If the task fails, restart every 1 minute**.
-
-Then right-click the task and choose **Run**. Also go to **Settings → System → Power** and set sleep to **Never**.
-
-**Updates install themselves.** While the site is running, it checks GitHub every 5 minutes. When changes have been merged into `main`, it downloads them and restarts itself in a couple of seconds. Open pages carry on by themselves, and nobody has to restart anything. If the site ever crashes, it restarts after 10 seconds. **Admin → Settings → Software updates** shows the running version and when it last checked, and has a **Check for updates now** button.
-- This works when the app is started with `start-shuttle.bat` or `npm start`.
-- If Settings shows an update problem mentioning sign-in or authentication, open PowerShell in the app folder and run `git pull` once. Git will ask you to sign in to GitHub and remember it.
-- To turn automatic updates off, add `AUTO_UPDATE=0` to `.env`. To change how often it checks, set `UPDATE_CHECK_MINUTES`.
-
-**Make it yours:** Admin → Settings has Your business (dealership or other shuttle service, and the word riders use for your base), Your branding (name, colors, logo, app icon, banner photo), your own web address with a Check button, and an optional short link for ride requests. Everything customers and drivers see, down to the browser tab and phone home-screen icon, uses them.
-
-**Phone & email:** in Admin → Phone & email, choose whether staff call and text customers from their own phones or through a dealership number (Twilio, set up on that tab), which number customers see, and who calls to the shuttle number ring. Email uses the dealership's own mailbox (never a person's own address); pick which emails go out and who gets the daily report.
-
-**Reports:** drivers (shifts, hours, people carried, drive and wait times), vehicles, busiest hours and a downloadable ride log. Admin → Server → Daily reports keeps one report per day (shuttle + server: errors, response times, page speed), saved at midnight before the nightly backup.
-
-**Customer tracking like a ride app:** customers see the driver's photo, van and plate, how many stops come first, and a “Your shuttle is here” alert with a wait timer when the driver taps **I'm here**. Advisors, BDC and the request page show how long the shuttle wait is right now. Set the wait at a pick up in Admin → Settings.
-
-**Several roles:** tick every role a person has in Admin → Staff & logins (for example Service advisor + Shuttle driver). They get every page for those roles, with links in the top bar, and you can choose which page they open to.
-
-**BDC team:** give BDC staff the **BDC** role. They get their own page (`/bdc`) to find a customer's ride by name, phone or RO number, book rides ahead for a service advisor they pick (the advisor is notified and the ride shows as theirs) and text tracking links; they have an advisor's access without driver controls.
-
-**New staff accounts:** new people can tap **Ask for an account** on the sign-in page. An admin approves each one (and picks the role) from the top of **Staff & logins**; nobody can ask to be an admin. Turn it off in **Admin → Settings**.
-
-**Password resets:** with an email account set up in **Admin → Settings → Email for password resets** (Microsoft 365, Gmail or any provider), “Forgot password?” sends the reset link straight to the person; it works once, for an hour. If texting (Twilio) is set up, people with a phone number on file get it by text too. Without either, admins get an alert and send a link from Staff & logins.
-
-**Processor cores, memory and bandwidth:** the site runs one copy of itself per processor core, so it uses the whole PC when it's busy. Super admins can change this in **Admin → Server → Cores, memory & bandwidth**:
-- **Processor cores:** Auto (every core) or a set number. Takes effect when the site restarts.
-- **Memory limit:** a cap for all copies together. If the site goes over it, the copy using the most memory restarts, and its screens reconnect within seconds. Takes effect when the site restarts.
-- **Bandwidth limit:** the most upload speed the site may use, in megabits per second. Takes effect right away. Instant updates are never slowed.
-- `CORES=` and `RAM_MB=` in `.env` win over the page, for example `CORES=1` to run a single copy like before.
-
-**Backups:** everything (rides, logins, vehicles) is stored in `C:\Shuttle\data`. Copy that folder somewhere safe regularly, such as a USB drive or OneDrive. The most reliable copy is one made while the task is stopped.
-
-**Other hosts:** a `Dockerfile` is included. Mount a volume at `/data`, serve it over HTTPS, and set `PUBLIC_URL`.
-
-Maps use OpenStreetMap (no API key). Address search uses the free OpenStreetMap Nominatim service. If a search doesn't find an address, tap the map to drop a pin. The Navigate button opens Google Maps directions.
+Maps and address search use OpenStreetMap (no API key).
 
 ## Tests
 ```bash

@@ -1,4 +1,5 @@
 process.removeAllListeners('warning');
+const { seedTestSite } = require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { openDb } = require('../src/db');
@@ -7,7 +8,7 @@ const { createApp, ensureAdmin } = require('../src/app');
 const fakeSms = { configured: true, from: '+15550000000', async send() { return 'SM1'; } };
 let server; let base; let theApp;
 before(async () => {
-  const db = openDb(':memory:');
+  const db = seedTestSite(openDb(':memory:'));
   ensureAdmin(db, { email: 'admin@test.local', password: 'adminpass1', name: 'Admin' });
   theApp = createApp(db, { sms: fakeSms, publicUrl: 'https://shuttle.test', noTimers: true });
   await new Promise((r) => { server = theApp.listen(0, r); });

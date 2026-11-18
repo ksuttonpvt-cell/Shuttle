@@ -1,5 +1,5 @@
-// Which city a ride is in, for reports. Worked out from the address text first, then
-// from the map spot (nearest town around Boulder). Saved with the ride, so it stays
+// Which city a ride is in, for reports. Worked out from the address text first (anywhere in
+// the US), then from the map spot (nearest town, for a few towns around Boulder, CO). Saved with the ride, so it stays
 // after the nightly customer-info clear (a city alone doesn't identify anyone).
 const { distanceKm } = require('./priority');
 
@@ -16,7 +16,8 @@ const TOWNS = [
   ['Eldorado Springs', 39.9327, -105.2780], ['Jamestown', 40.1155, -105.3883], ['Ward', 40.0725, -105.5094],
 ].map(([name, lat, lng]) => ({ name, lat, lng, size: SIZE[name] || 1.5 }));
 const KNOWN = new Map(TOWNS.map((t) => [t.name.toLowerCase(), t.name]));
-const STATE = /^(co|colo|colorado)(\s+\d{5}(-\d{4})?)?$/i;
+const STATES = 'al|ak|az|ar|ca|co|ct|de|dc|fl|ga|hi|id|il|in|ia|ks|ky|la|me|md|ma|mi|mn|ms|mo|mt|ne|nv|nh|nj|nm|ny|nc|nd|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|vt|va|wa|wv|wi|wy|alabama|alaska|arizona|arkansas|california|colorado|colo|connecticut|delaware|district of columbia|florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|wisconsin|wyoming';
+const STATE = new RegExp(`^(${STATES})(\\s+\\d{5}(-\\d{4})?)?$`, 'i');
 const ZIP = /^\d{5}(-\d{4})?$/;
 const titleCase = (s) => s.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
 

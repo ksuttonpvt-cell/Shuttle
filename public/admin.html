@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<script>/* apply the saved light/dark choice and any look preview before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;var q=new URLSearchParams(location.search).get("look");if(q==="corwin"||q==="classic")localStorage.setItem("shuttle.look",q);else if(q==="off")localStorage.removeItem("shuttle.look");var l=localStorage.getItem("shuttle.look");if(l==="corwin"||l==="classic")document.documentElement.dataset.look=l}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
+<script>/* apply the saved light/dark choice and any look preview before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;var q=new URLSearchParams(location.search).get("look");if(q==="branded"||q==="classic")localStorage.setItem("shuttle.look",q);else if(q==="off")localStorage.removeItem("shuttle.look");var l=localStorage.getItem("shuttle.look");if(l==="branded"||l==="classic")document.documentElement.dataset.look=l}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shuttle Admin</title>
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/css/app.css">
@@ -238,13 +238,13 @@
     <h2>Your branding</h2>
     <p class="small muted" style="margin-top:0">Your name, colors, logo, app icon and banner show on every page: sign-in, the staff and driver pages, the customer request and tracking pages, the browser tab, and phones' home screens. Try the <b>Branded</b> look on just this device first, then switch it on for everyone.</p>
     <div class="actions" style="margin:.2rem 0 .8rem">
-      <a class="btn btn-ghost" href="/admin?look=corwin#settings">👀 Preview the Branded look on this device</a>
+      <a class="btn btn-ghost" href="/admin?look=branded#settings">👀 Preview the Branded look on this device</a>
       <a class="btn btn-ghost" href="/admin?look=off#settings">Stop preview</a>
     </div>
     <form id="lookForm">
       <div class="seg" role="radiogroup" aria-label="Look for everyone">
         <input type="radio" name="look" value="classic" id="lookClassic"><label for="lookClassic">Classic</label>
-        <input type="radio" name="look" value="corwin" id="lookCorwin"><label for="lookCorwin">Branded</label>
+        <input type="radio" name="look" value="branded" id="lookBranded"><label for="lookBranded">Branded</label>
       </div>
       <label style="margin-top:.8rem">Name shown in the header and the browser tab</label>
       <input name="brand_name" placeholder="Your business name">
@@ -473,7 +473,7 @@
         <div id="perfOut" class="small muted">Loading…</div>
         <details style="margin-top:.6rem"><summary class="small">What each part means, and what helps</summary>
           <ul class="small" style="padding-left:1.1rem;margin:.4rem 0">
-            <li><b>Finding the address (DNS):</b> the phone asking where corwinshuttleservice.com is. Slow here means the Wi-Fi or router's DNS. On the Ubiquiti router, set the DNS servers to 1.1.1.1 and 1.0.0.1, and make sure there's no local DNS record or host override for the site's address.</li>
+            <li><b>Finding the address (DNS):</b> the phone asking where your site's address is. Slow here means the Wi-Fi or router's DNS. On the Ubiquiti router, set the DNS servers to 1.1.1.1 and 1.0.0.1, and make sure there's no local DNS record or host override for the site's address.</li>
             <li><b>Connecting:</b> reaching Cloudflare. Slow here means weak Wi-Fi or cell signal.</li>
             <li><b>Waiting for the shuttle PC:</b> Cloudflare passing the request to the PC and back. Slow here means the PC was asleep or busy, or the Cloudflare connection was reconnecting (see Shuttle Control).</li>
             <li><b>Downloading / building the page:</b> the phone itself. Older phones take longer.</li>
@@ -1655,7 +1655,7 @@
     e.preventDefault();
     try {
       await api('/api/settings', { method: 'PATCH', body: { look: lf.elements.look.value, brand_color: lf.elements.brand_color.value, brand_dark: lf.elements.brand_dark.value, brand_name: lf.elements.brand_name.value.trim().slice(0, 60) } });
-      App.flash($('#lookMsg'), lf.elements.look.value === 'corwin' ? 'Saved. Everyone now gets the Branded look.' : 'Saved. Everyone gets the Classic look.', true);
+      App.flash($('#lookMsg'), lf.elements.look.value === 'branded' ? 'Saved. Everyone now gets the Branded look.' : 'Saved. Everyone gets the Classic look.', true);
       try { localStorage.removeItem('shuttle.look'); } catch { /* ignore */ }
       setTimeout(() => location.reload(), 900);
     } catch (err) { App.flash($('#lookMsg'), err.message); }

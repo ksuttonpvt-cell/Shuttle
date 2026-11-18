@@ -1,4 +1,5 @@
 process.removeAllListeners('warning');
+const { seedTestSite } = require('./helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { openDb } = require('../src/db');
@@ -6,7 +7,7 @@ const { createApp, ensureAdmin } = require('../src/app');
 
 let server; let base; let db; let theApp;
 before(async () => {
-  db = openDb(':memory:');
+  db = seedTestSite(openDb(':memory:'));
   ensureAdmin(db, { email: 'admin@test.local', password: 'adminpass1', name: 'Admin' });
   theApp = createApp(db, { noTimers: true });
   await new Promise((r) => { server = theApp.listen(0, r); });
