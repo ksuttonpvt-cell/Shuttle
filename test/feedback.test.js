@@ -82,3 +82,32 @@ test('help & suggestions are saved and posted to Discord; the webhook stays secr
   for (let i = 0; i < 10; i++) last = await dana('/api/feedback', { body: { message: `note ${i}` } });
   assert.equal(last.status, 429);
 });
+
+test('Discord: one channel for everything, or a channel for each kind', async () => {
+  const admin = client(); await admin('/api/login', { body: { email: 'admin@test.local', password: 'adminpass1' } });
+  const H = (n) => `https://discord.com/api/webhooks/90000000${n}/token-${n}`;
+  const put = (body) => admin('/api/feedback/webhook', { method: 'PUT', body });
+  assert.equal((await put({ mode: 'per_kind', hooks: { help: H(1), idea: 'nope' } })).status, 400, 'bad link');
+  assert.equal((await put({ mode: 'per_kind', remove: 'every' })).status, 200);
+  assert.equal((await put({ mode: 'per_kind', hooks: { help: H(1) } })).status, 400, 'each kind needs a channel (or the everything link)');
+  assert.equal((await put({ mode: 'per_kind', hooks: { help: H(1), idea: H(2), problem: H(3) } })).status, 200);
+  const d = (await admin('/api/feedback')).data;
+  assert.equal(d.mode, 'per_kind'); assert.equal(d.hooks.help, '…/en-1'); assert.ok(!JSON.stringify(d).includes('token-1'), 'links stay secret');
+  // Each kind goes to its own channel.
+  const sent = async (kind) => { await admin('/api/feedback', { body: { kind, message: `A ${kind} message` } }); return posts.at(-1).url; };
+  assert.equal(await sent('help'), H(1)); assert.equal(await sent('idea'), H(2)); assert.equal(await sent('problem'), H(3));
+  // A kind without its own falls back to the "everything" link.
+  await put({ hooks: { all: H(9) }, remove: ['problem'] });
+  assert.equal(await sent('problem'), H(9));
+  // Test: once to each channel, with a result for each.
+  const before = posts.length;
+  const t = (await admin('/api/feedback/test', { body: {} })).data;
+  assert.equal(t.results.length, 3); assert.equal(posts.length - before, 3);
+  assert.deepEqual(t.results.map((r) => r.kinds).sort(), [['help'], ['idea'], ['problem']]);
+  // Back to one channel: everything goes there, and one test message.
+  await put({ mode: 'one', hooks: {} });
+  assert.equal(await sent('idea'), H(9));
+  assert.equal((await admin('/api/feedback/test', { body: {} })).data.results.length, 1);
+  await put({ remove: 'every' });
+  assert.equal((await admin('/api/feedback')).data.webhook_set, false);
+});
