@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.22.0",
+    "date": "2026-11-18",
+    "title": "Adding a person, step by step, with first and last name",
+    "changes": [
+      "Staff & logins → Add a person is now four short steps: name (first and last), sign-in (email and mobile phone), roles, and password, with a review before Create account. A password is filled in for you; tap New one for another.",
+      "First and last name are asked for everywhere a name is entered: adding a person, Edit, “Ask for an account” on the sign-in page, and Setup."
+    ]
+  },
+  {
     "version": "2.21.0",
     "date": "2026-11-18",
     "title": "Managers, and deleting a person",

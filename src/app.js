@@ -255,6 +255,12 @@ function createApp(db, opts = {}) {
   });
   // BDC team members are advisors (same access) with their own page.
   const STAFF_ROLES = ['admin', 'advisor', 'driver', 'bdc'];
+  // First and last name -> the full name kept for the person ("name" alone still works).
+  const fullName = (b) => {
+    const first = str(b.first_name, 50); const last = str(b.last_name, 50);
+    if (b.first_name !== undefined || b.last_name !== undefined) return first && last ? `${first} ${last}`.replace(/\s+/g, ' ') : null;
+    return str(b.name, 100);
+  };
   const RESERVED_PATHS = new Set(['setup', 'admin', 'advisor', 'bdc', 'driver', 'login', 'logout', 'request', 'reset', 't', 's', 'api', 'brand', 'icons', 'js', 'css', 'vendor', 'img', 'healthz', 'sw.js', 'manifest.webmanifest', 'favicon.ico', 'robots.txt']);
   const brandName = () => { const s = getSettings(); return String(s.brand_name || s.dealer_name || 'Shuttle').trim(); };
   const asRole = (r) => (r === 'bdc' ? { role: 'advisor', team: 'bdc' } : { role: r, team: null });
@@ -708,8 +714,8 @@ function createApp(db, opts = {}) {
   app.post('/api/signup', async (req, res) => {
     if (getSettings().staff_signup === '0') return bad(res, 'Ask a shuttle manager to make your account.', 403);
     const b = req.body || {};
-    const name = str(b.name, 100); const email = str(b.email, 200); const role = b.role;
-    if (!name || name.length < 2) return bad(res, 'Enter your name.');
+    const name = fullName(b); const email = str(b.email, 200); const role = b.role;
+    if (!name || name.length < 3) return bad(res, 'Enter your first and last name.');
     if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return bad(res, 'Enter a valid email.');
     if (!['advisor', 'driver', 'bdc'].includes(role)) return bad(res, 'Pick Advisor, BDC or Driver.');
     const err = validatePassword(b.password);
@@ -758,10 +764,11 @@ function createApp(db, opts = {}) {
   });
 
   app.post('/api/users', requireRole('admin'), async (req, res) => {
-    const name = str(req.body.name, 100);
+    const name = fullName(req.body);
     const email = str(req.body.email, 200);
     const rr = rolesFrom(req.body);
-    if (!name || !email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return bad(res, 'Name and a valid email are required.');
+    if (!name) return bad(res, 'Enter their first and last name.');
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return bad(res, 'Enter a valid email.');
     if (!rr || rr.error) return bad(res, 'Pick a role.');
     const err = validatePassword(req.body.password);
     if (err) return bad(res, err);
@@ -783,7 +790,8 @@ function createApp(db, opts = {}) {
       if (clash) return bad(res, 'That email already has an account.');
       user.email = email;
     }
-    if (b.name != null) user.name = str(b.name, 100) || user.name;
+    if (b.first_name !== undefined || b.last_name !== undefined) { const n = fullName(b); if (!n) return bad(res, 'Enter their first and last name.'); user.name = n; }
+    else if (b.name != null) user.name = str(b.name, 100) || user.name;
     if (b.phone !== undefined) user.phone = str(b.phone, 40);
     const rr = rolesFrom(b);
     if (rr) {
@@ -3307,8 +3315,8 @@ function createApp(db, opts = {}) {
     let admin = null;
     if (making) {
       const a = b.admin || {};
-      const aname = str(a.name, 100); const email = str(a.email, 200);
-      if (!aname || !email || !ADDR_RE.test(email)) return bad(res, 'Enter your name and email for your manager account.');
+      const aname = fullName(a); const email = str(a.email, 200);
+      if (!aname || !email || !ADDR_RE.test(email)) return bad(res, 'Enter your first and last name and your email for your manager account.');
       const err = validatePassword(a.password); if (err) return bad(res, err);
       admin = { aname, email, hash: await hashPasswordAsync(a.password) };
     }

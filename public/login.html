@@ -41,7 +41,7 @@
     <form id="signup" class="hidden">
       <h2 style="margin-top:0">Ask for an account</h2>
       <p class="small muted">For staff. A shuttle manager approves new accounts; then you sign in with this email and password.</p>
-      <label for="sname">Your name</label><input id="sname" name="name" autocomplete="name" required maxlength="100">
+      <div class="row"><div><label for="sfirst">First name</label><input id="sfirst" name="first_name" autocomplete="given-name" required maxlength="50"></div><div><label for="slast">Last name</label><input id="slast" name="last_name" autocomplete="family-name" required maxlength="50"></div></div>
       <label for="semail">Work email</label><input id="semail" name="email" type="email" autocomplete="email" required>
       <label for="sphone">Mobile phone <span class="muted">(optional, for reset links by text)</span></label><input id="sphone" name="phone" type="tel" autocomplete="tel">
       <label>I'm a…</label>
@@ -80,7 +80,7 @@
     e.preventDefault();
     const f = e.target.elements; const btn = e.target.querySelector('.btn-lg'); btn.disabled = true;
     try {
-      const r = await App.api('/api/signup', { body: { name: f.name.value, email: f.email.value, phone: f.phone.value, role: f.role.value, password: f.password.value, note: f.note.value } });
+      const r = await App.api('/api/signup', { body: { first_name: f.first_name.value, last_name: f.last_name.value, email: f.email.value, phone: f.phone.value, role: f.role.value, password: f.password.value, note: f.note.value } });
       App.flash(App.$('#smsg'), r.message, true);
       App.$('#email').value = f.email.value;
       e.target.querySelectorAll('input').forEach((i) => { i.disabled = true; });

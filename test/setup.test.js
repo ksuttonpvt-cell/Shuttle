@@ -34,7 +34,7 @@ test('a brand-new install starts blank and opens on Setup, protected by the setu
   assert.deepEqual([info.done, info.need_admin], [false, true]);
   const code = setting('setup_code'); assert.match(code, /^[A-Z0-9x]{4}-[A-Z0-9x]{4}$/i);
 
-  const admin = { name: 'Lee Owner', email: 'lee@pinelodge.test', password: 'owner-pass-1' };
+  const admin = { first_name: 'Lee', last_name: 'Owner', email: 'lee@pinelodge.test', password: 'owner-pass-1' };
   assert.equal((await call('/api/setup', { body: { ...BUSINESS, code: 'NOPE-NOPE', admin } })).status, 400, 'wrong code');
   assert.equal((await call('/api/setup', { body: { ...BUSINESS, code, dealer_lat: null, admin } })).status, 400, 'needs the location');
   const ok = await call('/api/setup', { body: { ...BUSINESS, code: code.toLowerCase(), admin } });

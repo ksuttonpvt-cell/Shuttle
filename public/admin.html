@@ -51,15 +51,33 @@
       <h2>Add a person</h2>
       <p class="small muted">Each person signs in with their own email and password.</p>
       <form id="userForm">
-        <label>Full name *</label><input name="name" required>
-        <label>Email (their sign-in) *</label><input name="email" type="email" required>
-        <label>Mobile phone</label><input name="phone" type="tel">
-        <label>Roles * <span class="small muted">(pick every one that fits)</span></label>
-        <div id="newRoles"></div>
-        <label>Starting password * (8+ characters)</label>
-        <div class="linkbox"><input name="password" required minlength="8"><button type="button" class="btn-ghost btn-sm" id="genPw">Generate</button></div>
+        <div class="progress" data-progress></div>
+        <section data-step="name" data-title="Name">
+          <h3 class="step-q">What's their name?</h3>
+          <div class="row"><div><label>First name *</label><input name="first_name" required maxlength="50" autocomplete="given-name"></div><div><label>Last name *</label><input name="last_name" required maxlength="50" autocomplete="family-name"></div></div>
+        </section>
+        <section data-step="contact" data-title="Contact" hidden>
+          <h3 class="step-q">How do they sign in?</h3>
+          <label>Email (their sign-in) *</label><input name="email" type="email" required autocomplete="off">
+          <label>Mobile phone</label><input name="phone" type="tel" autocomplete="off">
+          <p class="small muted" style="margin:.25rem 0 0">Needed for calls through the dealership number, and for password links by text.</p>
+        </section>
+        <section data-step="roles" data-title="Roles" hidden>
+          <h3 class="step-q">What do they do? <span class="small muted">(pick every one that fits)</span></h3>
+          <div id="newRoles"></div>
+        </section>
+        <section data-step="password" data-title="Password" hidden>
+          <h3 class="step-q">Their starting password</h3>
+          <div class="linkbox"><input name="password" required minlength="8" autocomplete="off"><button type="button" class="btn-ghost btn-sm" id="genPw">New one</button></div>
+          <p class="small muted" style="margin:.25rem 0 0">8+ characters. They can change it after signing in.</p>
+          <div class="review" data-summary style="margin-top:.8rem"></div>
+        </section>
         <div id="userMsg"></div>
-        <button class="btn-block" style="margin-top:1rem">Create account</button>
+        <div class="step-nav">
+          <button type="button" class="btn-ghost" data-back>← Back</button>
+          <button type="button" class="btn-dark" data-next>Next →</button>
+          <button type="submit" class="btn-lg" data-submit>Create account</button>
+        </div>
       </form>
     </div>
     <div class="card"><div class="card-head"><h2>Everyone</h2><span class="small muted" id="userCount"></span></div>
@@ -656,6 +674,8 @@
 
   // ---------- users ----------
   let users = [];
+  // "Mary Ann Lee" -> ["Mary Ann", "Lee"]: the last word is the last name.
+  const splitName = (n) => { const w = String(n || '').trim().split(/\s+/); return w.length > 1 ? [w.slice(0, -1).join(' '), w[w.length - 1]] : [w[0] || '', '']; };
   const genPw = () => Array.from(crypto.getRandomValues(new Uint8Array(10)), (b) => 'abcdefghjkmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ23456789'[b % 54]).join('');
   $('#genPw').onclick = () => { $('#userForm').elements.password.value = genPw(); };
   // The list shows only name, role and status; contact details and account actions are under Edit.
@@ -680,7 +700,7 @@
   function editUser(u) {
     const m = App.modal(`<h2>${esc(u.name)}</h2>
       <form data-details>
-        <label>Name</label><input name="name" value="${esc(u.name)}" required>
+        <div class="row"><div><label>First name</label><input name="first_name" value="${esc(splitName(u.name)[0])}" required maxlength="50"></div><div><label>Last name</label><input name="last_name" value="${esc(splitName(u.name)[1])}" required maxlength="50"></div></div>
         <label>Email (their sign-in)</label><input name="email" type="email" value="${esc(u.email)}" required>
         <label>Mobile phone</label><input name="phone" type="tel" value="${esc(u.phone || '')}">
         <label>Roles</label>${rolePicker(rolesOfU(u), { start: u.start_page, lockAdmin: u.id === me.id })}
@@ -809,15 +829,29 @@
     } catch (err) { alert(err.message); }
   });
   loaders.users = loadUsers;
-  $('#userForm').onsubmit = async (e) => {
+  // Add a person, one step at a time: name -> sign-in -> roles -> password (with a review).
+  const uf0 = $('#userForm');
+  const userSteps = App.stepper(uf0, {
+    msg: $('#userMsg'), noFocus: false, scrollTo: uf0,
+    check: { roles: () => (readRoles(uf0).length ? null : 'Pick at least one role.') },
+    onShow: (step) => {
+      if (step !== 'password') return;
+      if (!uf0.elements.password.value) uf0.elements.password.value = genPw();
+      const f = uf0.elements;
+      $('[data-summary]', uf0).innerHTML = `<b>Review</b><div>👤 <b>${esc(`${f.first_name.value.trim()} ${f.last_name.value.trim()}`)}</b></div>
+        <div>✉️ ${esc(f.email.value)}${f.phone.value ? ` · 📞 ${esc(f.phone.value)}` : ''}</div>
+        <div>🧩 ${esc(readRoles(uf0).map((r) => ROLE[r]).join(' + '))}</div>`;
+    },
+  });
+  uf0.onsubmit = async (e) => {
     e.preventDefault();
-    const body = Object.fromEntries(new FormData(e.target));
-    body.roles = readRoles(e.target);
-    if (!body.roles.length) { App.flash($('#userMsg'), 'Pick at least one role.'); return; }
+    const f = uf0.elements;
+    const body = { first_name: f.first_name.value, last_name: f.last_name.value, email: f.email.value, phone: f.phone.value, password: f.password.value,
+      roles: readRoles(uf0), start_page: f.start_page ? f.start_page.value : '' };
     try {
       const { user } = await api('/api/users', { body });
       App.flash($('#userMsg'), `Created ${user.name}. Give them: email ${user.email} / password ${body.password}`, true);
-      e.target.reset(); $('#newRoles').innerHTML = rolePicker(); wireRolePicker($('#newRoles')); loadUsers();
+      uf0.reset(); $('#newRoles').innerHTML = rolePicker(); wireRolePicker($('#newRoles')); userSteps.reset(); loadUsers();
     } catch (err) { App.flash($('#userMsg'), err.message); }
   };
   $('#newRoles').innerHTML = rolePicker(); wireRolePicker($('#newRoles'));
