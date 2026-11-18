@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.18.2",
+    "date": "2026-11-18",
+    "title": "Cloudflare connection: no more fighting copies",
+    "changes": [
+      "Only one copy of the shuttle program runs at a time. Starting it again (for example the Startup folder plus a double-click) now just says it's already running and closes, instead of starting a second website and a second Cloudflare connection that fight over the same port.",
+      "If Shuttle Control was closed without stopping the Cloudflare connection (the window's X, or Task Manager), that leftover connection is stopped before a new one starts.",
+      "If Cloudflare's status port is taken anyway, the next try uses another port instead of failing over and over.",
+      "Shuttle Control shows why it can't connect (for example “status port in use”, “token refused”, or “can't reach Cloudflare”), and its status now shows its own connection, not a stuck leftover one."
+    ]
+  },
+  {
     "version": "2.18.1",
     "date": "2026-11-18",
     "title": "Finished rides show when they really happened",

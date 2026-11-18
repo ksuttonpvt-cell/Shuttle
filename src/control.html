@@ -145,8 +145,8 @@
   function cloudflare(t) {
     let cls = 'bad'; let text = 'Not connected to Cloudflare'; let note = 'People outside this PC can\'t reach the website.';
     if (t.ready) { cls = 'ok'; text = 'Connected to Cloudflare'; note = `${t.connections} connection${t.connections === 1 ? '' : 's'}${t.locations.length ? ` · through ${t.locations.join(', ')}` : ''}${t.running ? ' · run by Shuttle Control' : ' · run by cloudflared on this PC (for example a Windows service)'}`; }
-    else if (t.running) { cls = 'busy'; text = 'Connecting to Cloudflare…'; note = 'This usually takes a few seconds.'; }
-    else if (t.managed) { cls = 'busy'; text = 'Reconnecting to Cloudflare…'; note = 'It stopped and will try again shortly. See the log below.'; }
+    else if (t.running) { cls = 'busy'; text = 'Connecting to Cloudflare…'; note = t.last_error || 'This usually takes a few seconds.'; }
+    else if (t.managed) { cls = 'busy'; text = 'Reconnecting to Cloudflare…'; note = t.last_error ? `It stopped: ${t.last_error}` : 'It stopped and will try again shortly. See the log below.'; }
     $('#cfBig').className = `big ${cls}`; $('#cfText').textContent = text; $('#cfNote').textContent = note;
     const own = t.has_token;
     $('#cfButtons').innerHTML = own ? `
