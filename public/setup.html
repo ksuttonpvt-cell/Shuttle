@@ -19,7 +19,7 @@
       <label>Setup code *</label>
       <input name="code" required autocomplete="off" spellcheck="false" placeholder="ABCD-1234" style="max-width:220px;text-transform:uppercase">
       <p class="small muted" style="margin:.25rem 0 0">It's shown in the window on the computer running the site (and in its log), so only the person who installed it can set it up.</p>
-      <label>Your name *</label><input name="admin_name" required autocomplete="name">
+      <div class="row"><div><label>First name *</label><input name="admin_first" required maxlength="50" autocomplete="given-name"></div><div><label>Last name *</label><input name="admin_last" required maxlength="50" autocomplete="family-name"></div></div>
       <label>Your email (your sign-in) *</label><input name="admin_email" type="email" required autocomplete="username">
       <label>Password * (8+ characters)</label><input name="admin_password" type="password" required minlength="8" autocomplete="new-password">
     </section>
@@ -116,7 +116,7 @@
     const d = Object.fromEntries(new FormData(f));
     const body = { code: d.code, business_type: d.business_type, dealer_name: d.dealer_name, dealer_phone: d.dealer_phone, place_word: d.place_word,
       dealer_address: d.dealer_address, dealer_lat: Number(d.dealer_lat), dealer_lng: Number(d.dealer_lng), timezone: d.timezone, brand_color: d.brand_color, brand_dark: d.brand_dark,
-      admin: info.need_admin ? { name: d.admin_name, email: d.admin_email, password: d.admin_password } : undefined };
+      admin: info.need_admin ? { first_name: d.admin_first, last_name: d.admin_last, email: d.admin_email, password: d.admin_password } : undefined };
     try {
       const r = await api('/api/setup', { body });
       f.hidden = true;

@@ -255,6 +255,12 @@ function createApp(db, opts = {}) {
   });
   // BDC team members are advisors (same access) with their own page.
   const STAFF_ROLES = ['admin', 'advisor', 'driver', 'bdc'];
+  // First and last name -> the full name kept for the person ("name" alone still works).
+  const fullName = (b) => {
+    const first = str(b.first_name, 50); const last = str(b.last_name, 50);
+    if (b.first_name !== undefined || b.last_name !== undefined) return first && last ? `${first} ${last}`.replace(/\s+/g, ' ') : null;
+    return str(b.name, 100);
+  };
   const RESERVED_PATHS = new Set(['setup', 'admin', 'advisor', 'bdc', 'driver', 'login', 'logout', 'request', 'reset', 't', 's', 'api', 'brand', 'icons', 'js', 'css', 'vendor', 'img', 'healthz', 'sw.js', 'manifest.webmanifest', 'favicon.ico', 'robots.txt']);
   const brandName = () => { const s = getSettings(); return String(s.brand_name || s.dealer_name || 'Shuttle').trim(); };
   const asRole = (r) => (r === 'bdc' ? { role: 'advisor', team: 'bdc' } : { role: r, team: null });
@@ -708,8 +714,8 @@ function createApp(db, opts = {}) {
   app.post('/api/signup', async (req, res) => {
     if (getSettings().staff_signup === '0') return bad(res, 'Ask a shuttle manager to make your account.', 403);
     const b = req.body || {};
-    const name = str(b.name, 100); const email = str(b.email, 200); const role = b.role;
-    if (!name || name.length < 2) return bad(res, 'Enter your name.');
+    const name = fullName(b); const email = str(b.email, 200); const role = b.role;
+    if (!name || name.length < 3) return bad(res, 'Enter your first and last name.');
     if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return bad(res, 'Enter a valid email.');
     if (!['advisor', 'driver', 'bdc'].includes(role)) return bad(res, 'Pick Advisor, BDC or Driver.');
     const err = validatePassword(b.password);
@@ -758,10 +764,11 @@ function createApp(db, opts = {}) {
   });
 
   app.post('/api/users', requireRole('admin'), async (req, res) => {
-    const name = str(req.body.name, 100);
+    const name = fullName(req.body);
     const email = str(req.body.email, 200);
     const rr = rolesFrom(req.body);
-    if (!name || !email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return bad(res, 'Name and a valid email are required.');
+    if (!name) return bad(res, 'Enter their first and last name.');
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return bad(res, 'Enter a valid email.');
     if (!rr || rr.error) return bad(res, 'Pick a role.');
     const err = validatePassword(req.body.password);
     if (err) return bad(res, err);
@@ -783,7 +790,8 @@ function createApp(db, opts = {}) {
       if (clash) return bad(res, 'That email already has an account.');
       user.email = email;
     }
-    if (b.name != null) user.name = str(b.name, 100) || user.name;
+    if (b.first_name !== undefined || b.last_name !== undefined) { const n = fullName(b); if (!n) return bad(res, 'Enter their first and last name.'); user.name = n; }
+    else if (b.name != null) user.name = str(b.name, 100) || user.name;
     if (b.phone !== undefined) user.phone = str(b.phone, 40);
     const rr = rolesFrom(b);
     if (rr) {
@@ -3069,8 +3077,16 @@ function createApp(db, opts = {}) {
   // address is a secret: it's never sent to browsers.
   const KINDS = { help: ['🙋 Help request', 0x1a73e8], idea: ['💡 Suggestion', 0x0f8a3c], problem: ['🐞 Problem', 0xeb0a1e] };
   const WEBHOOK_RE = /^https:\/\/((ptb|canary)\.)?discord(app)?\.com\/api\/webhooks\/\d+\/[\w-]+$/;
-  async function postToDiscord({ kind, message, from, page }) {
-    const hook = getSettings().discord_webhook;
+  // One webhook for everything, or one per kind of message (each to its own channel; a kind
+  // without its own falls back to the main one).
+  const HOOK_KEYS = { all: 'discord_webhook', help: 'discord_webhook_help', idea: 'discord_webhook_idea', problem: 'discord_webhook_problem' };
+  function hookFor(kind) {
+    const s = getSettings();
+    return (s.discord_mode === 'per_kind' && s[HOOK_KEYS[kind]]) || s.discord_webhook || '';
+  }
+  const hookHint = (h) => (h ? `…/${h.split('/').pop().slice(-4)}` : null);
+  async function postToDiscord({ kind, message, from, page, hook: forced = null }) {
+    const hook = forced || hookFor(kind);
     if (!hook) return { sent: false, error: null };
     const [title, color] = KINDS[kind] || KINDS.help;
     const body = {
@@ -3101,23 +3117,58 @@ function createApp(db, opts = {}) {
   });
   app.get('/api/feedback', requireRole('admin'), (req, res) => {
     const s = getSettings(); const hook = s.discord_webhook || '';
+    const hooks = Object.fromEntries(Object.entries(HOOK_KEYS).map(([k, key]) => [k, hookHint(s[key])]));
     res.json({
-      webhook_set: !!hook, webhook_hint: hook ? `…/${hook.split('/').pop().slice(-4)}` : null, invite: s.discord_invite || '',
+      webhook_set: Object.values(hooks).some(Boolean), webhook_hint: hookHint(hook), invite: s.discord_invite || '',
+      mode: s.discord_mode === 'per_kind' ? 'per_kind' : 'one', hooks,
       items: q(`SELECT f.*, u.name AS user_name, u.role AS user_role FROM feedback f LEFT JOIN users u ON u.id = f.user_id ORDER BY f.id DESC LIMIT 50`).all(),
     });
   });
+  // Save the webhook(s). Older pages send { webhook }: the one for everything ('' removes it).
+  // Newer: { mode: 'one'|'per_kind', hooks: { all, help, idea, problem } } where a blank keeps the
+  // saved link, and { remove: ['help', ...] } or { remove: 'every' } takes links away.
   app.put('/api/feedback/webhook', requireRole('admin'), (req, res) => {
-    const hook = String(req.body.webhook || '').trim();
-    if (hook && !WEBHOOK_RE.test(hook)) return bad(res, 'Paste a Discord webhook link (it starts with https://discord.com/api/webhooks/).');
-    if (hook) q("INSERT INTO settings (key, value) VALUES ('discord_webhook', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(hook);
-    else q("DELETE FROM settings WHERE key = 'discord_webhook'").run();
-    res.json({ ok: true, webhook_set: !!hook });
+    const b = req.body || {};
+    const set = (k, v) => (v ? q("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(k, v) : q('DELETE FROM settings WHERE key = ?').run(k));
+    const BAD = 'Paste a Discord webhook link (it starts with https://discord.com/api/webhooks/).';
+    if (b.webhook !== undefined && !b.hooks) {
+      const hook = String(b.webhook || '').trim();
+      if (hook && !WEBHOOK_RE.test(hook)) return bad(res, BAD);
+      set('discord_webhook', hook);
+      return res.json({ ok: true, webhook_set: !!hook });
+    }
+    const remove = b.remove === 'every' ? Object.keys(HOOK_KEYS) : [].concat(b.remove || []).filter((k) => HOOK_KEYS[k]);
+    const hooks = b.hooks || {};
+    for (const [k, v] of Object.entries(hooks)) {
+      if (!HOOK_KEYS[k]) continue;
+      const h = String(v || '').trim();
+      if (h && !WEBHOOK_RE.test(h)) return bad(res, `${{ all: 'Everything', help: 'Help', idea: 'Ideas', problem: 'Problems' }[k]}: ${BAD}`);
+    }
+    if (b.mode !== undefined) set('discord_mode', b.mode === 'per_kind' ? 'per_kind' : '');
+    for (const [k, v] of Object.entries(hooks)) { const h = String(v || '').trim(); if (HOOK_KEYS[k] && h) set(HOOK_KEYS[k], h); }
+    for (const k of remove) set(HOOK_KEYS[k], '');
+    const s = getSettings();
+    const mode = s.discord_mode === 'per_kind' ? 'per_kind' : 'one';
+    if (mode === 'one' && !s.discord_webhook && !remove.length) return bad(res, 'Paste the webhook link for your channel.');
+    if (mode === 'per_kind' && !['help', 'idea', 'problem'].every((k) => s[HOOK_KEYS[k]] || s.discord_webhook) && !remove.length) {
+      return bad(res, 'Paste a link for each kind (Help, Ideas and Problems), or one for everything.');
+    }
+    res.json({ ok: true, webhook_set: Object.values(HOOK_KEYS).some((key) => s[key]), mode });
   });
+  // Test: one message to each channel in use (the same link only once), with a result for each.
   app.post('/api/feedback/test', requireRole('admin'), async (req, res) => {
-    if (!getSettings().discord_webhook) return bad(res, 'Add the Discord webhook link first.');
-    const out = await postToDiscord({ kind: 'help', message: 'Test message from the shuttle website. Help & suggestions are connected. ✅', from: `${req.user.name} (manager)`, page: 'Manager → Settings' });
-    if (!out.sent) return bad(res, `Discord didn't accept it: ${out.error}`, 502);
-    res.json({ ok: true });
+    const kinds = ['help', 'idea', 'problem'];
+    const targets = new Map(); // hook -> kinds it gets
+    for (const k of kinds) { const h = hookFor(k); if (h) targets.set(h, [...(targets.get(h) || []), k]); }
+    if (!targets.size) return bad(res, 'Add the Discord webhook link first.');
+    const NAME = { help: 'Help', idea: 'Ideas', problem: 'Problems' };
+    const results = [];
+    for (const [hook, ks] of targets) {
+      const out = await postToDiscord({ kind: ks[0], hook, message: `Test message from the shuttle website. ${ks.map((k) => NAME[k]).join(', ')} messages come to this channel. ✅`, from: `${req.user.name} (manager)`, page: 'Manager → Settings' });
+      results.push({ kinds: ks, hint: hookHint(hook), sent: out.sent, error: out.error });
+    }
+    if (!results.some((r) => r.sent)) return bad(res, `Discord didn't accept it: ${results[0].error}`, 502);
+    res.json({ ok: results.every((r) => r.sent), results });
   });
 
   // ---------- QR codes + share links ----------
@@ -3307,8 +3358,8 @@ function createApp(db, opts = {}) {
     let admin = null;
     if (making) {
       const a = b.admin || {};
-      const aname = str(a.name, 100); const email = str(a.email, 200);
-      if (!aname || !email || !ADDR_RE.test(email)) return bad(res, 'Enter your name and email for your manager account.');
+      const aname = fullName(a); const email = str(a.email, 200);
+      if (!aname || !email || !ADDR_RE.test(email)) return bad(res, 'Enter your first and last name and your email for your manager account.');
       const err = validatePassword(a.password); if (err) return bad(res, err);
       admin = { aname, email, hash: await hashPasswordAsync(a.password) };
     }

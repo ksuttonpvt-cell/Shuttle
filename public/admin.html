@@ -51,15 +51,33 @@
       <h2>Add a person</h2>
       <p class="small muted">Each person signs in with their own email and password.</p>
       <form id="userForm">
-        <label>Full name *</label><input name="name" required>
-        <label>Email (their sign-in) *</label><input name="email" type="email" required>
-        <label>Mobile phone</label><input name="phone" type="tel">
-        <label>Roles * <span class="small muted">(pick every one that fits)</span></label>
-        <div id="newRoles"></div>
-        <label>Starting password * (8+ characters)</label>
-        <div class="linkbox"><input name="password" required minlength="8"><button type="button" class="btn-ghost btn-sm" id="genPw">Generate</button></div>
+        <div class="progress" data-progress></div>
+        <section data-step="name" data-title="Name">
+          <h3 class="step-q">What's their name?</h3>
+          <div class="row"><div><label>First name *</label><input name="first_name" required maxlength="50" autocomplete="given-name"></div><div><label>Last name *</label><input name="last_name" required maxlength="50" autocomplete="family-name"></div></div>
+        </section>
+        <section data-step="contact" data-title="Contact" hidden>
+          <h3 class="step-q">How do they sign in?</h3>
+          <label>Email (their sign-in) *</label><input name="email" type="email" required autocomplete="off">
+          <label>Mobile phone</label><input name="phone" type="tel" autocomplete="off">
+          <p class="small muted" style="margin:.25rem 0 0">Needed for calls through the dealership number, and for password links by text.</p>
+        </section>
+        <section data-step="roles" data-title="Roles" hidden>
+          <h3 class="step-q">What do they do? <span class="small muted">(pick every one that fits)</span></h3>
+          <div id="newRoles"></div>
+        </section>
+        <section data-step="password" data-title="Password" hidden>
+          <h3 class="step-q">Their starting password</h3>
+          <div class="linkbox"><input name="password" required minlength="8" autocomplete="off"><button type="button" class="btn-ghost btn-sm" id="genPw">New one</button></div>
+          <p class="small muted" style="margin:.25rem 0 0">8+ characters. They can change it after signing in.</p>
+          <div class="review" data-summary style="margin-top:.8rem"></div>
+        </section>
         <div id="userMsg"></div>
-        <button class="btn-block" style="margin-top:1rem">Create account</button>
+        <div class="step-nav">
+          <button type="button" class="btn-ghost" data-back>← Back</button>
+          <button type="button" class="btn-dark" data-next>Next →</button>
+          <button type="submit" class="btn-lg" data-submit>Create account</button>
+        </div>
       </form>
     </div>
     <div class="card"><div class="card-head"><h2>Everyone</h2><span class="small muted" id="userCount"></span></div>
@@ -294,15 +312,51 @@
     <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
     <h2>Help &amp; suggestions (Discord)</h2>
     <p class="small muted" style="margin-top:0">Everyone on staff has a <b>💬 Help</b> button at the top. Messages show up here, and in a Discord channel if you add its webhook.</p>
+    <p class="small" id="fbHookState" style="margin:.2rem 0 .4rem"></p>
     <form id="fbForm">
-      <label>Discord webhook link <span class="small muted" id="fbHookState"></span></label>
-      <input name="webhook" type="password" autocomplete="off" placeholder="https://discord.com/api/webhooks/…">
-      <p class="small muted" style="margin:.25rem 0 0">In Discord: <b>channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL</b>. Kept on the server only; nobody else can see it.</p>
-      <label>Discord invite link (optional)</label>
-      <input name="invite" placeholder="https://discord.gg/…">
-      <p class="small muted" style="margin:.25rem 0 0">Shown as “Join our Discord” in the Help window.</p>
+      <div class="progress" data-progress></div>
+      <section data-step="channels" data-title="Channels">
+        <h3 class="step-q">Where should messages go in Discord?</h3>
+        <fieldset class="opt-group" style="margin-top:0">
+          <label class="check"><input type="radio" name="mode" value="one" checked> <span><b>One channel</b> for everything <span class="muted">(Help, Ideas and Problems together)</span></span></label>
+          <label class="check"><input type="radio" name="mode" value="per_kind"> <span><b>A channel for each kind:</b> 🙋 Help, 💡 Ideas, 🐞 Problems <span class="muted">(so the right people see the right messages)</span></span></label>
+        </fieldset>
+      </section>
+      <section data-step="make" data-title="In Discord" hidden>
+        <h3 class="step-q">Make the webhook<span data-plural>s</span> in Discord</h3>
+        <ol class="small steps-list">
+          <li>Open Discord and go to your server. <span data-plural>Make a channel for each kind (for example #shuttle-help, #shuttle-ideas, #shuttle-problems), or use ones you have.</span></li>
+          <li>Hover the channel, tap the ⚙️ gear (<b>Edit Channel</b>) → <b>Integrations</b> → <b>Webhooks</b> → <b>New Webhook</b>.</li>
+          <li>Name it something like “Shuttle website”, then tap <b>Copy Webhook URL</b>.</li>
+          <li><span data-plural>Do the same for each channel. </span>You'll paste the link<span data-plural>s</span> in the next step.</li>
+        </ol>
+        <p class="small muted">You need “Manage Webhooks” permission in that Discord server. The links stay on the shuttle server; nobody else can see them.</p>
+      </section>
+      <section data-step="paste" data-title="Paste" hidden>
+        <h3 class="step-q">Paste the link<span data-plural>s</span></h3>
+        <div data-for-mode="one"><div class="hook-row" data-hook="all"><label>Webhook for everything <span class="small muted" data-hint></span></label>
+            <div class="linkbox"><input name="hook_all" type="password" autocomplete="off" placeholder="https://discord.com/api/webhooks/…"><button type="button" class="btn-ghost btn-sm hidden" data-remove-hook="all">Remove</button></div></div></div>
+        <div data-for-mode="per_kind"><div class="hook-row" data-hook="help"><label>🙋 Help <span class="small muted" data-hint></span></label>
+            <div class="linkbox"><input name="hook_help" type="password" autocomplete="off" placeholder="https://discord.com/api/webhooks/…"><button type="button" class="btn-ghost btn-sm hidden" data-remove-hook="help">Remove</button></div></div><div class="hook-row" data-hook="idea"><label>💡 Ideas <span class="small muted" data-hint></span></label>
+            <div class="linkbox"><input name="hook_idea" type="password" autocomplete="off" placeholder="https://discord.com/api/webhooks/…"><button type="button" class="btn-ghost btn-sm hidden" data-remove-hook="idea">Remove</button></div></div><div class="hook-row" data-hook="problem"><label>🐞 Problems <span class="small muted" data-hint></span></label>
+            <div class="linkbox"><input name="hook_problem" type="password" autocomplete="off" placeholder="https://discord.com/api/webhooks/…"><button type="button" class="btn-ghost btn-sm hidden" data-remove-hook="problem">Remove</button></div></div>
+          <p class="small muted" style="margin:.3rem 0 0">Leave one empty to send that kind to the “everything” link, if you have one.</p></div>
+        <label>Discord invite link (optional)</label>
+        <input name="invite" placeholder="https://discord.gg/…">
+        <p class="small muted" style="margin:.25rem 0 0">Shown as “Join our Discord” in the Help window.</p>
+      </section>
+      <section data-step="test" data-title="Test" hidden>
+        <h3 class="step-q">Save and test</h3>
+        <p class="small muted" style="margin-top:0">Saving sends a test message to each channel, so you can see it arrive.</p>
+        <div id="fbTestOut"></div>
+      </section>
       <div id="fbMsgBox"></div>
-      <div class="actions" style="margin-top:.5rem"><button>Save</button><button type="button" class="btn-ghost" id="fbTest">Send a test</button><button type="button" class="btn-ghost hidden" id="fbRemove">Remove webhook</button></div>
+      <div class="step-nav">
+        <button type="button" class="btn-ghost" data-back>← Back</button>
+        <button type="button" class="btn-dark" data-next>Next →</button>
+        <button type="submit" class="btn-lg" data-submit>Save &amp; send a test</button>
+      </div>
+      <div class="actions" style="margin-top:.4rem"><button type="button" class="btn-ghost btn-sm hidden" id="fbRemove">Remove all webhooks</button></div>
     </form>
     <details style="margin-top:.6rem"><summary class="small">Recent messages</summary><div id="fbList" class="small"></div></details>
     <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
@@ -656,6 +710,8 @@
 
   // ---------- users ----------
   let users = [];
+  // "Mary Ann Lee" -> ["Mary Ann", "Lee"]: the last word is the last name.
+  const splitName = (n) => { const w = String(n || '').trim().split(/\s+/); return w.length > 1 ? [w.slice(0, -1).join(' '), w[w.length - 1]] : [w[0] || '', '']; };
   const genPw = () => Array.from(crypto.getRandomValues(new Uint8Array(10)), (b) => 'abcdefghjkmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ23456789'[b % 54]).join('');
   $('#genPw').onclick = () => { $('#userForm').elements.password.value = genPw(); };
   // The list shows only name, role and status; contact details and account actions are under Edit.
@@ -680,7 +736,7 @@
   function editUser(u) {
     const m = App.modal(`<h2>${esc(u.name)}</h2>
       <form data-details>
-        <label>Name</label><input name="name" value="${esc(u.name)}" required>
+        <div class="row"><div><label>First name</label><input name="first_name" value="${esc(splitName(u.name)[0])}" required maxlength="50"></div><div><label>Last name</label><input name="last_name" value="${esc(splitName(u.name)[1])}" required maxlength="50"></div></div>
         <label>Email (their sign-in)</label><input name="email" type="email" value="${esc(u.email)}" required>
         <label>Mobile phone</label><input name="phone" type="tel" value="${esc(u.phone || '')}">
         <label>Roles</label>${rolePicker(rolesOfU(u), { start: u.start_page, lockAdmin: u.id === me.id })}
@@ -809,15 +865,29 @@
     } catch (err) { alert(err.message); }
   });
   loaders.users = loadUsers;
-  $('#userForm').onsubmit = async (e) => {
+  // Add a person, one step at a time: name -> sign-in -> roles -> password (with a review).
+  const uf0 = $('#userForm');
+  const userSteps = App.stepper(uf0, {
+    msg: $('#userMsg'), noFocus: false, scrollTo: uf0,
+    check: { roles: () => (readRoles(uf0).length ? null : 'Pick at least one role.') },
+    onShow: (step) => {
+      if (step !== 'password') return;
+      if (!uf0.elements.password.value) uf0.elements.password.value = genPw();
+      const f = uf0.elements;
+      $('[data-summary]', uf0).innerHTML = `<b>Review</b><div>👤 <b>${esc(`${f.first_name.value.trim()} ${f.last_name.value.trim()}`)}</b></div>
+        <div>✉️ ${esc(f.email.value)}${f.phone.value ? ` · 📞 ${esc(f.phone.value)}` : ''}</div>
+        <div>🧩 ${esc(readRoles(uf0).map((r) => ROLE[r]).join(' + '))}</div>`;
+    },
+  });
+  uf0.onsubmit = async (e) => {
     e.preventDefault();
-    const body = Object.fromEntries(new FormData(e.target));
-    body.roles = readRoles(e.target);
-    if (!body.roles.length) { App.flash($('#userMsg'), 'Pick at least one role.'); return; }
+    const f = uf0.elements;
+    const body = { first_name: f.first_name.value, last_name: f.last_name.value, email: f.email.value, phone: f.phone.value, password: f.password.value,
+      roles: readRoles(uf0), start_page: f.start_page ? f.start_page.value : '' };
     try {
       const { user } = await api('/api/users', { body });
       App.flash($('#userMsg'), `Created ${user.name}. Give them: email ${user.email} / password ${body.password}`, true);
-      e.target.reset(); $('#newRoles').innerHTML = rolePicker(); wireRolePicker($('#newRoles')); loadUsers();
+      uf0.reset(); $('#newRoles').innerHTML = rolePicker(); wireRolePicker($('#newRoles')); userSteps.reset(); loadUsers();
     } catch (err) { App.flash($('#userMsg'), err.message); }
   };
   $('#newRoles').innerHTML = rolePicker(); wireRolePicker($('#newRoles'));
@@ -1752,10 +1822,41 @@
   // ---------- help & suggestions (Discord) ----------
   const fbF = $('#fbForm');
   const KIND_LABEL = { help: '🙋 Help', idea: '💡 Idea', problem: '🐞 Problem' };
+  // Discord, one step at a time: one channel or one per kind -> make the webhooks -> paste -> save & test.
+  const showMode = () => {
+    const per = fbF.querySelector('[name=mode]:checked').value === 'per_kind';
+    fbF.querySelectorAll('[data-plural]').forEach((el) => { el.hidden = !per; });
+    fbF.querySelectorAll('[data-for-mode]').forEach((el) => { el.hidden = el.dataset.forMode !== (per ? 'per_kind' : 'one'); });
+  };
+  fbF.addEventListener('change', (e) => { if (e.target.name === 'mode') showMode(); });
+  const NAME_OF = { all: 'Everything', help: '🙋 Help', idea: '💡 Ideas', problem: '🐞 Problems' };
+  let fbSaved = {};
+  const fbSteps = App.stepper(fbF, {
+    msg: $('#fbMsgBox'), noFocus: true, scrollTo: fbF,
+    check: {
+      paste: () => {
+        const per = fbF.querySelector('[name=mode]:checked').value === 'per_kind';
+        const has = (k) => fbF.elements[`hook_${k}`].value.trim() || fbSaved[k];
+        if (!per) return has('all') ? null : 'Paste the webhook link.';
+        return ['help', 'idea', 'problem'].every((k) => has(k) || has('all')) ? null : 'Paste a link for Help, Ideas and Problems.';
+      },
+    },
+  });
   async function loadFeedback() {
     const d = await api('/api/feedback');
-    $('#fbHookState').textContent = d.webhook_set ? `(saved ${d.webhook_hint})` : '(not set)';
-    fbF.elements.webhook.value = ''; fbF.elements.webhook.placeholder = d.webhook_set ? 'Saved. Paste a new link to replace it.' : 'https://discord.com/api/webhooks/…';
+    fbSaved = d.hooks || {};
+    const used = Object.entries(fbSaved).filter(([, h]) => h);
+    $('#fbHookState').innerHTML = used.length
+      ? `✅ Sending to Discord: ${d.mode === 'per_kind' ? 'a channel for each kind' : 'one channel'} (${used.map(([k, h]) => `${NAME_OF[k]} ${esc(h)}`).join(' · ')}). Go through the steps below to change it.`
+      : 'Not connected to Discord yet. Messages are still saved here.';
+    fbF.querySelector(`[name=mode][value="${d.mode}"]`).checked = true; showMode();
+    for (const k of ['all', 'help', 'idea', 'problem']) {
+      const row = fbF.querySelector(`[data-hook="${k}"]`);
+      fbF.elements[`hook_${k}`].value = '';
+      fbF.elements[`hook_${k}`].placeholder = fbSaved[k] ? 'Saved. Paste a new link to replace it.' : 'https://discord.com/api/webhooks/…';
+      $('[data-hint]', row).textContent = fbSaved[k] ? `(saved ${fbSaved[k]})` : '';
+      $('[data-remove-hook]', row).classList.toggle('hidden', !fbSaved[k]);
+    }
     fbF.elements.invite.value = d.invite;
     $('#fbRemove').classList.toggle('hidden', !d.webhook_set);
     $('#fbList').innerHTML = d.items.length ? d.items.map((i) => `<div class="fb-item"><b>${KIND_LABEL[i.kind] || esc(i.kind)}</b> · ${esc(i.user_name || 'Someone')} · ${fmtTime(i.created_at)}${i.sent ? ' · sent to Discord' : i.error ? ` · <span class="late">not sent (${esc(i.error)})</span>` : ''}
@@ -1763,19 +1864,27 @@
   }
   fbF.onsubmit = async (e) => {
     e.preventDefault();
+    const mode = fbF.querySelector('[name=mode]:checked').value;
+    const hooks = {}; for (const k of ['all', 'help', 'idea', 'problem']) hooks[k] = fbF.elements[`hook_${k}`].value.trim();
     try {
-      if (fbF.elements.webhook.value.trim()) await api('/api/feedback/webhook', { method: 'PUT', body: { webhook: fbF.elements.webhook.value.trim() } });
+      await api('/api/feedback/webhook', { method: 'PUT', body: { mode, hooks } });
       await api('/api/settings', { method: 'PATCH', body: { discord_invite: fbF.elements.invite.value.trim() } });
-      App.flash($('#fbMsgBox'), 'Saved.', true); loadFeedback();
+      $('#fbTestOut').innerHTML = '<p class="small">Saved. Sending a test…</p>';
+      let r;
+      try { r = await api('/api/feedback/test', { body: {} }); } catch (err) { $('#fbTestOut').innerHTML = `<div class="alert alert-err">${esc(err.message)}</div>`; await loadFeedback(); return; }
+      const KN = { help: 'Help', idea: 'Ideas', problem: 'Problems' };
+      $('#fbTestOut').innerHTML = r.results.map((x) => `<div class="alert ${x.sent ? 'alert-ok' : 'alert-err'}">${x.sent ? '✅' : '⚠️'} ${esc(x.kinds.map((k) => KN[k]).join(', '))} → ${esc(x.hint)}: ${x.sent ? 'test sent. Check that channel.' : `didn't go through (${esc(x.error || 'error')}). Check the link.`}</div>`).join('');
+      await loadFeedback();
     } catch (err) { App.flash($('#fbMsgBox'), err.message); }
   };
-  $('#fbTest').onclick = async () => {
-    try { await api('/api/feedback/test', { body: {} }); App.flash($('#fbMsgBox'), 'Test sent. Check your Discord channel.', true); }
-    catch (err) { App.flash($('#fbMsgBox'), err.message); }
-  };
+  fbF.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-remove-hook]'); if (!b) return;
+    if (!confirm(`Remove the ${NAME_OF[b.dataset.removeHook]} webhook?`)) return;
+    await api('/api/feedback/webhook', { method: 'PUT', body: { remove: [b.dataset.removeHook] } }).catch((err) => alert(err.message)); loadFeedback();
+  });
   $('#fbRemove').onclick = async () => {
-    if (!confirm('Remove the Discord webhook? Messages will still be saved here.')) return;
-    await api('/api/feedback/webhook', { method: 'PUT', body: { webhook: '' } }); loadFeedback();
+    if (!confirm('Remove every Discord webhook? Messages will still be saved here.')) return;
+    await api('/api/feedback/webhook', { method: 'PUT', body: { remove: 'every', mode: 'one' } }); fbSteps.reset(); $('#fbTestOut').innerHTML = ''; loadFeedback();
   };
 
   // ---------- easter egg ----------

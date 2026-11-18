@@ -91,3 +91,16 @@ test('one person, several roles: advisor who drives, BDC who drives, admin who d
   const ok = await a(`/api/users/${req.id}/approve`, { body: { roles: ['advisor', 'driver'] } });
   assert.deepEqual(ok.data.user.roles, ['advisor', 'driver']);
 });
+
+test('first and last name: adding, editing and asking for an account', async () => {
+  const a = client(); await a('/api/login', { body: { email: 'boss@roles.test', password: 'adminpass1' } });
+  assert.equal((await a('/api/users', { body: { first_name: 'Ana', last_name: '', email: 'ana@roles.test', roles: ['driver'], password: 'password123' } })).status, 400, 'last name needed');
+  const made = await a('/api/users', { body: { first_name: ' Mary  Ann ', last_name: 'Lee', email: 'mary@roles.test', roles: ['driver'], password: 'password123' } });
+  assert.equal(made.status, 201); assert.equal(made.data.user.name, 'Mary Ann Lee');
+  const ed = await a(`/api/users/${made.data.user.id}`, { method: 'PATCH', body: { first_name: 'Mary', last_name: 'Lee-Park' } });
+  assert.equal(ed.data.user.name, 'Mary Lee-Park');
+  assert.equal((await a(`/api/users/${made.data.user.id}`, { method: 'PATCH', body: { first_name: 'Mary', last_name: ' ' } })).status, 400);
+  assert.equal((await client()('/api/signup', { body: { first_name: 'New', last_name: 'Hire', email: 'hire@roles.test', role: 'driver', password: 'mypassword1' } })).status, 200);
+  assert.ok((await a('/api/users')).data.users.some((u) => u.name === 'New Hire'));
+  assert.equal((await client()('/api/signup', { body: { first_name: 'Solo', email: 'solo@roles.test', role: 'driver', password: 'mypassword1' } })).status, 400);
+});
