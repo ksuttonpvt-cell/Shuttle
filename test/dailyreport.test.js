@@ -57,6 +57,10 @@ test('detailed reports: shifts, drivers, vehicles, hours, ride log, and the dail
   await sam(`/api/rides/${r1.id}/arrived`, { body: {} });
   await sam(`/api/rides/${r1.id}`, { method: 'PATCH', body: { status: 'onboard' } });
   await sam(`/api/rides/${r1.id}`, { method: 'PATCH', body: { status: 'completed' } });
+  // The customer's page shows when it really happened, not the scheduled time.
+  const tr = (await client()(`/api/public/track/${r1.track_token}`)).data.ride;
+  assert.ok(tr.onboard_at && tr.completed_at, 'real pick up and done times');
+  assert.ok(new Date(tr.completed_at) < new Date(tr.scheduled_at), 'done before the scheduled time');
   await sam(`/api/rides/${r2.id}/arrived`, { body: {} });
   await sam(`/api/rides/${r2.id}`, { method: 'PATCH', body: { status: 'cancelled', cancel_reason: "No-show: customer didn't come out (driver waited 5 min)" } });
   await sam('/api/driver/shift', { body: { on_duty: false } });

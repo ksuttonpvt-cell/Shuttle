@@ -78,7 +78,9 @@ test('reports: miles, miles per driver, cities, time driving, advisor scheduling
 
   // "Today" at the dealership (Denver), not on the test machine's clock.
   const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-  const rep = (await admin(`/api/reports?from=${ymd}&to=${ymd}`)).data;
+  // (Through tomorrow: late in the evening the 2-hours-from-now pick up is already tomorrow's.)
+  const tomorrow = new Date(Date.parse(`${ymd}T12:00:00Z`) + 86400000).toISOString().slice(0, 10);
+  const rep = (await admin(`/api/reports?from=${ymd}&to=${tomorrow}`)).data;
   assert.ok(rep.totals.gps_miles > 1.5 && rep.totals.gps_miles < 2.3, `GPS miles ${rep.totals.gps_miles}`);
   assert.equal(rep.totals.moving_min, 3, 'three moving minutes; parked and glitch not counted');
   assert.ok(rep.totals.est_miles > 20);
@@ -93,6 +95,6 @@ test('reports: miles, miles per driver, cities, time driving, advisor scheduling
   assert.equal(av.ahead_pct, 50);
   assert.equal(rep.days[0].gps_miles, rep.totals.gps_miles);
   // Pick-up-only filter still works with the new numbers.
-  const onlyUp = (await admin(`/api/reports?from=${ymd}&to=${ymd}&type=pickup`)).data;
+  const onlyUp = (await admin(`/api/reports?from=${ymd}&to=${tomorrow}&type=pickup`)).data;
   assert.deepEqual(onlyUp.cities.map((c) => c.name), ['Longmont']);
 });
