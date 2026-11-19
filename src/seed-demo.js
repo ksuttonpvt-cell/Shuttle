@@ -18,9 +18,9 @@ for (const [name, email, role, phone] of users) {
 }
 if (!db.prepare('SELECT COUNT(*) n FROM vehicles').get().n) {
   const v = db.prepare('INSERT INTO vehicles (name, make_model, year, color, plate, seats, mileage) VALUES (?, ?, ?, ?, ?, ?, ?)');
-  v.run('Shuttle 1', 'Toyota Sienna', 2025, 'White', 'DEMO-001', 7, 12450);
-  v.run('Shuttle 2', 'Toyota Sienna', 2024, 'Silver', 'DEMO-002', 7, 28810);
-  v.run('Shuttle Van', 'Toyota Sequoia', 2024, 'Black', 'DEMO-003', 8, 19020);
+  v.run('Shuttle 1', 'Ford Transit', 2025, 'White', 'DEMO-001', 7, 12450);
+  v.run('Shuttle 2', 'Ford Transit', 2024, 'Silver', 'DEMO-002', 7, 28810);
+  v.run('Shuttle Van', 'Chevrolet Express', 2024, 'Black', 'DEMO-003', 8, 19020);
 }
 const advisor = db.prepare("SELECT id FROM users WHERE email = 'advisor@demo.local'").get();
 const inMin = (m) => new Date(Date.now() + m * 60000).toISOString();

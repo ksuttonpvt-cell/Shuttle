@@ -72,7 +72,7 @@
   const { $, api } = App;
   const info = await api('/api/public/info');
   App.settings = { dealer_name: info.dealer_name, dealer_address: info.dealer_address, dealer_lat: info.dealer_lat, dealer_lng: info.dealer_lng, service_radius_mi: info.service_radius_mi };
-  $('#dealer').textContent = `${info.dealer_name} · ${info.dealer_address}`;
+  $('#dealer').textContent = [info.dealer_name, info.dealer_address].filter(Boolean).join(' · ');
   App.applyBrand(info.dealer_name);
   if (!info.public_requests) {
     $('#off').hidden = false;

@@ -59,7 +59,7 @@ function parseFleet(rows) {
     const vin = String(get(r, 'vin') || '').trim().toUpperCase();
     if (!/^[A-HJ-NPR-Z0-9]{11,17}$/.test(vin) || seen.has(vin)) { if (r.some((c) => String(c ?? '').trim())) skipped++; continue; }
     seen.add(vin);
-    const make = titleCase(get(r, 'make') || 'Toyota');
+    const make = titleCase(get(r, 'make') || '');
     const model = titleCase(get(r, 'model'));
     const plate = String(get(r, 'plate') || '').trim().toUpperCase() || null;
     const year = Number(get(r, 'year')) || null;

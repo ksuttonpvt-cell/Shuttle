@@ -236,22 +236,27 @@ const App = (() => {
   const Place = () => place().charAt(0).toUpperCase() + place().slice(1);
 
   // ---------- your branding (the Branded look) ----------
-  // The logo if one was uploaded, otherwise a wordmark made from the dealership name:
-  // first word big ("PINE"), the rest small ("LODGE HOTEL · SHUTTLE").
-  function brandMark(dealerName, extra = '') {
-    const logo = document.documentElement.dataset.logo;
-    const name = document.documentElement.dataset.brandName || dealerName;
-    const words = String(name || '').trim().split(/\s+/);
-    const first = words.shift() || 'Shuttle';
-    const rest = [words.join(' '), extra].filter(Boolean).join(' · ');
+  // The logo if one was uploaded, otherwise a wordmark made from the business name:
+  // first word big ("PINE"), the rest small ("LODGE HOTEL · SHUTTLE"). With neither yet (a new
+  // install), a "Your logo" placeholder. On light backgrounds (light: true) the logo for light
+  // backgrounds is used if there is one.
+  function brandMark(dealerName, extra = '', { light = false } = {}) {
+    const d = document.documentElement.dataset;
+    const logo = d.logo; const logoLight = light && d.logoLight;
+    const name = d.brandName || dealerName;
+    if (logoLight) return `<img class="brand-logo" src="/brand/logo-light?v=${encodeURIComponent(logoLight)}" alt="${esc(name)}"><span class="brand-sub">${esc(extra)}</span>`;
     if (logo) return `<img class="brand-logo" src="/brand/logo?v=${encodeURIComponent(logo)}" alt="${esc(name)}"><span class="brand-sub">${esc(extra)}</span>`;
+    const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return `<span class="brand-placeholder" title="Add your logo or name in Manager → Settings → Your branding">Your logo</span>${extra ? `<span class="brand-sub">${esc(extra)}</span>` : ''}`;
+    const first = words.shift();
+    const rest = [words.join(' '), extra].filter(Boolean).join(' · ');
     return `<span class="wordmark">${esc(first)}</span><span class="brand-sub">${esc(rest)}</span>`;
   }
   // Fills [data-brand] spots and shows a note while previewing a look on this device.
   function applyBrand(dealerName) {
-    $$('[data-brand]').forEach((el) => { el.innerHTML = brandMark(dealerName, el.dataset.brand || ''); });
+    $$('[data-brand]').forEach((el) => { el.innerHTML = brandMark(dealerName, el.dataset.brand || '', { light: el.classList.contains('brand-block-card') }); });
     const name = document.documentElement.dataset.brandName || dealerName;
-    $$('[data-foot]').forEach((el) => { el.innerHTML = `<b>${esc(name)}</b> · ${place() === 'dealership' ? 'Service shuttle' : 'Shuttle'}`; });
+    $$('[data-foot]').forEach((el) => { el.innerHTML = `${name ? `<b>${esc(name)}</b> · ` : ''}${place() === 'dealership' ? 'Service shuttle' : 'Shuttle'}`; });
     $$('span[data-word]').forEach((el) => { el.textContent = el.dataset.word === 'cap' ? Place() : place(); });
     let preview = null;
     try { preview = localStorage.getItem('shuttle.look'); } catch { /* storage blocked */ }
@@ -406,10 +411,12 @@ const App = (() => {
     const radius = Number(s.service_radius_mi) || 0;
     if (radius > 0) {
       L.circle([Number(s.dealer_lat), Number(s.dealer_lng)], {
-        radius: radius * 1609.344, color: '#eb0a1e', weight: 2, dashArray: '6 6', fillOpacity: 0.04, interactive: false,
+        radius: radius * 1609.344, color: getComputedStyle(document.documentElement).getPropertyValue('--brand').trim() || '#475569', weight: 2, dashArray: '6 6', fillOpacity: 0.04, interactive: false,
       }).addTo(map);
     }
-    return L.marker([Number(s.dealer_lat), Number(s.dealer_lng)], { icon: pinIcon('dealer', 'T'), zIndexOffset: 1000 })
+    // The base's pin shows the business's first letter (⌂ until there's a name).
+    const initial = String(document.documentElement.dataset.brandName || s.dealer_name || '').trim().charAt(0).toUpperCase() || '⌂';
+    return L.marker([Number(s.dealer_lat), Number(s.dealer_lng)], { icon: pinIcon('dealer', initial), zIndexOffset: 1000 })
       .bindPopup(`<b>${esc(s.dealer_name)}</b><br>${esc(s.dealer_address)}`).addTo(map);
   }
 

@@ -55,8 +55,9 @@ A new install opens **/setup**:
 Want sample data to try it? `npm run seed:demo` adds a few vans, staff (password `shuttle123`) and rides.
 
 ## Make it yours (Manager → Settings)
+A new install has no branding: plain colors, a plain icon, and “Your logo” placeholders where a logo goes, until you add yours here.
 - **Your business:** dealership or shuttle service, name, address, phone, and the word for your base. Drivers and customers see that word everywhere, including route stops, texts and emails.
-- **Your branding:** name, colors, logo, **app icon** (browser tab, phone home screen, notifications) and a **banner** photo for the sign-in and customer pages. Every browser tab shows your name.
+- **Your branding:** name, colors, logo (and a second logo for light backgrounds), **app icon** (browser tab, phone home screen, notifications) and a **banner** photo for the sign-in and customer pages. Every browser tab shows your name.
 - **Web address:** your own address, with a **Check** that confirms it reaches this site. Links, texts, emails and QR codes use it. There's also an optional short request link like `/ride`.
 - **Phone & email** (its own tab):
   - **Calls and texts:** from staff's own phones, or through a business number. With the business number, Call rings the staff member's phone and connects them; Text sends from that number and saves the message on the ride.
