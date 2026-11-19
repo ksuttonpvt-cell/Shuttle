@@ -697,3 +697,9 @@ html[data-banner] .center-page { background: linear-gradient(rgba(0,0,0,.5), rgb
 /* Discord setup steps */
 .steps-list { padding-left: 1.2rem; display: grid; gap: .35rem; margin: .3rem 0 .6rem; }
 .hook-row + .hook-row { margin-top: .2rem; }
+
+/* Where a logo goes but there isn't one yet */
+.brand-placeholder { display: inline-flex; align-items: center; justify-content: center; min-width: 120px; min-height: 34px; padding: .2rem .8rem; border: 2px dashed currentColor; border-radius: 8px; opacity: .7; font-weight: 700; font-size: .78rem; letter-spacing: .14em; text-transform: uppercase; }
+.brand-block .brand-placeholder { min-width: 180px; min-height: 52px; }
+.logo-preview-light { background: #fff; color: #334155; border: 1px solid var(--line); }
+.banner-preview { display: inline-grid; place-items: center; color: var(--muted); }

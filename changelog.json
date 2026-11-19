@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.24.0",
+    "date": "2026-11-19",
+    "title": "No built-in branding: placeholders until you add yours",
+    "changes": [
+      "A new install has no branding at all: plain slate colors instead of red and black, a plain gray app icon, no Toyota defaults, and the taco Easter egg off until someone turns it on.",
+      "Where a logo goes and there isn't one yet, pages show a “Your logo” placeholder. Empty slots in Manager → Settings → Your branding say “Placeholder”.",
+      "Every branding slot is in Manager → Settings → Your branding: name, accent and header colors, logo, a new logo for light backgrounds (for white cards like the sign-in page), app icon and banner photo.",
+      "The QR sign, the service-area circle on maps and your base's map pin now follow your branding (the pin shows your business's first letter).",
+      "Existing sites keep their look: their colors were already saved, and the red shuttle app icon they used is kept as their own."
+    ]
+  },
+  {
     "version": "2.23.0",
     "date": "2026-11-18",
     "title": "Discord: one channel or one for each kind, set up step by step",

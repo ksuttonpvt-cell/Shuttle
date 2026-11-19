@@ -44,12 +44,15 @@ test('your own business: name, words, icon, banner, tab titles, app manifest, sh
 
   // App icon: three square PNGs; the default shuttle icon until then.
   let r = await fetch(`${base}/brand/icon-192.png`);
-  assert.equal(r.headers.get('content-type'), 'image/png'); const defaultIcon = Buffer.from(await r.arrayBuffer());
+  assert.equal(r.headers.get('content-type'), 'image/png');
+  const kept = Buffer.from(await r.arrayBuffer());
+  assert.deepEqual(kept, require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/assets/legacy-icons/icon-192.png')), 'a site from before keeps the icon it had');
+  const defaultIcon = require('node:fs').readFileSync(require('node:path').join(__dirname, '../public/icons/icon-192.png'));
   assert.equal((await a('/api/brand/icon', { body: { i512: JPEG, i192: PNG, i180: PNG } })).status, 400, 'PNGs only');
   const up = await a('/api/brand/icon', { body: { i512: PNG, i192: PNG, i180: PNG } });
   assert.equal(up.status, 200); assert.ok(up.data.settings.icon_v);
   r = await fetch(`${base}/brand/icon-192.png`);
-  assert.notDeepEqual(Buffer.from(await r.arrayBuffer()), defaultIcon, 'your icon now');
+  assert.notDeepEqual(Buffer.from(await r.arrayBuffer()), kept, 'your icon now');
   page = await html('/advisor');
   assert.match(page, new RegExp(`<link rel="icon" href="/brand/icon-192.png\\?v=${up.data.settings.icon_v}">`));
   assert.match(page, /<link rel="manifest" href="\/manifest.webmanifest\?v=/);
@@ -58,7 +61,7 @@ test('your own business: name, words, icon, banner, tab titles, app manifest, sh
   assert.equal(mf.name, 'Pine Lodge Hotel Shuttle'); assert.equal(mf.short_name, 'Pine');
   assert.match(mf.icons[0].src, /\/brand\/icon-192.png\?v=/);
   await a('/api/brand/icon', { method: 'DELETE' });
-  r = await fetch(`${base}/brand/icon-192.png`); assert.deepEqual(Buffer.from(await r.arrayBuffer()), defaultIcon, 'back to the shuttle icon');
+  r = await fetch(`${base}/brand/icon-192.png`); assert.deepEqual(Buffer.from(await r.arrayBuffer()), defaultIcon, 'back to the plain built-in icon');
 
   // Banner behind the name.
   assert.equal((await a('/api/brand/banner', { body: { data: PNG } })).status, 400, 'JPEG only (the page converts it)');

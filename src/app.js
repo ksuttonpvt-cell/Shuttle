@@ -59,13 +59,13 @@ const DEFAULT_SETTINGS = {
   auto_sign_out: '00:00',  // everyone is signed out at this local time each day ('' = off)
   ride_offers: '1',
   discord_invite: '',       // optional "Join our Discord" link shown in the Help window
-  easter_egg: '1',          // Easter egg: tacos rain for 10 seconds every Tuesday at noon
+  easter_egg: '0',          // Easter egg: tacos rain for 10 seconds every Tuesday at noon (off until turned on)
   look: 'branded',          // 'branded' (your name, logo and colors) or 'classic', for everyone
   business_type: 'dealership', // dealership | shuttle (hotel, airport parking, office, events…)
   place_word: '',           // what riders call your base: blank = "dealership" (or "office" for a shuttle service)
   request_path: '',         // optional short link for customers to request a ride, e.g. "ride" -> yoursite.com/ride
-  brand_color: '#eb0a1e',   // Branded look: accent (buttons, stripes)
-  brand_dark: '#0d0f12',    // Branded look: header and banner background
+  brand_color: '#475569',   // Branded look: accent (buttons, stripes). A plain placeholder until you pick yours.
+  brand_dark: '#1e293b',    // Branded look: header and banner background
   brand_name: '',           // Branded look: name shown in the header (blank = business name); first word is big        // offer waiting rides to the closest free driver, who can accept or pass
   clear_customer_info: '00:00',
   backup_time: '00:00',    // nightly database backup: at midnight, right after the day's report is saved and customer info is cleared ('' = off) // finished rides lose their customer details at this local time each day ('' = off)
@@ -107,7 +107,7 @@ function createApp(db, opts = {}) {
     next();
   });
   app.use('/api/phone/incoming', express.urlencoded({ extended: false, limit: '20kb' })); // Twilio sends forms
-  app.use((req, res, next) => (['/api/brand/logo', '/api/brand/icon', '/api/brand/banner', '/api/vehicles/import'].includes(req.path) ? next()
+  app.use((req, res, next) => (['/api/brand/logo', '/api/brand/logo-light', '/api/brand/icon', '/api/brand/banner', '/api/vehicles/import'].includes(req.path) ? next()
     : express.json({ limit: /^\/api\/(me|users\/\d+)\/photo$/.test(req.path) ? '300kb' : '100kb' })(req, res, next)));
   // Live numbers for Admin → Server.
   const stats = opts.stats || createStats({ timers: !opts.noTimers });
@@ -201,6 +201,20 @@ function createApp(db, opts = {}) {
     q("INSERT INTO settings (key, value) VALUES ('look_corwin_switched', '1')").run();
   }
   q("UPDATE settings SET value = 'branded' WHERE key = 'look' AND value = 'corwin'").run(); // its old name
+  // The built-in app icon became a plain placeholder (Nov 2026). Sites from before keep the icon
+  // they had (the red shuttle) as their own, so nothing changes for them.
+  if (!q("SELECT 1 FROM settings WHERE key = 'legacy_icon_kept'").get()) {
+    if (!freshInstall && !q("SELECT 1 FROM settings WHERE key = 'brand_icon_512'").get()) {
+      try {
+        const dir = path.join(__dirname, 'assets', 'legacy-icons');
+        for (const [size, file] of [[512, 'icon-512.png'], [192, 'icon-192.png'], [180, 'apple-touch-icon.png']]) {
+          q('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(`brand_icon_${size}`, `data:image/png;base64,${fs.readFileSync(path.join(dir, file)).toString('base64')}`);
+        }
+        q("INSERT OR REPLACE INTO settings (key, value) VALUES ('brand_icon_v', 'kept1')").run();
+      } catch { /* the icons are optional */ }
+    }
+    q("INSERT INTO settings (key, value) VALUES ('legacy_icon_kept', '1')").run();
+  }
   // Settings are read many times per request, so they're kept until the database changes.
   // The uploaded logo image isn't loaded here (only whether there is one).
   let settingsCache = null; let settingsAt = -1;
@@ -218,6 +232,7 @@ function createApp(db, opts = {}) {
     const s = getSettings(); const out = {};
     for (const k of Object.keys(DEFAULT_SETTINGS)) out[k] = s[k];
     out.logo_v = s.brand_logo ? (s.brand_logo_v || '1') : ''; // the logo itself is served from /brand/logo
+    out.logo_light_v = s.brand_logo_light ? (s.brand_logo_light_v || '1') : ''; // ...and the one for light backgrounds from /brand/logo-light
     out.icon_v = s.brand_icon_512 ? (s.brand_icon_v || '1') : ''; out.banner_v = s.brand_banner ? (s.brand_banner_v || '1') : '';
     out.place = placeWord();
     const p = phonePolicy(); out.phone_calls = p.calls; out.phone_texts = p.texts; // how staff call and text customers
@@ -1696,6 +1711,17 @@ function createApp(db, opts = {}) {
   // scripts even if opened directly.
   const LOGO_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
   const setSetting = (k, v) => q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
+  // Two logos: one for the dark header and banners, and (optional) one for light backgrounds
+  // such as the sign-in card. Without the light one, the main logo is used there too.
+  const LOGO_SLOTS = { logo: 'brand_logo', 'logo-light': 'brand_logo_light' };
+  app.get('/brand/logo-light', (req, res) => {
+    const logo = q("SELECT value FROM settings WHERE key = 'brand_logo_light'").get()?.value || '';
+    const m = /^data:([a-z/+]+);base64,(.+)$/.exec(logo);
+    if (!m || !LOGO_TYPES[m[1]]) return res.status(404).end();
+    res.set({ 'Content-Type': m[1], 'Cache-Control': 'public, max-age=31536000, immutable',
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox", 'X-Content-Type-Options': 'nosniff' });
+    res.send(Buffer.from(m[2], 'base64'));
+  });
   app.get('/brand/logo', (req, res) => {
     const logo = q("SELECT value FROM settings WHERE key = 'brand_logo'").get()?.value || '';
     const m = /^data:([a-z/+]+);base64,(.+)$/.exec(logo);
@@ -1704,18 +1730,20 @@ function createApp(db, opts = {}) {
       'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox", 'X-Content-Type-Options': 'nosniff' });
     res.send(Buffer.from(m[2], 'base64'));
   });
-  app.post('/api/brand/logo', requireRole('admin'), express.json({ limit: '900kb' }), (req, res) => {
+  app.post('/api/brand/:slot(logo|logo-light)', requireRole('admin'), express.json({ limit: '900kb' }), (req, res) => {
+    const key = LOGO_SLOTS[req.params.slot];
     const m = /^data:([a-z/+]+);base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body.data || ''));
     if (!m || !LOGO_TYPES[m[1]]) return bad(res, 'Upload a PNG, JPG, WebP or SVG image.');
     const bytes = Buffer.from(m[2], 'base64');
     if (bytes.length > 600 * 1024) return bad(res, 'That image is too big. Keep the logo under 600 KB.');
     if (m[1] === 'image/svg+xml' && !/<svg[\s>]/i.test(bytes.toString('utf8'))) return bad(res, "That file isn't an SVG image.");
-    setSetting('brand_logo', `data:${m[1]};base64,${m[2]}`);
-    setSetting('brand_logo_v', Date.now().toString(36));
+    setSetting(key, `data:${m[1]};base64,${m[2]}`);
+    setSetting(`${key}_v`, Date.now().toString(36));
     res.json({ settings: shareableSettings() });
   });
-  app.delete('/api/brand/logo', requireRole('admin'), (req, res) => {
-    q("DELETE FROM settings WHERE key IN ('brand_logo', 'brand_logo_v')").run();
+  app.delete('/api/brand/:slot(logo|logo-light)', requireRole('admin'), (req, res) => {
+    const key = LOGO_SLOTS[req.params.slot];
+    q('DELETE FROM settings WHERE key IN (?, ?)').run(key, `${key}_v`);
     res.json({ settings: shareableSettings() });
   });
   // App icon: the browser tab, phones' home screens and notifications. The admin page makes
@@ -2049,7 +2077,7 @@ function createApp(db, opts = {}) {
         if (v && (!/^[a-z0-9][a-z0-9-]{1,29}$/.test(v) || RESERVED_PATHS.has(v))) return bad(res, 'Use 2–30 letters, numbers or dashes for the short link, and not a word the site already uses (like admin or driver).');
       }
       if (k === 'discord_invite' && v && !/^https:\/\/(discord\.gg|(www\.)?discord\.com\/invite)\/[\w-]+$/.test(v.trim())) return bad(res, 'Use a Discord invite link like https://discord.gg/abc123.');
-      if ((k === 'brand_color' || k === 'brand_dark') && !/^#[0-9a-f]{6}$/i.test(v)) return bad(res, 'Colors must look like #eb0a1e.');
+      if ((k === 'brand_color' || k === 'brand_dark') && !/^#[0-9a-f]{6}$/i.test(v)) return bad(res, 'Colors must look like #475569.');
       if (k === 'gps_low_battery_pct' && !(Number.isInteger(Number(v)) && Number(v) >= 5 && Number(v) <= 50)) return bad(res, 'Pick a battery level from 5% to 50%.');
       if (k === 'gps_low_battery_mode' && !['slow', 'pause', 'normal'].includes(v)) return bad(res, 'Pick what happens on a low battery.');
       if (k === 'timezone') { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); } catch { return bad(res, 'Unknown time zone.'); } }
@@ -3309,6 +3337,7 @@ function createApp(db, opts = {}) {
     const dark = /^#[0-9a-f]{6}$/i.test(s.brand_dark || '') ? s.brand_dark : DEFAULT_SETTINGS.brand_dark;
     const look = s.look === 'classic' ? 'classic' : 'branded';
     const logo = s.brand_logo ? (s.brand_logo_v || '1') : '';
+    const logoLight = s.brand_logo_light ? (s.brand_logo_light_v || '1') : '';
     const name = String(s.brand_name || s.dealer_name || '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
     const iv = s.brand_icon_512 ? `?v=${s.brand_icon_v || 1}` : '';
     const banner = s.brand_banner ? `;--banner:url(/brand/banner.jpg?v=${s.brand_banner_v || 1})` : '';
@@ -3316,7 +3345,7 @@ function createApp(db, opts = {}) {
     res.set('Cache-Control', 'no-store').type('html')
       .send(html.replace('<!--brand-head-->', head)
         .replace(/<title>([^<]*)<\/title>/, (m, t) => `<title>${t}${name ? ` · ${name}` : ''}</title>`)
-        .replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-brand-name="${name}" data-place="${placeWord().replace(/[&<>"']/g, '')}" ${banner ? 'data-banner="1" ' : ''}data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" data-build="${buildId()}" style="--brand:${color};--brand-dark:${dark}${banner}">`));
+        .replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-logo-light="${logoLight}" data-brand-name="${name}" data-place="${placeWord().replace(/[&<>"']/g, '')}" ${banner ? 'data-banner="1" ' : ''}data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" data-build="${buildId()}" style="--brand:${color};--brand-dark:${dark}${banner}">`));
   };
   // ---------- first-run setup ----------
   // A new install opens on /setup: the owner makes the first admin account (with the setup
@@ -3372,7 +3401,7 @@ function createApp(db, opts = {}) {
       }
       for (const [k, v] of Object.entries({ dealer_name: name, business_type: b.business_type, place_word: word, dealer_phone: str(b.dealer_phone, 40) || '',
         dealer_address: str(b.dealer_address, 300) || '', dealer_lat: String(lat), dealer_lng: String(lng), timezone: zone,
-        brand_color: hex(b.brand_color, '#eb0a1e'), brand_dark: hex(b.brand_dark, '#0d0f12'), setup_done: '1' })) setSetting(k, v);
+        brand_color: hex(b.brand_color, DEFAULT_SETTINGS.brand_color), brand_dark: hex(b.brand_dark, DEFAULT_SETTINGS.brand_dark), setup_done: '1' })) setSetting(k, v);
       q("DELETE FROM settings WHERE key = 'setup_code'").run();
       db.exec('COMMIT');
     } catch (e) { try { db.exec('ROLLBACK'); } catch { /* done */ } return bad(res, e.message, e.code === 409 ? 409 : 500); }

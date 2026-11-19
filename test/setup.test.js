@@ -86,3 +86,27 @@ test('with several cores (the database prepared, then each copy starting) a new 
   assert.equal(existing.prepare("SELECT value FROM settings WHERE key = 'dealer_name'").get().value, 'Corwin Toyota of Boulder');
   assert.equal(existing.prepare("SELECT value FROM settings WHERE key = 'setup_done'").get().value, '1');
 });
+
+test('a new install has no branding: plain colors, plain icon, no extras; the light-background logo slot works', async () => {
+  const fs = require('node:fs'); const path = require('node:path');
+  const db = openDb(':memory:');
+  const { server, call } = await serve(db);
+  const setting = (k) => db.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value;
+  assert.deepEqual([setting('brand_color'), setting('brand_dark'), setting('easter_egg'), setting('dealer_name')], ['#475569', '#1e293b', '0', '']);
+  assert.equal(setting('brand_icon_512'), undefined, 'no icon saved: the plain built-in one');
+  const port = server.address().port;
+  const icon = Buffer.from(await (await fetch(`http://127.0.0.1:${port}/brand/icon-192.png`)).arrayBuffer());
+  assert.deepEqual(icon, fs.readFileSync(path.join(__dirname, '../public/icons/icon-192.png')));
+  // Finish Setup, then the logo for light backgrounds.
+  const code = setting('setup_code');
+  await call('/api/setup', { body: { ...BUSINESS, code, admin: { first_name: 'Lee', last_name: 'Owner', email: 'lee@x.test', password: 'owner-pass-1' } } });
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const up = await call('/api/brand/logo-light', { body: { data: PNG } });
+  assert.equal(up.status, 200); assert.ok(up.data.settings.logo_light_v);
+  const html = await (await fetch(`http://127.0.0.1:${port}/login`)).text();
+  assert.match(html, new RegExp(`data-logo-light="${up.data.settings.logo_light_v}"`));
+  assert.equal((await fetch(`http://127.0.0.1:${port}/brand/logo-light`)).headers.get('content-type'), 'image/png');
+  assert.equal((await call('/api/brand/logo-light', { method: 'DELETE' })).data.settings.logo_light_v, '');
+  assert.equal((await fetch(`http://127.0.0.1:${port}/brand/logo-light`)).status, 404);
+  server.close();
+});

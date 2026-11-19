@@ -58,7 +58,9 @@ test('BDC team: their own page, booking, and finding a customer by name, phone o
 
   // Today / booked ahead / finished.
   const upcoming = (await b('/api/rides?scope=upcoming')).data.rides.map((r) => r.customer_name);
-  assert.deepEqual(upcoming, ['Dan Brooks']);
+  const day = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Denver' }).format(new Date(ms));
+  const mariaTomorrow = day(Date.now() + 45 * 60000) !== day(Date.now()); // after about 11 PM, it's tomorrow's ride
+  assert.deepEqual(upcoming, mariaTomorrow ? ['Maria Lopez', 'Dan Brooks'] : ['Dan Brooks']);
   const maria = (await b('/api/rides?scope=search&q=maria')).data.rides[0];
   await b(`/api/rides/${maria.id}`, { method: 'PATCH', body: { status: 'cancelled', cancel_reason: 'Customer called to cancel' } });
   assert.deepEqual((await b('/api/rides?scope=recent')).data.rides.map((r) => r.customer_name), ['Maria Lopez']);

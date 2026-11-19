@@ -3,6 +3,7 @@
 const TEST_SITE = {
   setup_done: '1', dealer_name: 'Corwin Toyota of Boulder', dealer_address: '2465 48th Ct, Boulder, CO 80301',
   dealer_lat: '40.0236', dealer_lng: '-105.2405', timezone: 'America/Denver', service_radius_mi: '15.5',
+  brand_color: '#eb0a1e', brand_dark: '#0d0f12', easter_egg: '1',
 };
 function seedTestSite(db, extra = {}) {
   const put = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
