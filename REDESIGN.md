@@ -13,8 +13,8 @@ stay; only the layout and look change. No build step.
 | Day | Step | Status |
 |---|---|---|
 | 1 | Shared look (colors, type, buttons, chips, cards, forms, tabs, windows) and the shared app frame (side menu on a computer, top bar + bottom bar on a phone, account menu under your name) | Done |
-| 2 | Driver, customer tracking, request a ride, watch-only map | Next |
-| 3 | Advisor desk and BDC | |
+| 2 | Driver, customer tracking, request a ride, watch-only map | Done |
+| 3 | Advisor desk and BDC | Next |
 | 4–5 | Manager: overview, rides, reports, people, vehicles, settings as short topic pages, Server | |
 | 6 | Sign in, setup, password reset; full test run and browser check at phone and computer sizes; hand over for review | |
 
@@ -36,6 +36,27 @@ stay; only the layout and look change. No build step.
   An empty `#pageNav` slot is ready for each page's own sections (Day 2+).
 - Fixed: on a phone, wide content inside a `.grid` could push the page wider
   than the screen.
+
+## Day 2 notes
+
+- `App.pageNav(title, items, onShow)` gives a page its own sections. Elements
+  carry `data-views="today me"`; the section is in the address (`#rides`) so
+  Back works. On a computer the sections are in the side menu; on a phone they
+  take over the bottom bar and links to your other pages move into the menu
+  under your name.
+- Driver: **Today** (location bar, start-shift card when off shift, one big
+  "next stop" card with Navigate / Call / Text and one big button for the next
+  step, then "After that"), **Rides** (route planner, Mine / Unassigned / All
+  open, pick up / drop off filter), **Map**, **Me** (shift, alerts, keep screen
+  on, end shift, photo, lock-screen alerts). Every old button is still there:
+  Take this ride, Start, I'm here, on board, complete, no-show, Not here yet,
+  Give back, Cancel. The ride offer pop-up sits above the bottom bar.
+- Customer tracking: live map on top, one card with "Hi Kai, Sam is on the
+  way", a big arrival time in your color, the driver and van, then the steps.
+  Call us / Text us / Add to calendar as buttons; I'm running late, Share and
+  Cancel ride as a quiet row of links.
+- Request a ride: same steps, quieter header, line-drawn arrows.
+- Watch-only map: light header so your logo shows.
 
 ## Still to do later
 

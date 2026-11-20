@@ -159,6 +159,10 @@ const App = (() => {
     advisor: '<path d="M4 6h16M4 12h16M4 18h10"/>',
     bdc: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
     driver: '<path d="M3 16V8a2 2 0 0 1 2-2h10l4 4v6"/><path d="M3 16h18"/><circle cx="7.5" cy="17.5" r="1.8"/><circle cx="16.5" cy="17.5" r="1.8"/>',
+    today: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>',
+    list: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
+    map: '<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>',
+    me: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
   };
   const icon = (k) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k] || ''}</svg>`;
   const ROLE_NAME = { admin: 'Manager', advisor: 'Advisor', bdc: 'BDC', driver: 'Driver' };
@@ -215,6 +219,37 @@ const App = (() => {
     paintTheme();
     // Stays open so you can step through Auto → Dark → Light and see each one.
     $('#themeBtn').onclick = (e) => { e.stopPropagation(); setTheme({ auto: 'dark', dark: 'light', light: 'auto' }[getTheme()]); paintTheme(); };
+  }
+
+  // A page's own sections (the driver's Today / Rides / Map / Me, for example).
+  // On a computer they're listed in the side menu; on a phone they take over the bottom
+  // bar, and the links to your other pages move into the menu under your name.
+  // Remembers the section in the address (#rides), so Back works. Returns { go(id), current() }.
+  function pageNav(title, items, onShow) {
+    const side = $('#pageNav'); const bottom = $('.bottom-nav'); const menu = $('#acctMenu');
+    if (!side || !bottom) return { go() {}, current: () => items[0].id };
+    const btn = (it) => `<a href="#${it.id}" data-page-view="${it.id}">${icon(it.icon)}<span>${esc(it.label)}</span></a>`;
+    const roleLinks = [...bottom.querySelectorAll('a')];
+    side.innerHTML = `<div class="side-label">${esc(title)}</div><nav class="side-nav" aria-label="${esc(title)}">${items.map(btn).join('')}</nav>`;
+    bottom.innerHTML = items.map(btn).join('');
+    if (roleLinks.length && menu) {
+      menu.insertAdjacentHTML('afterbegin', `${roleLinks.map((a) => `<a href="${a.getAttribute('href')}" class="acct-page">${esc(a.textContent.trim())}</a>`).join('')}<div class="acct-sep acct-page"></div>`);
+    }
+    const ids = items.map((it) => it.id);
+    const current = () => { const h = location.hash.slice(1); return ids.includes(h) ? h : ids[0]; };
+    function show() {
+      const v = current();
+      document.body.dataset.view = v;
+      document.querySelectorAll('[data-views]').forEach((el) => el.classList.toggle('view-off', !el.dataset.views.split(/\s+/).includes(v)));
+      document.querySelectorAll('[data-page-view]').forEach((a) => {
+        const on = a.dataset.pageView === v; a.classList.toggle('active', on);
+        if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+      });
+      if (onShow) onShow(v);
+    }
+    window.addEventListener('hashchange', () => { show(); window.scrollTo(0, 0); });
+    show();
+    return { go(id) { if (current() === id) show(); else location.hash = id; }, current };
   }
 
   // ---------- Help & suggestions ----------
@@ -834,7 +869,7 @@ const App = (() => {
   }
 
   return {
-    whatsNew, esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
+    whatsNew, esc, $, $$, api, requireUser, pageNav, icon, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
     brandMark, applyBrand, place, Place, endOfToday, stepper, pickPhoto, waitMeter, tacoRain, live, liveState, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
