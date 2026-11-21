@@ -14,8 +14,8 @@ stay; only the layout and look change. No build step.
 |---|---|---|
 | 1 | Shared look (colors, type, buttons, chips, cards, forms, tabs, windows) and the shared app frame (side menu on a computer, top bar + bottom bar on a phone, account menu under your name) | Done |
 | 2 | Driver, customer tracking, request a ride, watch-only map | Done |
-| 3 | Advisor desk and BDC | Next |
-| 4–5 | Manager: overview, rides, reports, people, vehicles, settings as short topic pages, Server | |
+| 3 | Advisor desk and BDC | Done |
+| 4–5 | Manager: overview, rides, reports, people, vehicles, settings as short topic pages, Server | Next |
 | 6 | Sign in, setup, password reset; full test run and browser check at phone and computer sizes; hand over for review | |
 
 ## Day 1 notes
@@ -57,6 +57,23 @@ stay; only the layout and look change. No build step.
   Cancel ride as a quiet row of links.
 - Request a ride: same steps, quieter header, line-drawn arrows.
 - Watch-only map: light header so your logo shows.
+
+## Day 3 notes
+
+- Advisor desk sections: **Queue**, **At the dealership** (the count shows in
+  the menu when someone is waiting for their ride back), **Map & drivers**.
+- Queue: compact rows (`Rides.row`) with position, customer, pick up / drop
+  off and address, status, driver, and time. On a computer (1100 px and wider)
+  the picked ride shows on the right with every action (assign driver, send
+  link, edit, cancel); on a smaller screen tapping a row opens it in a window.
+  The wait meter and the type filter / My customers only sit above the list.
+  Cancelled today folds away under the queue.
+- **New ride** opens the same step-by-step form in a side panel. Closing it
+  keeps what was typed; after booking it closes and shows the new ride.
+- A "booked for you" note's **Show it** picks that ride.
+- BDC: a clear "Customer calls" header, quieter "Tell them" line; the
+  call-first layout (find, book, today / booked ahead / finished) is unchanged.
+- Step-by-step forms: Next is in your color now (was black).
 
 ## Still to do later
 
