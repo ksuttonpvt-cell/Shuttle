@@ -3436,7 +3436,8 @@ function createApp(db, opts = {}) {
   // The short link for customers (Admin → Settings), e.g. yoursite.com/ride.
   app.get('/:slug', (req, res, next) => (getSettings().request_path && req.params.slug.toLowerCase() === getSettings().request_path ? page('request.html')(req, res, next) : next()));
   app.get('/t/:token', page('track.html'));
-  app.get('/s/:token', (req, res, next) => { res.set('Referrer-Policy', 'no-referrer').set('X-Robots-Tag', 'noindex'); next(); }, page('spectate.html'));
+  // The map server needs to know which site is asking, so share the site's address only (never the private link).
+  app.get('/s/:token', (req, res, next) => { res.set('Referrer-Policy', 'strict-origin').set('X-Robots-Tag', 'noindex'); next(); }, page('spectate.html'));
   app.get('/reset/:token', (req, res, next) => { res.set('Referrer-Policy', 'no-referrer'); next(); }, page('reset.html'));
   // The app manifest must always be fresh, so it's never cached (sw.js has its own route below).
   // The app manifest (phones' "Add to Home Screen"): your name, colors and icon.
