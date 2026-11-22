@@ -105,8 +105,11 @@ test('texts, customer-ready drop offs, and reports', async () => {
   const list = (await admin('/api/rides?scope=today')).data.rides;
   assert.equal(list.find((x) => x.id === pickup.id).return_ride_id, r.data.ride.id);
 
-  // Reports
-  r = await admin('/api/reports');
+  // Reports. Run late in the evening, a ride booked "soon" (or a drop off after its wait) can land
+  // after midnight, so the range runs through tomorrow in the dealership's time zone.
+  const day = (n) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Denver' }).format(new Date(Date.now() + n * 86400000));
+  const range = `from=${day(-5)}&to=${day(1)}`; // seven days, ending tomorrow
+  r = await admin(`/api/reports?${range}`);
   assert.equal(r.status, 200);
   const t = r.data.totals;
   assert.equal(t.rides, 4);
@@ -122,19 +125,19 @@ test('texts, customer-ready drop offs, and reports', async () => {
   assert.deepEqual(r.data.type_counts, { all: 4, pickup: 2, dropoff: 2 });
   assert.equal(r.data.type, 'all');
   // Pick up / drop off filter
-  let f = (await admin('/api/reports?type=pickup')).data;
+  let f = (await admin(`/api/reports?${range}&type=pickup`)).data;
   assert.equal(f.type, 'pickup');
   assert.equal(f.totals.rides, 2);
   assert.equal(f.totals.dropoffs, 0);
   assert.equal(f.totals.completed, 1, 'the completed ride was a pick up');
   assert.deepEqual(f.type_counts, { all: 4, pickup: 2, dropoff: 2 }, 'button counts stay the same');
   assert.equal(f.days.reduce((n, d) => n + d.rides, 0), 2);
-  f = (await admin('/api/reports?type=dropoff')).data;
+  f = (await admin(`/api/reports?${range}&type=dropoff`)).data;
   assert.equal(f.totals.rides, 2);
   assert.equal(f.totals.pickups, 0);
   assert.deepEqual(f.cancel_reasons, [{ reason: 'Customer no-show', count: 1 }], 'the no-show was a drop off');
   assert.equal(f.drivers.length, 0, 'the driver only did a pick up');
-  assert.equal((await admin('/api/reports?type=nonsense')).data.type, 'all');
+  assert.equal((await admin(`/api/reports?${range}&type=nonsense`)).data.type, 'all');
   assert.equal((await driver('/api/reports')).status, 403, 'reports are admin only');
   assert.equal((await admin('/api/reports?from=2026-05-02&to=2026-05-01')).status, 400);
 });

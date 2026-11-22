@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.2.1",
+    "date": "2026-11-22",
+    "title": "Fixes from a full bug test",
+    "changes": [
+      "On a phone, the “New ride” alert no longer covers the menu under your name; it sits just below the top bar.",
+      "A window you open (Help, Change password, a ride's details…) is never covered by a ride offer, and an open menu sits above alerts.",
+      "Behind the scenes: a test that failed late in the evening (rides after midnight) now checks the right days."
+    ]
+  },
+  {
     "version": "3.2.0",
     "date": "2026-11-22",
     "title": "Choose your map: OpenStreetMap, Mapbox, MapTiler, Stadia, Thunderforest or Google",
