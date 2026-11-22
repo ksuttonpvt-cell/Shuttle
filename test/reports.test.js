@@ -70,6 +70,7 @@ test('reports: miles, miles per driver, cities, time driving, advisor scheduling
 
   // The nightly clear removes the address but keeps city and miles.
   db.prepare("INSERT INTO settings (key, value) VALUES ('clear_customer_info', '00:00') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
+  db.prepare("INSERT INTO settings (key, value) VALUES ('keep_customer_days', '0') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
   db.prepare("INSERT INTO settings (key, value) VALUES ('clear_customer_last', '2000-01-01') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
   theApp.locals.clearCustomerInfo(new Date(new Date().setHours(23, 59, 0, 0)));
   const cleared = db.prepare('SELECT address, city, est_miles FROM rides WHERE id = ?').get(p.id);

@@ -30,7 +30,7 @@ function client() {
   };
 }
 
-test('customer info on finished rides is deleted at midnight', async () => {
+test('customer info on finished rides is deleted at midnight (when set to clear the same night)', async () => {
   const admin = client();
   await admin('/api/login', { body: { email: 'admin@test.local', password: 'adminpass1' } });
   const book = async (name, type = 'pickup') => (await admin('/api/rides', { body: {
@@ -45,7 +45,7 @@ test('customer info on finished rides is deleted at midnight', async () => {
   await new Promise((r) => setTimeout(r, 50));
   assert.ok((await admin('/api/sms')).data.log.length >= 1, 'texts were logged');
 
-  await admin('/api/settings', { method: 'PATCH', body: { clear_customer_info: '00:00' } });
+  await admin('/api/settings', { method: 'PATCH', body: { keep_customer_days: '0', clear_customer_info: '00:00' } });
   const tick = theApp.locals.clearCustomerInfo;
   // Denver is UTC-7 in November.
   assert.equal(tick(new Date('2026-11-14T05:00:00Z')), 0, '10 PM, first check: waits for midnight');
@@ -82,4 +82,36 @@ test('customer info on finished rides is deleted at midnight', async () => {
   await admin('/api/settings', { method: 'PATCH', body: { clear_customer_info: '' } });
   assert.equal(tick(new Date('2026-11-15T07:05:00Z')), 0);
   assert.equal((await admin('/api/rides?scope=all')).data.rides.find((x) => x.id === open.id).customer_name, 'Olive Open');
+});
+
+test('by default customer info is kept 30 days, then cleared; the number of days can be changed', async () => {
+  const admin = client();
+  await admin('/api/login', { body: { email: 'admin@test.local', password: 'adminpass1' } });
+  await admin('/api/settings', { method: 'PATCH', body: { keep_customer_days: '30', clear_customer_info: '00:00' } });
+  assert.equal((await admin('/api/me')).data.settings.keep_customer_days, '30');
+  for (const bad of ['-1', '400', 'month', '']) assert.equal((await admin('/api/settings', { method: 'PATCH', body: { keep_customer_days: bad } })).status, 400, bad);
+  const ride = (await admin('/api/rides', { body: { type: 'pickup', customer_name: 'Kim Keep', customer_phone: '303-555-7777',
+    address: '2 Main St, Boulder', lat: 40.02, lng: -105.25, scheduled_at: new Date().toISOString() } })).data.ride;
+  await admin(`/api/rides/${ride.id}`, { method: 'PATCH', body: { status: 'completed' } });
+  const tick = theApp.locals.clearCustomerInfo;
+  const day = 86400000; const t0 = Date.now();
+  tick(new Date(t0 + day)); // first check only notes the day
+  tick(new Date(t0 + 2 * day));
+  const name = async () => (await admin('/api/rides?scope=all')).data.rides.find((x) => x.id === ride.id).customer_name;
+  assert.equal(await name(), 'Kim Keep', 'still there two days later');
+  // Staff can still find it by phone number.
+  assert.ok((await admin('/api/rides?scope=search&q=5557777')).data.rides.some((x) => x.id === ride.id));
+  tick(new Date(t0 + 20 * day));
+  assert.equal(await name(), 'Kim Keep', 'still there after 20 days');
+  tick(new Date(t0 + 31 * day));
+  assert.equal(await name(), 'Customer (info cleared)', 'cleared after 30 days');
+
+  // A shorter setting clears sooner.
+  await admin('/api/settings', { method: 'PATCH', body: { keep_customer_days: '7' } });
+  const r2 = (await admin('/api/rides', { body: { type: 'pickup', customer_name: 'Lou Week', address: '3 Main St, Boulder', lat: 40.02, lng: -105.25, scheduled_at: new Date().toISOString() } })).data.ride;
+  await admin(`/api/rides/${r2.id}`, { method: 'PATCH', body: { status: 'completed' } });
+  tick(new Date(t0 + 3 * day)); tick(new Date(t0 + 5 * day));
+  assert.equal((await admin('/api/rides?scope=all')).data.rides.find((x) => x.id === r2.id).customer_name, 'Lou Week');
+  tick(new Date(t0 + 8 * day));
+  assert.equal((await admin('/api/rides?scope=all')).data.rides.find((x) => x.id === r2.id).customer_name, 'Customer (info cleared)');
 });

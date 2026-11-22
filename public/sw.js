@@ -8,7 +8,7 @@
 const VERSION = '__VERSION__'; // filled in by the server; a new version replaces the saved screens
 const SCREENS = `screens-${VERSION}`;
 const FILES = 'files-v1';
-const TILES = 'map-tiles-v1';
+const TILES = 'map-tiles-v2'; // v1 could hold "Access blocked" pictures; it's thrown away
 const MAX_FILES = 120;
 const MAX_TILES = 600;
 const TILE_DAYS = 7; // the map server allows keeping its images about a week
@@ -24,7 +24,9 @@ function screenKey(url) {
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil((async () => {
-  for (const name of await caches.keys()) if (name.startsWith('screens-') && name !== SCREENS) await caches.delete(name);
+  for (const name of await caches.keys()) {
+    if ((name.startsWith('screens-') && name !== SCREENS) || (name.startsWith('map-tiles-') && name !== TILES)) await caches.delete(name);
+  }
   await self.clients.claim();
 })()));
 
@@ -92,7 +94,10 @@ async function tile(request) {
   }
   try {
     const res = await fetch(request);
-    if (res.ok && res.type !== 'opaque') {
+    // When the map server refuses, it still answers OK, with an "Access blocked" picture
+    // marked no-cache. Real map pictures can be kept; that one never is.
+    const noKeep = /no-cache|no-store/i.test(res.headers.get('cache-control') || '');
+    if (res.ok && res.type !== 'opaque' && !noKeep) {
       const headers = new Headers(res.headers); headers.set('x-saved-at', String(Date.now()));
       const copy = new Response(await res.clone().blob(), { status: res.status, statusText: res.statusText, headers });
       await cache.put(request, copy);
