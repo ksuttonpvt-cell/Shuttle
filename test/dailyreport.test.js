@@ -37,6 +37,14 @@ test('request names and percentiles for the server report', () => {
   assert.equal(percentile([0, 0, 0, 0, 0, 0, 0], 0.5), null);
 });
 
+// "In 5 minutes", but never past midnight at the dealership, so this test's rides stay on
+// today's report even when it runs late in the evening.
+function soonToday() {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Denver', hourCycle: 'h23', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    .formatToParts(new Date()).filter((x) => x.type !== 'literal').map((x) => [x.type, Number(x.value)]));
+  const untilMidnight = ((24 - p.hour) * 3600 - p.minute * 60 - p.second) * 1000;
+  return new Date(Date.now() + Math.min(5 * 60000, untilMidnight - 1500)).toISOString();
+}
 test('detailed reports: shifts, drivers, vehicles, hours, ride log, and the daily report', async () => {
   const a = client(); await a('/api/login', { body: { email: 'boss@rep.test', password: 'adminpass1' } });
   await a('/api/users', { body: { name: 'Sam Driver', email: 'sam@rep.test', roles: ['driver'], password: 'password123' } });
@@ -51,7 +59,7 @@ test('detailed reports: shifts, drivers, vehicles, hours, ride log, and the dail
   await sam('/api/driver/location', { body: { lat: 40.0, lng: -105.27 } });
   await sam('/api/driver/location', { body: { lat: 40.0005, lng: -105.27 } });
   // A pick up done start to finish, with "I'm here", and a no-show.
-  const book = async (name) => (await ann('/api/rides', { body: { type: 'pickup', customer_name: name, customer_phone: '303-555-0100', address: '1 Main', lat: 40.01, lng: -105.27, scheduled_at: new Date(Date.now() + 5 * 60000).toISOString(), passengers: 2 } })).data.ride;
+  const book = async (name) => (await ann('/api/rides', { body: { type: 'pickup', customer_name: name, customer_phone: '303-555-0100', address: '1 Main', lat: 40.01, lng: -105.27, scheduled_at: soonToday(), passengers: 2 } })).data.ride;
   const r1 = await book('Kai Done'); const r2 = await book('Lee Gone');
   for (const r of [r1, r2]) await sam(`/api/rides/${r.id}`, { method: 'PATCH', body: { driver_id: samMe.id } });
   await sam(`/api/rides/${r1.id}`, { method: 'PATCH', body: { status: 'en_route' } });
