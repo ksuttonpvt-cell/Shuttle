@@ -10,12 +10,13 @@
 <body>
 <header id="topbar"></header>
 <main class="wrap grid bdc">
+  <div class="page-head" style="margin:0"><div><h1>Customer calls</h1><p>Find a customer's ride, tell them where the shuttle is, or book a new one.</p></div></div>
   <!-- A customer on the phone: find their ride first. -->
   <section class="card bdc-find">
     <label for="find" class="bdc-find-label">Find a customer</label>
     <div class="bdc-find-row">
       <input id="find" type="search" autocomplete="off" placeholder="Name, phone number or RO #" aria-describedby="findHelp">
-      <button type="button" class="btn-lg" id="bookBtn">＋ Book a ride</button>
+      <button type="button" class="btn-lg" id="bookBtn">Book a ride</button>
     </div>
     <p class="small muted" id="findHelp" style="margin:.3rem 0 0">Rides from the last 30 days and anything booked ahead. Customer details are cleared each night once a ride is done.</p>
     <div id="results" aria-live="polite"></div>
@@ -54,7 +55,7 @@
     const bits = [STATUS_WORDS[r.status] || r.status];
     if (r.driver_name) bits.push(`driver ${r.driver_name.split(' ')[0]}${r.vehicle_name ? ` in ${r.vehicle_name}` : ''}`);
     if (r.rank && ['requested', 'assigned'].includes(r.status)) bits.push(`#${r.rank} in line`);
-    return `<div class="bdc-say">📞 Tell them: <b>${esc(bits.join(' · '))}</b></div>`;
+    return `<div class="bdc-say">Tell them: <b>${esc(bits.join(' · '))}</b></div>`;
   };
   const cardOf = (r) => Rides.card(r, { mode: 'bdc' }).replace('<div class="ride-meta">', `${sayLine(r)}<div class="ride-meta">`);
 

@@ -1,5 +1,19 @@
 [
   {
+    "version": "3.0.0",
+    "date": "2026-11-22",
+    "title": "Shuttle 3: a simpler, calmer look, one step at a time",
+    "changes": [
+      "One look for everyone: a calm light background, white cards, bigger buttons, and your color as the only accent. Red now only means urgent or a problem. Dark mode is refreshed too.",
+      "A new menu: down the side on a computer, along the bottom on a phone. Help & ideas, light or dark screen, password, what's new and sign out are together under your name.",
+      "Drivers: Today shows one big card for the next stop (Navigate, Call, Text, and one big button for the next step), then what comes after. Rides, Map and Me are a tap away.",
+      "Customers: the tracking page opens on the live map and a big arrival time, with the driver, van and plate. Running late, Share and Cancel are quiet links at the bottom.",
+      "Advisor desk: the queue is a tidy list with the picked ride beside it. New ride opens in a side panel. Customers waiting for their ride back are counted in the menu.",
+      "Managers: each part (Overview, Rides, Reports, People, Vehicles, QR codes & links, Settings, Server) is its own page. Settings is short pages by topic instead of one long scroll.",
+      "The Classic / Branded switch is gone, since there's one look now. Everything else works exactly as before."
+    ]
+  },
+  {
     "version": "2.24.0",
     "date": "2026-11-19",
     "title": "No built-in branding: placeholders until you add yours",

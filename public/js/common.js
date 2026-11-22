@@ -142,42 +142,121 @@ const App = (() => {
   async function requireUser(...roles) {
     const { user, settings, base_url, version } = await api('/api/me');
     App.baseUrl = base_url; App.version = version || null;
-    if (!user) { location.href = '/login?next=' + encodeURIComponent(location.pathname); throw new Error('redirect'); }
+    // Leaving the page: wait here instead of failing, so nothing half-loads or reports an error.
+    if (!user) { location.href = '/login?next=' + encodeURIComponent(location.pathname); return new Promise(() => {}); }
     const can = user.can || [user.role]; // every role they have (several for some people)
-    if (roles.length && !roles.some((r) => can.includes(r))) { location.href = user.home || '/' + user.role; throw new Error('redirect'); }
+    if (roles.length && !roles.some((r) => can.includes(r))) { location.href = user.home || '/' + user.role; return new Promise(() => {}); }
     App.user = user; App.settings = settings;
     renderTopbar(user, settings);
     return user;
   }
 
+  // ---------- The app frame ----------
+  // One frame on every staff page: a side menu on a computer, a top bar and a bottom
+  // bar on a phone. Help, light/dark, password, what's new and sign out live together
+  // in the menu under your name.
+  const ICON = {
+    manager: '<path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/>',
+    advisor: '<path d="M4 6h16M4 12h16M4 18h10"/>',
+    bdc: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
+    driver: '<path d="M3 16V8a2 2 0 0 1 2-2h10l4 4v6"/><path d="M3 16h18"/><circle cx="7.5" cy="17.5" r="1.8"/><circle cx="16.5" cy="17.5" r="1.8"/>',
+    today: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>',
+    list: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
+    map: '<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>',
+    me: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
+    people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1-3.5 3.5-5.5 6.5-5.5s5.5 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.8 3 2.5 3.5 5.2"/>',
+    chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    qr: '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z"/><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+    server: '<rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+  };
+  const icon = (k) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k] || ''}</svg>`;
+  const ROLE_NAME = { admin: 'Manager', advisor: 'Advisor', bdc: 'BDC', driver: 'Driver' };
+  const initials = (name) => String(name || '?').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+
   function renderTopbar(user, settings) {
     const el = $('#topbar'); if (!el) return;
     const links = [];
-    if (user.role === 'admin') links.push(['/admin', 'Manager'], ['/advisor', 'Advisor'], ['/bdc', 'BDC'], ['/driver', 'Driver']);
+    if (user.role === 'admin') links.push(['/admin', 'Manager', 'manager'], ['/advisor', 'Advisor desk', 'advisor'], ['/bdc', 'BDC', 'bdc'], ['/driver', 'Driver', 'driver']);
     else {
       // People with several roles get a link to each of their pages.
       const roles = user.roles || [user.role];
-      const PAGE = { bdc: ['/bdc', 'BDC'], advisor: ['/advisor', 'Advisor desk'], driver: ['/driver', 'Driver'] };
+      const PAGE = { bdc: ['/bdc', 'BDC', 'bdc'], advisor: ['/advisor', 'Advisor desk', 'advisor'], driver: ['/driver', 'Driver', 'driver'] };
       for (const r of roles) if (PAGE[r]) links.push(PAGE[r]);
       if (roles.includes('bdc') && !roles.includes('advisor')) links.push(PAGE.advisor); // BDC can use the advisor desk too
       if (links.length < 2) links.length = 0;
     }
-    const nav = links.map(([href, label]) => `<a href="${href}" class="${location.pathname === href ? 'active' : ''}">${label}</a>`).join('');
+    const link = ([href, label, ic]) => `<a href="${href}" class="${location.pathname === href ? 'active' : ''}"${location.pathname === href ? ' aria-current="page"' : ''}>${icon(ic)}<span>${label}</span></a>`;
+    const nav = links.map(link).join('');
+    const roleText = (user.roles || [user.role]).map((r) => ROLE_NAME[r] || r).join(' + ');
+    const isNew = App.version && seenVersion() !== App.version;
     el.className = 'topbar';
     el.innerHTML = `
-      <a class="brand brand-classic" href="/"><span class="logo">🚐</span><span>Shuttle<small>${esc(settings.dealer_name)}</small></span></a>
-      <a class="brand brand-branded" href="/">${brandMark(settings.dealer_name, 'Shuttle')}</a>
-      <nav>${nav}<button id="helpBtn" title="Ask for help or suggest an idea">💬 Help</button><button id="themeBtn" title="Light or dark screen"></button><button id="pwBtn" title="Change password">Password</button><button id="logoutBtn">Sign out</button></nav>
-      <span class="who">${esc(user.name)} · ${esc((user.roles || [user.role]).map((r) => ({ admin: 'Manager', advisor: 'Advisor', bdc: 'BDC', driver: 'Driver' }[r] || r)).join(' + '))}</span>
-      ${App.version ? `<button type="button" id="verBtn" class="ver-pill" title="Version — see what's new">v${esc(App.version)}${seenVersion() !== App.version ? '<span class="ver-new">NEW</span>' : ''}</button>` : ''}`;
-    if ($('#verBtn')) $('#verBtn').onclick = () => whatsNew();
+      <a class="brand" href="/">${brandMark(settings.dealer_name, 'Shuttle', { light: true })}</a>
+      ${nav ? `<div class="side-label">Pages</div><nav class="side-nav" aria-label="Pages">${nav}</nav>` : ''}
+      <div id="pageNav"></div>
+      <div class="side-foot">
+        <button type="button" class="acct-btn" id="acctBtn" aria-haspopup="menu" aria-expanded="false" title="${esc(user.name)}">
+          <span class="avatar">${esc(initials(user.name))}</span>
+          <span class="acct-who"><b>${esc(user.name)}</b><span>${esc(roleText)}${isNew ? ' <span class="ver-new">NEW</span>' : ''}</span></span>
+        </button>
+        <div class="acct-menu" id="acctMenu" role="menu" hidden>
+          <button type="button" role="menuitem" id="helpBtn">Help &amp; ideas</button>
+          <button type="button" role="menuitem" id="themeBtn">Screen <span class="acct-val" id="themeVal"></span></button>
+          <button type="button" role="menuitem" id="pwBtn">Change password</button>
+          ${App.version ? `<button type="button" role="menuitem" id="verBtn">What's new <span class="acct-val">v${esc(App.version)}${isNew ? ' <span class="ver-new">NEW</span>' : ''}</span></button>` : ''}
+          <div class="acct-sep"></div>
+          <button type="button" role="menuitem" id="logoutBtn" class="acct-out">Sign out</button>
+        </div>
+      </div>
+      <nav class="bottom-nav" aria-label="Pages">${nav}</nav>`;
+    const menu = $('#acctMenu'); const acct = $('#acctBtn');
+    const setMenu = (open) => { menu.hidden = !open; acct.setAttribute('aria-expanded', String(open)); };
+    acct.onclick = (e) => { e.stopPropagation(); setMenu(menu.hidden); };
+    document.addEventListener('click', (e) => { if (!menu.hidden && !menu.contains(e.target)) setMenu(false); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !menu.hidden) { setMenu(false); acct.focus(); } });
+    const pick = (fn) => () => { setMenu(false); fn(); };
+    if ($('#verBtn')) $('#verBtn').onclick = pick(() => whatsNew());
     $('#logoutBtn').onclick = async () => { await api('/api/logout', { body: {} }); location.href = '/login'; };
     applyBrand(settings.dealer_name);
-    $('#pwBtn').onclick = changePassword;
-    $('#helpBtn').onclick = () => helpWindow(settings);
-    const paintTheme = () => { $('#themeBtn').textContent = { auto: '🌓 Auto', dark: '🌙 Dark', light: '☀️ Light' }[getTheme()]; };
+    $('#pwBtn').onclick = pick(changePassword);
+    $('#helpBtn').onclick = pick(() => helpWindow(settings));
+    const paintTheme = () => { $('#themeVal').textContent = { auto: 'Auto', dark: 'Dark', light: 'Light' }[getTheme()]; };
     paintTheme();
-    $('#themeBtn').onclick = () => { setTheme({ auto: 'dark', dark: 'light', light: 'auto' }[getTheme()]); paintTheme(); };
+    // Stays open so you can step through Auto → Dark → Light and see each one.
+    $('#themeBtn').onclick = (e) => { e.stopPropagation(); setTheme({ auto: 'dark', dark: 'light', light: 'auto' }[getTheme()]); paintTheme(); };
+  }
+
+  // A page's own sections (the driver's Today / Rides / Map / Me, for example).
+  // On a computer they're listed in the side menu; on a phone they take over the bottom
+  // bar, and the links to your other pages move into the menu under your name.
+  // Remembers the section in the address (#rides), so Back works. Returns { go(id), current() }.
+  function pageNav(title, items, onShow) {
+    const side = $('#pageNav'); const bottom = $('.bottom-nav'); const menu = $('#acctMenu');
+    if (!side || !bottom) return { go() {}, current: () => items[0].id };
+    const btn = (it) => `<a href="#${it.id}" data-page-view="${it.id}">${icon(it.icon)}<span>${esc(it.label)}</span></a>`;
+    const roleLinks = [...bottom.querySelectorAll('a')];
+    side.innerHTML = `<div class="side-label">${esc(title)}</div><nav class="side-nav" aria-label="${esc(title)}">${items.map(btn).join('')}</nav>`;
+    bottom.innerHTML = items.map(btn).join('');
+    if (roleLinks.length && menu) {
+      menu.insertAdjacentHTML('afterbegin', `${roleLinks.map((a) => `<a href="${a.getAttribute('href')}" class="acct-page">${esc(a.textContent.trim())}</a>`).join('')}<div class="acct-sep acct-page"></div>`);
+    }
+    const ids = items.map((it) => it.id);
+    // "#settings/branding" belongs to the Settings section (the part after / is a sub-page).
+    const current = () => { const h = location.hash.slice(1).split('/')[0]; return ids.includes(h) ? h : ids[0]; };
+    function show() {
+      const v = current();
+      document.body.dataset.view = v;
+      document.querySelectorAll('[data-views]').forEach((el) => el.classList.toggle('view-off', !el.dataset.views.split(/\s+/).includes(v)));
+      document.querySelectorAll('[data-page-view]').forEach((a) => {
+        const on = a.dataset.pageView === v; a.classList.toggle('active', on);
+        if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+      });
+      if (onShow) onShow(v);
+    }
+    window.addEventListener('hashchange', () => { show(); window.scrollTo(0, 0); });
+    show();
+    return { go(id) { if (location.hash.slice(1) === id) show(); else location.hash = id; }, current, sub: () => location.hash.slice(1).split('/')[1] || '' };
   }
 
   // ---------- Help & suggestions ----------
@@ -252,22 +331,14 @@ const App = (() => {
     const rest = [words.join(' '), extra].filter(Boolean).join(' · ');
     return `<span class="wordmark">${esc(first)}</span><span class="brand-sub">${esc(rest)}</span>`;
   }
-  // Fills [data-brand] spots and shows a note while previewing a look on this device.
+  // Fills [data-brand] spots with your logo or name.
   function applyBrand(dealerName) {
-    $$('[data-brand]').forEach((el) => { el.innerHTML = brandMark(dealerName, el.dataset.brand || '', { light: el.classList.contains('brand-block-card') }); });
+    $$('[data-brand]').forEach((el) => { el.innerHTML = brandMark(dealerName, el.dataset.brand || '', { light: !(document.documentElement.dataset.banner && el.closest('.hero')) }); });
     const name = document.documentElement.dataset.brandName || dealerName;
     $$('[data-foot]').forEach((el) => { el.innerHTML = `${name ? `<b>${esc(name)}</b> · ` : ''}${place() === 'dealership' ? 'Service shuttle' : 'Shuttle'}`; });
     $$('span[data-word]').forEach((el) => { el.textContent = el.dataset.word === 'cap' ? Place() : place(); });
-    let preview = null;
-    try { preview = localStorage.getItem('shuttle.look'); } catch { /* storage blocked */ }
-    const site = document.documentElement.dataset.siteLook;
-    if (preview && preview !== site && !$('#lookPreview')) {
-      const pill = document.createElement('div');
-      pill.id = 'lookPreview'; pill.className = 'look-preview no-print';
-      pill.innerHTML = `<span>Previewing the <b>${preview === 'branded' ? 'Branded' : 'Classic'}</b> look<span class="lp-long"> on this device</span></span><button type="button">Stop preview</button>`;
-      pill.querySelector('button').onclick = () => { try { localStorage.removeItem('shuttle.look'); } catch { /* ignore */ } location.reload(); };
-      document.body.appendChild(pill);
-    }
+    // There's one look for everyone now; forget any old "preview the look" choice on this device.
+    try { localStorage.removeItem('shuttle.look'); delete document.documentElement.dataset.look; } catch { /* storage blocked */ }
   }
 
   // Light / dark screen: 'auto' follows the device setting. Saved on this device only.
@@ -339,7 +410,7 @@ const App = (() => {
       <div class="ver-list">${entries || '<p class="muted">No notes yet.</p>'}</div>
       <div class="actions"><button type="button" class="btn" data-close>Got it</button></div>`);
     markSeen(about.version);
-    const dot = document.querySelector('#verBtn .ver-new'); if (dot) dot.remove();
+    document.querySelectorAll('#topbar .ver-new').forEach((dot) => dot.remove());
   }
 
   function flash(el, msg, ok = false) {
@@ -797,7 +868,7 @@ const App = (() => {
   }
 
   return {
-    whatsNew, esc, $, $$, api, requireUser, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
+    whatsNew, esc, $, $$, api, requireUser, pageNav, icon, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
     brandMark, applyBrand, place, Place, endOfToday, stepper, pickPhoto, waitMeter, tacoRain, live, liveState, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };

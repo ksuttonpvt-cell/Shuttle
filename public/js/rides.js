@@ -179,6 +179,19 @@ const Rides = (() => {
       </div>`;
   }
 
+  // One line in a queue list: position, who, where, when, and where it's at.
+  // Tapping it shows the whole ride (see the advisor desk).
+  function row(r, selected = false) {
+    const open = !['completed', 'cancelled'].includes(r.status);
+    const late = open && new Date(r.scheduled_at) < Date.now() - 5 * 60000 && ['requested', 'assigned'].includes(r.status);
+    return `<button type="button" class="q-row${selected ? ' is-on' : ''}${r.priority === 'urgent' ? ' is-urgent' : ''}" data-pick="${r.id}" aria-pressed="${selected}">
+      <span class="q-rank">${r.rank || ''}</span>
+      <span class="q-who"><b>${esc(r.customer_name)}</b><span>${App.TYPE_LABEL[r.type]} · ${esc(r.address || '')}</span></span>
+      <span class="q-when${late ? ' late' : ''}">${fmtTime(r.scheduled_at)}<span>${open ? relTime(r.scheduled_at) : ''}</span></span>
+      <span class="q-tags">${r.priority === 'urgent' ? '<span class="badge b-urgent">Urgent</span>' : ''}${statusBadge(r.status)}${r.driver_name ? `<span class="q-driver">${esc(r.driver_name.split(' ')[0])}</span>` : ''}</span>
+    </button>`;
+  }
+
   // Attach handlers for the staff action buttons inside a container.
   function bind(container, getRide, refresh) {
     container.addEventListener('change', async (e) => {
@@ -292,5 +305,5 @@ const Rides = (() => {
     };
   }
 
-  return { formHtml, stepFormHtml, wireForm, formData, card, bind, edit, newRideForm, setAdvisors };
+  return { formHtml, stepFormHtml, wireForm, formData, card, row, bind, edit, newRideForm, setAdvisors };
 })();
