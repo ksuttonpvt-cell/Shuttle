@@ -170,3 +170,46 @@ test('only one copy of the shuttle program runs: a second one says so and closes
   assert.doesNotMatch(out2, /Starting/i, 'it never started a second website');
   first.kill('SIGTERM'); await new Promise((r) => first.on('exit', r));
 });
+
+test('when an update changes Shuttle Control itself, it hands over to the new version on its own', async () => {
+  const { spawn } = require('node:child_process');
+  const net = require('node:net');
+  const freePort = () => new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
+  const [sitePort, controlPort] = [await freePort(), await freePort()];
+  const dir = fs.mkdtempSync(path.join(tmp, 'reload-'));
+  const marker = path.join(dir, 'pretend-code.js'); fs.writeFileSync(marker, 'version 1');
+  const env = { ...process.env, PORT: String(sitePort), CONTROL_PORT: String(controlPort), DB_FILE: path.join(dir, 'shuttle.db'), CLOUDFLARE_TUNNEL_TOKEN: '',
+    ADMIN_EMAIL: 'a@b.test', ADMIN_PASSWORD: 'adminpass1', SHUTTLE_WORKERS: '1', AUTO_UPDATE: '0', SHUTTLE_CONTROL_EXTRA_CODE: marker };
+  const root = path.join(__dirname, '..');
+  const starter = spawn(process.execPath, ['src/supervisor.js'], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = ''; starter.stdout.on('data', (d) => { out += d; }); starter.stderr.on('data', (d) => { out += d; });
+  const until = async (fn, what, ms = 20000) => { for (let i = 0; i < ms / 100; i++) { if (await fn()) return; await new Promise((r) => setTimeout(r, 100)); } assert.fail(`${what}\n${out.slice(-1500)}`); };
+  const healthy = async () => { try { return (await fetch(`http://127.0.0.1:${sitePort}/healthz`)).ok; } catch { return false; } };
+  const readyCount = () => (out.match(/Shuttle Control is ready/g) || []).length;
+  await until(() => readyCount() === 1 && healthy(), 'first start');
+
+  // A restart that doesn't change Shuttle Control just restarts the website.
+  const login = await fetch(`http://127.0.0.1:${sitePort}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'a@b.test', password: 'adminpass1' }) });
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const restartSite = () => fetch(`http://127.0.0.1:${sitePort}/api/server/restart`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: '{}' });
+  assert.equal((await restartSite()).status, 200);
+  await until(() => /Update installed \(or restart asked for\)/.test(out) && healthy(), 'plain restart');
+  assert.equal(readyCount(), 1, 'Shuttle Control itself kept running');
+
+  // Now "an update" changes Shuttle Control's code: it stops, and the starter runs the new one.
+  fs.writeFileSync(marker, 'version 2');
+  await until(async () => healthy(), 'site up before the second restart');
+  const login2 = await fetch(`http://127.0.0.1:${sitePort}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'a@b.test', password: 'adminpass1' }) });
+  const cookie2 = login2.headers.get('set-cookie').split(';')[0];
+  assert.equal((await fetch(`http://127.0.0.1:${sitePort}/api/server/restart`, { method: 'POST', headers: { Cookie: cookie2, 'Content-Type': 'application/json' }, body: '{}' })).status, 200);
+  await until(() => /This update also changed Shuttle Control/.test(out), 'it noticed its own update');
+  await until(() => /Shuttle Control was updated\. Starting the new version/.test(out), 'the starter restarted it');
+  await until(() => readyCount() === 2 && healthy(), 'the new Shuttle Control and the website are back');
+  assert.doesNotMatch(out, /already running on this PC/, 'the old copy had let go of its port');
+  assert.equal(starter.exitCode, null, 'the starter is still running');
+
+  starter.kill('SIGTERM');
+  const code = await new Promise((r) => starter.on('exit', r));
+  assert.equal(code, 0);
+  await until(async () => !(await healthy()), 'everything stopped when the starter was stopped', 8000);
+});
