@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.0.1",
+    "date": "2026-11-22",
+    "title": "“On the way” instead of “Driver en route”",
+    "changes": [
+      "A ride whose driver is heading to the customer now says “On the way” everywhere: the driver's screen, the advisor desk, the Manager pages and map pop-ups."
+    ]
+  },
+  {
     "version": "3.0.0",
     "date": "2026-11-22",
     "title": "Shuttle 3: a simpler, calmer look, one step at a time",

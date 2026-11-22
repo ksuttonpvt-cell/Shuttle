@@ -419,7 +419,7 @@ const App = (() => {
   }
 
   // ---------- formatting ----------
-  const STATUS_LABEL = { requested: 'Waiting', assigned: 'Assigned', en_route: 'Driver en route', onboard: 'On board', completed: 'Completed', cancelled: 'Cancelled' };
+  const STATUS_LABEL = { requested: 'Waiting', assigned: 'Assigned', en_route: 'On the way', onboard: 'On board', completed: 'Completed', cancelled: 'Cancelled' };
   const TYPE_LABEL = { pickup: 'Pick up', dropoff: 'Drop off' };
   function fmtTime(iso) {
     const d = new Date(iso);
