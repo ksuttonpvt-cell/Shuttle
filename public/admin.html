@@ -267,24 +267,17 @@
       </div>
       <div data-sub="maps">
         <h2>Map</h2>
-        <p class="small muted" style="margin-top:0">Where the map pictures come from, on every page: staff, drivers, the customer tracking page and the watch-only map.</p>
-        <fieldset class="opt-group" style="margin-top:0">
-          <label class="check"><input type="radio" name="map_provider" value="osm"> <span><b>OpenStreetMap</b> <span class="muted">(free, no account. Run by volunteers, so it can turn busy sites away.)</span></span></label>
-          <label class="check"><input type="radio" name="map_provider" value="mapbox"> <span><b>Mapbox</b> <span class="muted">(needs a free Mapbox account. Reliable; free up to a monthly amount, then paid.)</span></span></label>
-        </fieldset>
-        <div data-mapbox-only>
-          <label for="mapboxToken">Mapbox public token</label>
-          <div class="linkbox"><input id="mapboxToken" name="mapbox_token" type="password" autocomplete="off" spellcheck="false" placeholder="pk.…"><button type="button" class="btn-ghost btn-sm" id="mapboxShow">Show</button><button type="button" class="btn-ghost btn-sm" id="mapboxTest">Test</button></div>
-          <div id="mapboxMsg"></div>
-          <details style="margin-top:.5rem" open><summary class="small">How to get a token</summary><ol class="small steps-list">
-            <li>Make a free account at <a href="https://account.mapbox.com/auth/signup/" target="_blank" rel="noopener">mapbox.com</a>.</li>
-            <li>Open <b>Tokens</b> in your Mapbox account. Use the <b>Default public token</b>, or tap <b>Create a token</b> (public scopes only).</li>
-            <li>Recommended: under <b>URL restrictions</b>, add <b id="mapboxSite"></b> so only your site can use it.</li>
-            <li>Copy the token (it starts with <b>pk.</b>), paste it here, tap <b>Test</b>, then <b>Save settings</b>.</li>
-          </ol>
-          <p class="small muted" style="margin:.2rem 0 0">A public token is meant to be in web pages, so it's sent with every map. Never paste a secret token (sk.). If Mapbox stops answering or the token is wrong, maps switch back to OpenStreetMap by themselves.</p></details>
+        <p class="small muted" style="margin-top:0">Where the map pictures come from, on every page: staff, drivers, the customer tracking page and the watch-only map. Every service except OpenStreetMap needs an account and a key. If a key is wrong or the service stops answering, maps switch back to OpenStreetMap by themselves.</p>
+        <fieldset class="opt-group map-choices" style="margin-top:0" id="mapChoices"></fieldset>
+        <div id="mapKeyBox" hidden>
+          <label for="mapKey" id="mapKeyLabel">Key</label>
+          <div class="linkbox"><input id="mapKey" type="password" autocomplete="off" spellcheck="false"><button type="button" class="btn-ghost btn-sm" id="mapKeyShow">Show</button><button type="button" class="btn-ghost btn-sm" id="mapKeyTest">Test</button></div>
+          <div id="mapKeyMsg"></div>
+          <details style="margin-top:.5rem" open><summary class="small">How to get a key</summary><ol class="small steps-list" id="mapKeySteps"></ol>
+          <p class="small muted" style="margin:.2rem 0 0">Map keys are sent with every map, so anyone could see them. That's normal; limiting the key to your web address (step above) keeps others from using it.</p></details>
         </div>
-        <p class="small muted" style="margin:.6rem 0 0">Pages pick up a change the next time they open.</p>
+        <input type="hidden" name="mapbox_token"><input type="hidden" name="maptiler_key"><input type="hidden" name="stadia_key"><input type="hidden" name="thunderforest_key"><input type="hidden" name="google_maps_key">
+        <p class="small muted" style="margin:.6rem 0 0">Prices and free amounts change; check each service's own pricing page. Pages pick up a change the next time they open.</p>
       </div>
       <div id="setMsg"></div>
       <button style="margin-top:1rem">Save settings</button>
@@ -1302,8 +1295,8 @@
     sf.elements.place_word.value = settings.place_word || ''; sf.elements.place_word.placeholder = settings.business_type === 'shuttle' ? 'office' : 'dealership';
     sf.elements.request_path.value = settings.request_path || ''; $('#reqBase').textContent = `${location.host}/`;
     sf.querySelectorAll('[name=business_type]').forEach((r) => { r.onchange = () => { sf.elements.place_word.placeholder = r.value === 'shuttle' ? 'office' : 'dealership'; }; });
-    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi', 'dropoff_wait_min', 'arrive_wait_min', 'auto_end_shift', 'auto_sign_out', 'clear_customer_info', 'keep_customer_days', 'mapbox_token']) sf.elements[k].value = settings[k] ?? '';
-    sf.elements.map_provider.value = settings.map_provider || 'osm'; syncMapbox();
+    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi', 'dropoff_wait_min', 'arrive_wait_min', 'auto_end_shift', 'auto_sign_out', 'clear_customer_info', 'keep_customer_days', ...MAPS.filter((m) => m.setting).map((m) => m.setting)]) sf.elements[k].value = settings[k] ?? '';
+    sf.elements.map_provider.value = settings.map_provider || 'osm'; syncMap();
     if (sf.elements.service_radius_mi.value === '') sf.elements.service_radius_mi.value = '0';
     if (!sf.elements.timezone.value) sf.elements.timezone.value = 'America/Denver';
     sf.elements.public_requests.checked = settings.public_requests === '1';
@@ -1975,7 +1968,7 @@
   loaders.comms = () => { loadSms(); loadPhone().catch(() => {}); return loadEmail().catch(() => {}); };
   sf.onsubmit = async (e) => {
     e.preventDefault();
-    if (sf.elements.map_provider.value === 'mapbox' && !sf.elements.mapbox_token.value.trim()) { location.hash = 'settings/maps'; return App.flash($('#setMsg'), 'To use Mapbox, paste your Mapbox public token on the Map page first.'); }
+    { const m = mapOf(); if (m.setting && !sf.elements[m.setting].value.trim()) { location.hash = 'settings/maps'; return App.flash($('#setMsg'), `To use ${m.name}, paste its key on the Map page first.`); } }
     const body = Object.fromEntries(new FormData(sf));
     body.public_requests = sf.elements.public_requests.checked ? '1' : '0';
     body.customer_actions = sf.elements.customer_actions.checked ? '1' : '0';
@@ -1988,24 +1981,53 @@
     catch (err) { App.flash($('#setMsg'), err.message); }
   };
 
-  // ---------- Map (Mapbox) ----------
-  function syncMapbox() {
-    $('[data-mapbox-only]').hidden = sf.elements.map_provider.value !== 'mapbox';
-    $('#mapboxSite').textContent = location.origin;
+  // ---------- Map ----------
+  // One key box; it shows the key for the service picked and saves into that service's setting.
+  const site = () => `<b>${esc(location.origin)}</b>`;
+  const MAPS = [
+    { id: 'osm', name: 'OpenStreetMap', note: 'Free, no account. Run by volunteers, so it can turn busy sites away.' },
+    { id: 'mapbox', name: 'Mapbox', setting: 'mapbox_token', label: 'Mapbox public token', ph: 'pk.…', note: 'Reliable. Free up to a monthly amount, then pay as you go.',
+      steps: () => [`Make a free account at <a href="https://account.mapbox.com/auth/signup/" target="_blank" rel="noopener">mapbox.com</a>.`,
+        'Open <b>Tokens</b>. Use the <b>Default public token</b>, or <b>Create a token</b> with public scopes only.',
+        `Recommended: under <b>URL restrictions</b>, add ${site()}.`, 'Copy the token (it starts with <b>pk.</b>, never <b>sk.</b>) and paste it here.'] },
+    { id: 'maptiler', name: 'MapTiler', setting: 'maptiler_key', label: 'MapTiler API key', ph: 'Your MapTiler key', note: 'Reliable. Free plan, then monthly plans; check the free plan allows business use.',
+      steps: () => [`Make an account at <a href="https://cloud.maptiler.com/" target="_blank" rel="noopener">cloud.maptiler.com</a>.`,
+        'Open <b>API keys</b> and create a key (or use the default one).', `Recommended: under <b>Allowed HTTP origins</b>, add ${site()}.`, 'Copy the key and paste it here.'] },
+    { id: 'stadia', name: 'Stadia Maps', setting: 'stadia_key', label: 'Stadia Maps API key', ph: 'Your Stadia key', note: 'Clean look. Free for non-commercial use; a business needs a paid plan.',
+      steps: () => [`Make an account at <a href="https://client.stadiamaps.com/" target="_blank" rel="noopener">client.stadiamaps.com</a>.`,
+        `Create a <b>property</b> and add ${site()} as its domain.`, 'Create an <b>API key</b> for the property, copy it and paste it here.'] },
+    { id: 'thunderforest', name: 'Thunderforest', setting: 'thunderforest_key', label: 'Thunderforest API key', ph: 'Your Thunderforest key', note: 'Detailed street maps. Free hobby tier; a business needs a paid plan.',
+      steps: () => [`Make an account at <a href="https://manage.thunderforest.com/" target="_blank" rel="noopener">manage.thunderforest.com</a>.`,
+        'Your <b>API key</b> is on the dashboard. Copy it and paste it here.'] },
+    { id: 'google', name: 'Google Maps', setting: 'google_maps_key', label: 'Google API key', ph: 'AIza…', note: 'The familiar Google look. Needs a Google Cloud account with billing; free up to a monthly amount.',
+      steps: () => [`In <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud</a>, make a project and turn on billing.`,
+        'Under <b>APIs &amp; Services → Library</b>, turn on the <b>Map Tiles API</b>.',
+        `Under <b>Credentials</b>, create an <b>API key</b>. Restrict it to the Map Tiles API, and to websites ${site()}/*.`, 'Copy the key (it starts with <b>AIza</b>) and paste it here.'] },
+  ];
+  $('#mapChoices').innerHTML = MAPS.map((m) => `<label class="check"><input type="radio" name="map_provider" value="${m.id}"> <span><b>${m.name}</b> <span class="muted">${m.note}</span></span></label>`).join('');
+  const mapOf = () => MAPS.find((m) => m.id === sf.elements.map_provider.value) || MAPS[0];
+  function syncMap() {
+    const m = mapOf();
+    $('#mapKeyBox').hidden = !m.setting;
+    App.flash($('#mapKeyMsg'), '');
+    if (!m.setting) return;
+    $('#mapKeyLabel').textContent = m.label;
+    $('#mapKey').placeholder = m.ph;
+    $('#mapKey').value = sf.elements[m.setting].value;
+    $('#mapKeySteps').innerHTML = m.steps().map((x) => `<li>${x}</li>`).join('') + '<li>Tap <b>Test</b>, then <b>Save settings</b>.</li>';
   }
-  sf.addEventListener('change', (e) => { if (e.target.name === 'map_provider') syncMapbox(); });
-  $('#mapboxToken').addEventListener('input', () => App.flash($('#mapboxMsg'), ''));
-  $('#mapboxShow').onclick = () => { const t = $('#mapboxToken'); t.type = t.type === 'password' ? 'text' : 'password'; $('#mapboxShow').textContent = t.type === 'password' ? 'Show' : 'Hide'; };
-  $('#mapboxTest').onclick = async () => {
-    const key = $('#mapboxToken').value.trim();
-    if (!/^pk\./.test(key)) return App.flash($('#mapboxMsg'), key.startsWith('sk.') ? 'That is a secret token. Use a public one (starts with pk.).' : 'Paste a public token first (it starts with pk.).');
-    App.flash($('#mapboxMsg'), '');
-    try {
-      const r = await fetch(App.mapboxTiles(key).replace('{z}/{x}/{y}', '1/0/0'));
-      if (r.ok) App.flash($('#mapboxMsg'), 'It works: Mapbox sent a map picture. Tap Save settings to use it.', true);
-      else App.flash($('#mapboxMsg'), r.status === 401 ? 'Mapbox says this token isn’t valid. Copy it again from your Mapbox account.'
-        : r.status === 403 ? `Mapbox refused it. If the token has URL restrictions, add ${location.origin} to them.` : `Mapbox answered with an error (${r.status}). Try again in a minute.`);
-    } catch { App.flash($('#mapboxMsg'), 'Couldn’t reach Mapbox from this device. Check the internet connection and try again.'); }
+  sf.addEventListener('change', (e) => { if (e.target.name === 'map_provider') syncMap(); });
+  $('#mapKey').addEventListener('input', () => { const m = mapOf(); if (m.setting) sf.elements[m.setting].value = $('#mapKey').value.trim(); App.flash($('#mapKeyMsg'), ''); });
+  $('#mapKeyShow').onclick = () => { const t = $('#mapKey'); t.type = t.type === 'password' ? 'text' : 'password'; $('#mapKeyShow').textContent = t.type === 'password' ? 'Show' : 'Hide'; };
+  $('#mapKeyTest').onclick = async () => {
+    const m = mapOf(); const key = $('#mapKey').value.trim();
+    if (!key) return App.flash($('#mapKeyMsg'), 'Paste the key first.');
+    if (m.id === 'mapbox' && !key.startsWith('pk.')) return App.flash($('#mapKeyMsg'), key.startsWith('sk.') ? 'That is a secret token. Use a public one (starts with pk.).' : 'A Mapbox public token starts with pk.');
+    App.flash($('#mapKeyMsg'), 'Testing…', true);
+    let ok = false;
+    try { ok = await App.testMapKey(m.id, key); } catch { ok = false; }
+    App.flash($('#mapKeyMsg'), ok ? `It works: ${m.name} sent a map picture. Tap Save settings to use it.`
+      : `${m.name} didn't send a map picture with this key. Check you copied all of it, and that ${location.origin} is allowed in its restrictions.`, ok);
   };
 
   // Server tab: super admins only.

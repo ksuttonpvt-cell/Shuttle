@@ -2,11 +2,12 @@
   {
     "version": "3.2.0",
     "date": "2026-11-22",
-    "title": "Mapbox maps (optional)",
+    "title": "Choose your map: OpenStreetMap, Mapbox, MapTiler, Stadia, Thunderforest or Google",
     "changes": [
-      "New: Manager → Settings → Map. Choose OpenStreetMap (free, no account) or Mapbox (reliable; a free Mapbox account and a public token).",
+      "New: Manager → Settings → Map. Pick where map pictures come from: OpenStreetMap (free, no account), Mapbox, MapTiler, Stadia Maps, Thunderforest or Google Maps.",
+      "Each service has its own key box with step-by-step instructions and a Test button. Keys are kept for each service, so you can switch back and forth.",
       "The choice applies to every map: staff, drivers, the customer tracking page and the watch-only map.",
-      "Test checks the token right there. Secret tokens are refused. If Mapbox stops answering or the token is wrong, maps switch back to OpenStreetMap by themselves."
+      "If a key is wrong or a service stops answering, maps switch back to OpenStreetMap by themselves."
     ]
   },
   {
