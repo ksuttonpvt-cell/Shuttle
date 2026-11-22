@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.2.2",
+    "date": "2026-11-22",
+    "title": "Updates now refresh Shuttle Control too",
+    "changes": [
+      "When an update changes Shuttle Control (the part on the PC that runs the website and the Cloudflare connection), it now restarts itself so the fix applies right away. Before, those fixes waited until someone restarted the shuttle program on the PC.",
+      "It stops its Cloudflare connection cleanly first, so the new one never fights the old one. The website is back within a few seconds.",
+      "One last manual restart is needed to switch over to this; after that it happens on its own."
+    ]
+  },
+  {
     "version": "3.2.1",
     "date": "2026-11-22",
     "title": "Fixes from a full bug test",

@@ -179,7 +179,14 @@ function createTunnel({ root, log = () => {}, line = () => {}, spawnImpl = spawn
   }
   function stop() { wanted = false; clearTimeout(timer); if (child) child.kill(); }
   function restart(opts) { if (!child) return start(opts); const c = child; wanted = true; c.once('exit', () => setTimeout(() => start(opts), 300)); wanted = false; c.kill(); }
-  return { start, stop, restart, state };
+  // Stop, and wait (up to `ms`) until cloudflared has really closed, so a new copy of Shuttle
+  // Control can start its own right after without the two fighting over the status port.
+  function stopAndWait(ms = 5000) {
+    const c = child; stop();
+    if (!c) return Promise.resolve();
+    return new Promise((resolve) => { const t = setTimeout(resolve, ms); c.once('exit', () => { clearTimeout(t); resolve(); }); });
+  }
+  return { start, stop, stopAndWait, restart, state };
 }
 
 module.exports = { probe, probePort, findCloudflared, cleanToken, tunnelIdOf, setEnvValue, downloadCloudflared, createTunnel, placeOf, isCloudflared, OWN_METRICS, METRICS_PORTS };
