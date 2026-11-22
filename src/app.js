@@ -3298,10 +3298,7 @@ function createApp(db, opts = {}) {
     }
     return stamps.get(url);
   }
-  // Early hints in each page: start connecting to the map image server, and fetch the
-  // main fonts while the stylesheet is still on its way.
-  const FONT_PRELOAD = ['/vendor/fonts/barlow/barlow-latin-400-normal.woff2', '/vendor/fonts/barlow/barlow-latin-700-normal.woff2']
-    .map((f) => `<link rel="preload" href="${f}" as="font" type="font/woff2" crossorigin>`).join('');
+  // Early hint on map pages: start connecting to the map image server while the page loads.
   const MAP_HINT = '<link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin><link rel="dns-prefetch" href="https://tile.openstreetmap.org">';
   // One short id for everything the browser runs (pages, scripts, styles). Each page
   // carries it, and the live connection says the current one, so a page left open
@@ -3326,7 +3323,7 @@ function createApp(db, opts = {}) {
     if (!html) {
       try { html = fs.readFileSync(path.join(pub, file), 'utf8'); } catch (e) { return next(e); }
       html = html.replace(/((?:src|href)="(\/(?:js|css|vendor\/leaflet)\/[^"?]+\.(?:js|css)))"/g, (m, attr, url) => `${attr}?v=${stampOf(url)}"`);
-      const hints = (html.includes('/vendor/leaflet/') ? MAP_HINT : '') + FONT_PRELOAD;
+      const hints = html.includes('/vendor/leaflet/') ? MAP_HINT : '';
       html = html.replace('<meta charset="utf-8">', `<meta charset="utf-8">${hints}<!--brand-head-->`);
       // Icons and the manifest come from the brand (below), so drop the fixed ones.
       html = html.replace(/<link rel="(?:manifest|apple-touch-icon|icon)"[^>]*>\s*/g, '').replace(/<meta name="theme-color"[^>]*>\s*/g, '');

@@ -8,14 +8,14 @@
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body class="cust">
-<div class="hero"><div data-brand class="brand-block"></div><div class="hero-emoji" style="font-size:2rem">🚐</div><h1 id="title">Your shuttle ride</h1><div id="dealer" style="color:#ccc"></div></div>
+<div class="hero hero-slim"><div data-brand class="brand-block"></div><div class="hero-emoji" style="font-size:2rem">🚐</div><h1 id="title" class="sr-only">Your shuttle ride</h1><div id="dealer" class="sr-only"></div></div>
+<div class="cust-map-card" id="mapCard"><div id="map" class="map"></div></div>
 <main class="wrap grid cust-wrap">
   <div class="card here-card hidden" id="here" aria-live="assertive"></div>
-  <div class="card" id="status" aria-live="polite"><div class="empty">Loading your ride…</div></div>
+  <div class="card cust-card" id="status" aria-live="polite"><div class="empty">Loading your ride…</div></div>
   <div class="cust-actions" id="actions"></div>
-  <div class="card cust-map-card" id="mapCard"><div id="map" class="map"></div></div>
-  <div class="card hidden" id="change"></div>
-  <div class="card small muted" id="foot"></div>
+  <div class="cust-change-row hidden" id="change"></div>
+  <div class="small muted cust-foot" id="foot"></div>
 </main>
 <footer class="site-foot" data-foot></footer>
 <script src="/vendor/leaflet/leaflet.js"></script>
@@ -97,10 +97,10 @@
         ? (['assigned', 'en_route'].includes(ride.status) ? `<div class="stops-line"><b>You're next!</b></div>` : '')
         : `<div class="stops-line"><div class="stops-dots" aria-hidden="true">${'<i></i>'.repeat(Math.min(n, 6))}<i class="you"></i></div>
            <span><b>${esc(ride.driver_name || 'Your driver')}</b> has ${n} stop${n === 1 ? '' : 's'} before ${ride.status === 'onboard' ? 'yours' : 'you'}</span></div>`;
-      body = `<div class="status-steps">${steps}</div>
+      const lower = /^(We|You|Your|Heading|Ride)\b/.test(headline) ? headline.charAt(0).toLowerCase() + headline.slice(1) : headline;
+      body = `<div class="cust-hello">Hi ${esc(first)}, ${lower}</div>
         ${big && !data.arrived_at ? `<div class="cust-big">${esc(big)}</div>` : ''}
         ${stopsLine}
-        <h2 class="cust-headline">${headline}</h2>
         ${driverCard}
         <div class="ride-meta cust-meta">
           <div>🕒 ${timeLine(ride)}</div>
@@ -108,7 +108,8 @@
           ${veh && !driverCard && ride.status !== 'completed' ? `<div>🚐 Look for: <b>${esc([veh.color, veh.make_model].filter(Boolean).join(' ') || veh.name)}</b>${veh.plate ? ` · plate <b class="nowrap">${esc(veh.plate)}</b>` : ''}</div>` : ''}
           ${eta && open ? `<div>⏱ ${ride.status === 'onboard' ? 'Arriving' : ride.type === 'pickup' ? 'Driver expected' : 'Arriving'} around <b>${fmtTime(eta)}</b>${est ? ' (estimate)' : ''}</div>` : ''}
           ${pos && data.stops_before == null ? `<div>📋 You're #${pos} in the shuttle line</div>` : ''}
-        </div>`;
+        </div>
+        <div class="status-steps status-steps-sm">${steps}</div>`;
     }
     $('#status').innerHTML = body;
     drawHere(data);
@@ -116,30 +117,34 @@
     // One-tap buttons.
     const buttons = [];
     if (dealer.phone) {
-      buttons.push(`<a class="cust-btn" href="${App.telLink(dealer.phone)}"><span>📞</span>Call</a>`);
-      buttons.push(`<a class="cust-btn" href="${smsLink(dealer.phone, `Hi, this is ${ride.customer_first_name} about my shuttle ride (${link}). `)}"><span>💬</span>Text us</a>`);
+      buttons.push(`<a class="cust-btn" href="${App.telLink(dealer.phone)}">Call us</a>`);
+      buttons.push(`<a class="cust-btn" href="${smsLink(dealer.phone, `Hi, this is ${ride.customer_first_name} about my shuttle ride (${link}). `)}">Text us</a>`);
     }
     if (open && minsUntil(ride.scheduled_at) > 20 && ['requested', 'assigned'].includes(ride.status)) {
-      buttons.push(`<a class="cust-btn" href="/api/public/track/${encodeURIComponent(token)}/calendar"><span>📅</span>Add to calendar</a>`);
+      buttons.push(`<a class="cust-btn" href="/api/public/track/${encodeURIComponent(token)}/calendar">Add to calendar</a>`);
     }
-    if (open) buttons.push('<button type="button" class="cust-btn" id="shareBtn"><span>🔗</span>Share</button>');
+
     $('#actions').innerHTML = buttons.join('');
     $('#actions').classList.toggle('hidden', !buttons.length);
-    if ($('#shareBtn')) $('#shareBtn').onclick = shareRide;
 
     // Running late / cancel.
     const ch = $('#change');
-    ch.classList.toggle('hidden', !data.can_change);
+    ch.classList.toggle('hidden', !data.can_change && !open);
     if (data.can_change && !changeOpen) {
-      ch.innerHTML = `<h2>Need to change something?</h2>
-        <div class="cust-change">
-          <button type="button" class="btn-ghost" id="lateBtn">⏰ I'm running late</button>
-          <button type="button" class="btn-ghost" id="cancelBtn">✖ Cancel my ride</button>
+      ch.innerHTML = `<div class="cust-links">
+          <button type="button" class="btn-quiet" id="lateBtn">I'm running late</button>
+          <button type="button" class="btn-quiet" id="shareBtn">Share</button>
+          <button type="button" class="btn-quiet btn-danger-text" id="cancelBtn">Cancel ride</button>
         </div><div id="changeMsg"></div>`;
-      $('#lateBtn').onclick = late; $('#cancelBtn').onclick = cancel;
+      $('#lateBtn').onclick = late; $('#cancelBtn').onclick = cancel; $('#shareBtn').onclick = shareRide;
+    } else if (!data.can_change && open) {
+      ch.classList.remove('hidden');
+      if (!$('#shareBtn', ch)) { ch.innerHTML = '<div class="cust-links"><button type="button" class="btn-quiet" id="shareBtn">Share</button></div><div id="changeMsg"></div>'; $('#shareBtn').onclick = shareRide; }
     }
 
+    const mapWasHidden = $('#mapCard').classList.contains('hidden');
     $('#mapCard').classList.toggle('hidden', !open);
+    if (map && open && mapWasHidden) map.invalidateSize();
     $('#foot').innerHTML = `${esc(dealer.name)} · ${esc(dealer.address)}<br>This page updates on its own. Last change ${fmtTime(ride.updated_at)}.`;
     // A thank-you stays on screen for a minute, even as the page updates itself.
     if (notice && Date.now() - notice.at < 60000) {

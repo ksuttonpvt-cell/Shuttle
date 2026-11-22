@@ -76,7 +76,7 @@ test('pages: file stamps follow the file contents, with early hints for maps and
   assert.ok(stamp(req, '/vendor/leaflet/leaflet.js'));
   assert.match(req, /rel="preconnect" href="https:\/\/tile\.openstreetmap\.org"/);
   assert.doesNotMatch(login, /tile\.openstreetmap/, 'no map, no map hint');
-  assert.match(login, /rel="preload" href="\/vendor\/fonts\/barlow\/barlow-latin-700-normal\.woff2" as="font"/);
+  assert.doesNotMatch(login, /rel="preload"[^>]*as="font"/, 'no web fonts to preload');
 });
 
 test('the background helper (sw.js) is never stored, carries its version, and never keeps live data', async () => {

@@ -9,48 +9,57 @@
 </head>
 <body>
 <header id="topbar"></header>
-<main class="wrap">
-  <div id="forYou" aria-live="polite"></div>
-  <div class="grid cols-2">
-    <section class="card">
-      <div class="card-head"><h2>New shuttle ride</h2></div>
-      <form id="newRide"></form>
-    </section>
-
-    <section class="grid" style="align-content:start">
-      <div class="card">
-        <div class="card-head">
-          <h2>Shuttle queue</h2>
-          <div class="actions" style="margin:0">
-            <label class="check" style="margin:0"><input type="checkbox" id="mineOnly"> My customers only</label>
-            <button class="btn-ghost btn-sm" id="shareRequest">Customer request link / QR</button>
-          </div>
-        </div>
-        <div id="waitNow"></div>
-        <p class="small muted" style="margin-top:-.4rem">Numbered in the order the shuttle should handle them — overdue, urgent and soonest first, then closest.</p>
-        <div id="typeChips"></div>
-        <div id="rides"></div>
-      </div>
-      <div class="card hidden" id="readyCard">
-        <div class="card-head"><h2>Customers at the <span data-word>dealership</span></h2></div>
-        <p class="small muted" style="margin-top:-.4rem">Picked up by the shuttle today. When their car is done, tap <b>Customer ready</b> to book the ride back.</p>
-        <div id="ready"></div>
-      </div>
-      <div class="card hidden" id="cancelledCard">
-        <div class="card-head"><h2>Cancelled today</h2></div>
-        <div id="cancelled"></div>
-      </div>
-      <div class="card">
-        <div class="card-head"><h2>Map</h2><span class="small muted">🚐 drivers (live) · colored lines = planned routes · numbered pins = queue order</span></div>
-        <div id="map" class="map"></div>
-      </div>
-      <div class="card">
-        <div class="card-head"><h2>Drivers</h2></div>
-        <div id="drivers"></div>
-      </div>
-    </section>
+<main class="wrap desk">
+  <div class="page-head">
+    <div><h1>Shuttle queue</h1><p>In the order the shuttle should handle them: overdue, urgent and soonest first.</p></div>
+    <div class="actions" style="margin:0">
+      <button class="btn-quiet" id="shareRequest">Customer request link</button>
+      <button id="newBtn">New ride</button>
+    </div>
   </div>
+  <div id="forYou" aria-live="polite"></div>
+
+  <!-- Queue: the list on the left, the picked ride on the right -->
+  <div class="desk-split" data-views="queue">
+    <section class="card list-card desk-list">
+      <div class="desk-tools">
+        <div id="typeChips"></div>
+        <label class="check" style="margin:0"><input type="checkbox" id="mineOnly"> My customers only</label>
+      </div>
+      <div id="waitNow" class="desk-wait"></div>
+      <div id="rides" role="list"></div>
+    </section>
+    <aside class="card desk-detail" id="detail" aria-live="polite"><div class="empty">Pick a ride to see it here.</div></aside>
+  </div>
+  <section class="card hidden" id="cancelledCard" data-views="queue">
+    <details><summary><b>Cancelled today</b> <span class="small muted" id="cancelledN"></span></summary><div id="cancelled" style="margin-top:.7rem"></div></details>
+  </section>
+
+  <!-- Back at the dealership: book the ride home -->
+  <section class="card" id="readyCard" data-views="ready">
+    <div class="card-head"><h2>Customers at the <span data-word>dealership</span></h2></div>
+    <p class="small muted" style="margin-top:-.4rem">Picked up by the shuttle today. When their car is done, tap <b>Customer ready</b> to book the ride back.</p>
+    <div id="ready"></div>
+  </section>
+
+  <!-- Map and drivers -->
+  <section class="card" data-views="map">
+    <div class="card-head"><h2>Map</h2><span class="small muted">Vans move live · colored lines are planned routes · numbered pins are queue order</span></div>
+    <div id="map" class="map map-tall"></div>
+  </section>
+  <section class="card" data-views="map">
+    <div class="card-head"><h2>Drivers</h2></div>
+    <div id="drivers"></div>
+  </section>
 </main>
+
+<!-- New ride: a panel that slides in from the side -->
+<div class="drawer-back" id="drawer" hidden>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+    <div class="drawer-head"><h2 id="drawerTitle">New shuttle ride</h2><button type="button" class="btn-quiet btn-sm" data-drawer-close aria-label="Close">Close</button></div>
+    <form id="newRide"></form>
+  </aside>
+</div>
 <script src="/vendor/leaflet/leaflet.js"></script>
 <script src="/js/common.js"></script>
 <script src="/js/rides.js"></script>
@@ -59,8 +68,23 @@
   const { $, api, esc } = App;
   await App.requireUser('advisor');
 
-  // New ride form (shared with the BDC page): see Rides.newRideForm in rides.js.
-  Rides.newRideForm($('#newRide'), () => refresh());
+  // Queue / Back at the dealership / Map: the side menu on a computer, the bottom bar on a phone.
+  const nav = App.pageNav('Advisor desk', [
+    { id: 'queue', label: 'Queue', icon: 'list' },
+    { id: 'ready', label: 'At the ' + App.place(), icon: 'today' },
+    { id: 'map', label: 'Map & drivers', icon: 'map' },
+  ], (v) => { if (v === 'map') setTimeout(() => map.invalidateSize(), 50); });
+
+  // New ride (shared with the BDC page): see Rides.newRideForm in rides.js. It lives in a
+  // side panel that stays filled in if you close it by accident.
+  const drawer = $('#drawer');
+  let opener = null;
+  const openDrawer = () => { opener = document.activeElement; drawer.hidden = false; document.body.classList.add('drawer-open'); setTimeout(() => { const f = drawer.querySelector('.choice, input'); if (f) f.focus(); }, 60); };
+  const closeDrawer = () => { drawer.hidden = true; document.body.classList.remove('drawer-open'); if (opener && opener.isConnected) opener.focus(); };
+  $('#newBtn').onclick = openDrawer;
+  drawer.addEventListener('click', (e) => { if (e.target === drawer || e.target.closest('[data-drawer-close]')) closeDrawer(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !drawer.hidden && !document.querySelector('.modal-back')) closeDrawer(); });
+  Rides.newRideForm($('#newRide'), (ride) => { closeDrawer(); selected = ride.id; nav.go('queue'); refresh(); });
 
   // Queue + map
   const map = App.makeMap($('#map'), { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng) });
@@ -78,16 +102,37 @@
     const box = document.createElement('div');
     box.className = 'alert alert-ok for-you';
     box.innerHTML = `<div><b>${esc(data.title)}</b><div class="small">${esc(data.what)}</div></div>
-      <div class="actions" style="margin:0"><button class="btn-sm btn-blue" data-show>Show it</button><button class="btn-sm btn-ghost" data-ok>Got it</button></div>`;
+      <div class="actions" style="margin:0"><button class="btn-sm" data-show>Show it</button><button class="btn-sm btn-ghost" data-ok>Got it</button></div>`;
     $('[data-ok]', box).onclick = () => box.remove();
-    $('[data-show]', box).onclick = () => {
-      box.remove();
-      const el = document.querySelector(`#rides [data-id="${data.ride_id}"]`);
-      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('flash-ride'); setTimeout(() => el.classList.remove('flash-ride'), 2500); }
-    };
+    $('[data-show]', box).onclick = () => { box.remove(); pick(data.ride_id, true); };
     $('#forYou').prepend(box);
   }
+
+  // The ride shown on the right (on a phone, in a window).
+  let selected = null;
+  const narrow = () => matchMedia('(max-width: 1099px)').matches;
+  function drawDetail() {
+    const r = rides.find((x) => x.id === selected);
+    $$('#rides .q-row').forEach((el) => { const on = Number(el.dataset.pick) === selected; el.classList.toggle('is-on', on); el.setAttribute('aria-pressed', String(on)); });
+    $('#detail').innerHTML = r ? `<div class="detail-head"><span class="small muted">${r.rank ? `#${r.rank} in line · ` : ''}${App.TYPE_LABEL[r.type]}</span></div>${Rides.card(r, { drivers })}`
+      : '<div class="empty">Pick a ride to see it here.</div>';
+  }
+  let sheet = null;
+  function pick(id, scroll = false) {
+    selected = id; nav.go('queue'); drawDetail();
+    const el = document.querySelector(`#rides [data-pick="${id}"]`);
+    if (scroll && el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('flash-ride'); setTimeout(() => el.classList.remove('flash-ride'), 2500); }
+    if (narrow()) {
+      const r = rides.find((x) => x.id === id); if (!r) return;
+      sheet = App.modal(`<div class="sheet-ride">${Rides.card(r, { drivers })}</div><div class="actions"><button type="button" class="btn-ghost" data-close>Close</button></div>`);
+      Rides.bind($('.modal', sheet), (x) => rides.find((y) => y.id === x), () => { if (sheet) sheet.close(); refresh(); });
+      sheet.addEventListener('close', () => { sheet = null; });
+    }
+  }
+  $('#rides').addEventListener('click', (e) => { const b = e.target.closest('[data-pick]'); if (b) pick(Number(b.dataset.pick)); });
+
   let rides = []; let drivers = []; let cancelledRides = []; let readyRides = [];
+  const $$ = (s) => [...document.querySelectorAll(s)];
   const chips = App.typeChips($('#typeChips'), 'shuttle.advisorType', () => refresh());
   async function refresh() {
     const mine = $('#mineOnly').checked ? '&mine=advisor' : '';
@@ -95,8 +140,10 @@
     rides = r.queue.map((id) => r.rides.find((x) => x.id === id));
     drivers = d.drivers;
     const shown = chips.apply(rides);
-    $('#rides').innerHTML = shown.length ? shown.map((x) => Rides.card(x, { drivers })).join('')
-      : `<div class="empty">${rides.length ? 'No rides of this type right now.' : 'No open rides. Add one on the left.'}</div>`;
+    if (!shown.some((x) => x.id === selected)) selected = narrow() ? null : (shown[0] || {}).id || null;
+    $('#rides').innerHTML = shown.length ? shown.map((x) => Rides.row(x, x.id === selected)).join('')
+      : `<div class="empty">${rides.length ? 'No rides of this type right now.' : 'No open rides. Tap <b>New ride</b> to add one.'}</div>`;
+    drawDetail();
     $('#drivers').innerHTML = drivers.length ? `<div class="table-wrap"><table><tr><th>Driver</th><th>Status</th><th>Vehicle</th><th>Open rides</th></tr>
       ${drivers.map((x) => `<tr><td>${esc(x.name)}${x.phone ? `<br><a class="small" href="${App.telLink(x.phone)}">${esc(x.phone)}</a>` : ''}</td>
       <td>${x.on_duty ? '<span class="badge s-completed">On duty</span>' : '<span class="badge s-requested">Off</span>'}</td>
@@ -107,22 +154,24 @@
     // Pick ups finished today whose customer may need a ride back.
     readyRides = today.rides.filter((x) => x.type === 'pickup' && x.status === 'completed' && !x.return_ride_id && !x.no_return
       && new Date(x.completed_at) >= start).sort((a, b) => new Date(a.completed_at) - new Date(b.completed_at));
-    $('#readyCard').classList.toggle('hidden', !readyRides.length);
-    $('#ready').innerHTML = readyRides.map((x) => `
+    $('#ready').innerHTML = readyRides.length ? readyRides.map((x) => `
       <div class="ride" data-id="${x.id}">
         <div class="ride-top"><span class="ride-name">${esc(x.customer_name)}</span><span class="small muted">arrived ${App.fmtTime(x.completed_at)}</span></div>
-        <div class="ride-meta"><div>📍 ${esc(x.address)}</div>${x.customer_phone ? `<div>📞 <a href="${App.telLink(x.customer_phone)}" data-call-ride="${x.id}">${esc(x.customer_phone)}</a></div>` : ''}
-          <div>👤 Advisor: ${esc(x.advisor_name || '—')}</div></div>
-        <div class="actions"><button class="btn-green" data-ready>Customer ready → book drop off</button>
+        <div class="ride-meta"><div>${esc(x.address)}</div>${x.customer_phone ? `<div><a href="${App.telLink(x.customer_phone)}" data-call-ride="${x.id}">${esc(x.customer_phone)}</a></div>` : ''}
+          <div>Advisor: ${esc(x.advisor_name || '—')}</div></div>
+        <div class="actions"><button class="btn-green" data-ready>Customer ready · book drop off</button>
           <button class="btn-ghost btn-sm" data-noreturn title="They're driving their own car home">No ride back needed</button></div>
-      </div>`).join('');
+      </div>`).join('') : `<div class="empty">Nobody is waiting at the ${App.place()} right now.</div>`;
+    // The count shows next to the menu item, so a waiting customer is hard to miss.
+    $$('[data-page-view="ready"] span').forEach((el) => { el.textContent = `At the ${App.place()}${readyRides.length ? ` (${readyRides.length})` : ''}`; });
     const cancelled = today.rides.filter((x) => x.status === 'cancelled' && new Date(x.cancelled_at || x.updated_at) >= start)
       .sort((a, b) => new Date(b.cancelled_at || b.updated_at) - new Date(a.cancelled_at || a.updated_at));
     $('#cancelledCard').classList.toggle('hidden', !cancelled.length);
+    $('#cancelledN').textContent = `(${cancelled.length})`;
     cancelledRides = cancelled;
     $('#cancelled').innerHTML = cancelled.map((x) => Rides.card(x, { drivers })).join('');
   }
-  Rides.bind($('#rides'), (id) => rides.find((r) => r.id === id), refresh);
+  Rides.bind($('#detail'), (id) => rides.find((r) => r.id === id), refresh);
   Rides.bind($('#cancelled'), (id) => cancelledRides.find((r) => r.id === id), refresh);
 
   // Customer ready: open a drop-off form already filled in from their pick up.

@@ -14,46 +14,46 @@
 <link rel="icon" href="/icons/icon-192.png">
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/css/app.css">
-<style>
-  .next { border: 2px solid var(--red); }
-  .next .big { font-size: 1.3rem; font-weight: 800; }
-  .shift-bar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: end; }
-  .shift-bar > div { flex: 1; min-width: 180px; }
-</style>
 </head>
 <body>
 <header id="topbar"></header>
-<main class="wrap grid" style="max-width:900px">
+<main class="wrap grid drv">
 
-  <div id="gpsBar" class="gps-bar" role="status" aria-live="polite"></div>
-  <section class="card" id="shift"></section>
+  <!-- Today: the one thing to do now, then what comes after -->
+  <div id="gpsBar" class="gps-bar" role="status" aria-live="polite" data-views="today me"></div>
+  <section class="card hidden" id="startCard" data-views="today"></section>
+  <div class="drv-label hidden" id="nextLabel" data-views="today"></div>
+  <section class="card next-card hidden" id="nextCard" data-views="today"></section>
+  <div class="drv-label hidden" id="afterLabel" data-views="today">After that</div>
+  <section class="card list-card hidden" id="afterCard" data-views="today"></section>
+  <section class="card empty-card hidden" id="idleCard" data-views="today"></section>
 
-  <section class="card" id="pushCard"></section>
-
-  <section class="card next hidden" id="nextCard"></section>
-
-  <section class="card hidden" id="routeCard"></section>
-
-  <section class="card">
-    <div class="tabs" style="margin-bottom:.6rem">
-      <button class="active" data-tab="mine">My rides <span id="mineCount"></span></button>
+  <!-- Rides: every ride, and the route planner -->
+  <section class="card hidden" id="routeCard" data-views="rides"></section>
+  <section class="card" data-views="rides">
+    <div class="tabs">
+      <button class="active" data-tab="mine">Mine <span id="mineCount"></span></button>
       <button data-tab="open">Unassigned <span id="openCount"></span></button>
-      <button data-tab="all">Everything open</button>
+      <button data-tab="all">All open</button>
     </div>
     <div class="chips" role="group" aria-label="Show ride type">
-      <span class="small muted">Show:</span>
       <button data-type="all" class="active">All <span data-count="all"></span></button>
-      <button data-type="pickup">⬆ Pick ups <span data-count="pickup"></span></button>
-      <button data-type="dropoff">⬇ Drop offs <span data-count="dropoff"></span></button>
+      <button data-type="pickup">Pick ups <span data-count="pickup"></span></button>
+      <button data-type="dropoff">Drop offs <span data-count="dropoff"></span></button>
     </div>
-    <p class="small muted" style="margin-top:0">Numbers show the order to handle rides: on board / en route first, then overdue, urgent, and soonest — closest to you breaks ties.</p>
+    <p class="small muted" style="margin-top:0">Numbers show the order to handle rides: on board and on the way first, then overdue, urgent, and soonest. Closest to you breaks ties.</p>
     <div id="list"></div>
   </section>
 
-  <section class="card">
+  <!-- Map -->
+  <section class="card map-card" data-views="map">
     <div class="card-head"><h2>Map</h2><button class="btn-ghost btn-sm" id="recenter">Fit all</button></div>
     <div id="map" class="map map-tall"></div>
   </section>
+
+  <!-- Me: shift, photo, phone alerts -->
+  <section class="card" id="shift" data-views="me"></section>
+  <section class="card" id="pushCard" data-views="me"></section>
 </main>
 <script src="/vendor/leaflet/leaflet.js"></script>
 <script src="/js/common.js"></script>
@@ -72,30 +72,34 @@
     ({ vehicles } = await api('/api/vehicles'));
     const usable = vehicles.filter((v) => v.status === 'available' && v.use !== 'loaner'); // shuttles only, not loaners
     const veh = vehicles.find((v) => v.id === me.vehicle_id);
-    $('#shift').innerHTML = me.on_duty ? `
-      <div class="card-head" style="margin:0">
-        <div><h2 style="margin:0">On duty ✅</h2>
-          <div class="muted small">Driving <b>${esc(veh?.name || '—')}</b>${veh ? [veh.color, veh.make_model, veh.plate, veh.seats ? `${veh.seats} seats` : ''].filter(Boolean).map((x) => ` · ${esc(x)}`).join('') : ''}</div>
-          <div class="small">${alerts.on ? '🔔 New-ride alerts on' : '🔕 New-ride alerts off'}</div>
-        </div>
-        <div class="actions" style="margin:0">
-          ${mayToggle() ? `<button class="btn-ghost btn-sm" id="wakeBtn">${wake.wanted ? 'Let screen sleep' : 'Keep screen on'}</button>` : ''}
-          <button class="btn-ghost btn-sm" id="alertBtn">${alerts.on ? 'Turn alerts off' : 'Turn alerts on'}</button>
-          <button class="btn-dark btn-sm" id="endShift">End shift</button>
-        </div>
-      </div>` : `
+    const vehLine = veh ? [veh.color, veh.make_model, veh.plate, veh.seats ? `${veh.seats} seats` : ''].filter(Boolean).map(esc).join(' · ') : '';
+    $('#startCard').classList.toggle('hidden', !!me.on_duty);
+    $('#startCard').innerHTML = me.on_duty ? '' : `
       <h2>Start your shift</h2>
-      <div class="shift-bar">
-        <div><label>Which vehicle are you driving?</label>
-          <select id="vehSel"><option value="">Choose…</option>
-          ${usable.map((v) => `<option value="${v.id}" ${v.driver_id && v.driver_id !== me.id ? 'disabled' : ''}>${esc(v.name)} — ${esc([v.color, v.make_model].filter(Boolean).join(' '))} (${v.seats} seats)${v.driver_name && v.driver_id !== me.id ? ' · in use by ' + esc(v.driver_name) : ''}</option>`).join('')}
-          </select></div>
-        <button class="btn-green btn-lg" id="startShift">Start shift</button>
-      </div>
+      <p class="muted small" style="margin:0 0 .4rem">Pick the van you're driving. New rides come to you once you're on shift.</p>
+      <label for="vehSel">Vehicle</label>
+      <select id="vehSel"><option value="">Choose…</option>
+      ${usable.map((v) => `<option value="${v.id}" ${v.driver_id && v.driver_id !== me.id ? 'disabled' : ''}>${esc(v.name)} — ${esc([v.color, v.make_model].filter(Boolean).join(' '))} (${v.seats} seats)${v.driver_name && v.driver_id !== me.id ? ' · in use by ' + esc(v.driver_name) : ''}</option>`).join('')}
+      </select>
+      <button class="btn-lg btn-block" id="startShift" style="margin-top:.9rem">Start shift</button>
       <div id="shiftMsg"></div>
-      ${!usable.length ? '<p class="small muted">No vehicles are set up yet — ask a manager to add one.</p>' : ''}`;
+      ${!usable.length ? '<p class="small muted">No vehicles are set up yet. Ask a manager to add one.</p>' : ''}`;
+    $('#shift').innerHTML = me.on_duty ? `
+      <div class="shift-head">
+        <span class="pill pill-on"><span class="dot-live"></span>On shift${veh ? ` · ${esc(veh.name)}` : ''}</span>
+      </div>
+      ${vehLine ? `<div class="muted small" style="margin-top:.4rem">${vehLine}</div>` : ''}
+      <div class="set-list">
+        <div class="set-row"><div><b>New-ride alerts</b><div class="small muted">A beep, a buzz and a banner when a ride comes in.</div></div>
+          <button class="btn-ghost btn-sm" id="alertBtn">${alerts.on ? 'Turn off' : 'Turn on'}</button></div>
+        ${mayToggle() ? `<div class="set-row"><div><b>Keep screen on</b><div class="small muted">So your location keeps sharing during the shift.</div></div>
+          <button class="btn-ghost btn-sm" id="wakeBtn">${wake.wanted ? 'Let it sleep' : 'Keep it on'}</button></div>` : ''}
+      </div>
+      <button class="btn-ghost btn-block" id="endShift" style="margin-top:.8rem">End shift</button>` : `
+      <div class="shift-head"><span class="pill">Off shift</span></div>
+      <p class="small muted" style="margin:.5rem 0 0">Start your shift on <a href="#today">Today</a>.</p>`;
     // Your photo: customers see it with your first name and the van's plate.
-    $('#shift').insertAdjacentHTML('beforeend', `<div class="me-photo">
+    $('#shift').insertAdjacentHTML('beforeend', `<h3 style="margin:1.1rem 0 .5rem">Your photo</h3><div class="me-photo">
       ${me.photo_url ? `<img src="${esc(me.photo_url)}" alt="Your photo">` : `<div class="me-photo-none" aria-hidden="true">${esc(me.name[0])}</div>`}
       <div class="small">${me.photo_url ? 'Customers see this photo with your first name.' : '<b>Add your photo</b> so customers know who to look for.'}</div>
       <div class="actions" style="margin:0"><button type="button" class="btn-ghost btn-sm" id="photoBtn">${me.photo_url ? 'Change' : 'Add photo'}</button>${me.photo_url ? '<button type="button" class="btn-ghost btn-sm" id="photoDel">Remove</button>' : ''}</div>
@@ -283,6 +287,55 @@
       </div>`;
   }
 
+  // The one big card on Today: who, where, and one big button for the next step.
+  function nextHtml(r, why) {
+    const mine = r.driver_id === me.id;
+    const here = mine && r.arrived_at && ['assigned', 'en_route'].includes(r.status);
+    const goTo = nextPlace(r);
+    const where = r.type === 'pickup'
+      ? (r.status === 'onboard' ? `On board · bring to the ${App.place()}` : `${esc(r.address)} → the ${App.place()}`)
+      : (r.status === 'onboard' ? `On board · drop off at ${esc(r.address)}` : `From the ${App.place()} → ${esc(r.address)}`);
+    // Main button and what follows it.
+    let main = ''; let then = '';
+    if (!r.driver_id) { main = '<button class="btn-lg btn-block main-step" data-claim>Take this ride</button>'; }
+    else if (mine && r.status === 'assigned' && !here) { main = `<button class="btn-lg btn-block main-step" data-status="en_route">Start · I'm on my way</button>`; then = `Then: I'm here → Customer is on board → Ride complete`; }
+    else if (mine && r.status === 'en_route' && !here) { main = `<button class="btn-lg btn-block main-step" data-arrived>I'm here</button>`; then = 'Then: Customer is on board → Ride complete'; }
+    else if (here) { main = `<button class="btn-lg btn-block main-step" data-status="onboard">Customer is on board</button>`; then = 'Then: Ride complete'; }
+    else if (mine && r.status === 'onboard') { main = `<button class="btn-lg btn-block main-step btn-green" data-status="completed">Ride complete</button>`; }
+    const second = [];
+    if (mine && r.status === 'assigned' && !here) second.push('<button class="btn-ghost btn-sm" data-arrived>I\'m already here</button>');
+    if (mine && r.status === 'en_route' && !here) second.push('<button class="btn-ghost btn-sm" data-status="onboard">Customer is on board</button>');
+    if (here) second.push(`<button class="btn-ghost btn-sm" data-noshow data-after="${new Date(r.arrived_at).getTime() + waitMs()}" ${Date.now() < new Date(r.arrived_at).getTime() + waitMs() ? 'hidden' : ''}>Customer didn't come out</button>`, '<button class="btn-quiet btn-sm" data-unarrive>Not here yet</button>');
+    if (mine && r.status === 'assigned') second.push('<button class="btn-quiet btn-sm" data-release>Give back</button>');
+    if (mine) second.push('<button class="btn-quiet btn-sm btn-danger-text" data-cancel>Cancel ride</button>');
+    return `<div data-id="${r.id}">
+      <div class="next-top">
+        <span>${typeBadge(r.type)} ${r.priority === 'urgent' ? '<span class="badge b-urgent">Urgent</span>' : ''} ${statusBadge(r.status)}</span>
+        <span class="small muted">Due ${fmtTime(r.scheduled_at)} · ${relTime(r.scheduled_at)}</span>
+      </div>
+      <div class="next-name">${esc(r.customer_name)}</div>
+      <div class="next-where">${where}</div>
+      <div class="small muted">${r.passengers} passenger${r.passengers > 1 ? 's' : ''}${r.distance_mi != null ? ` · ${r.distance_mi} mi from you` : ''}${why ? ` · ${esc(why)}` : ''}</div>
+      ${r.priority === 'urgent' && r.urgent_reason ? `<div class="urgent-why" style="margin-top:.3rem">Urgent: ${esc(r.urgent_reason)}</div>` : ''}
+      ${r.notes ? `<div class="next-note">${esc(r.notes)}</div>` : ''}
+      ${r.driver_name && !mine ? `<div class="small muted">Driver: ${esc(r.driver_name)}</div>` : ''}
+      ${here ? `<div class="here-box">You're here · waiting <b data-waited="${esc(r.arrived_at)}">${waited(r.arrived_at)}</b>
+        <div class="small">${r.customer_reply ? `${r.customer_reply === 'coming' ? 'Customer is coming out' : 'Customer needs 5 more minutes'} <span class="muted">(${relTime(r.customer_reply_at)})</span>` : '<span class="muted">We told the customer you\'re here.</span>'}</div></div>` : ''}
+      <div class="next-tools">
+        <a class="btn btn-ghost" target="_blank" rel="noopener" href="${App.navUrl(goTo)}">${goTo.dealer ? `To the ${App.place()}` : 'Navigate'}</a>
+        ${r.customer_phone ? `<a class="btn btn-ghost" href="${App.telLink(r.customer_phone)}" data-call-ride="${r.id}">Call</a>
+        <a class="btn btn-ghost" href="sms:${r.customer_phone.replace(/[^\d+]/g, '')}" data-text-ride="${r.id}" data-name="${esc(r.customer_name.split(' ')[0])}">Text</a>` : ''}
+      </div>
+      ${main}
+      ${then ? `<div class="next-then">${then}</div>` : ''}
+      ${second.length ? `<div class="next-more">${second.join('')}</div>` : ''}
+    </div>`;
+  }
+  // "After that": the rest of the route (or your other rides), one line each.
+  function afterHtml(rows) {
+    return rows.map((x) => `<div class="list-row"><div class="grow"><b>${esc(x.name)}</b><div class="small muted">${x.sub}</div></div><span class="small muted nowrap">${x.time}</span></div>`).join('');
+  }
+
   // ---------- new-ride alerts ----------
   // Beep + vibrate + banner when a new ride comes in or one is assigned to you.
   // When the app is in the background, a phone notification is shown instead (if allowed).
@@ -372,7 +425,7 @@
         body = `<p class="small" style="margin:.3rem 0">Get new rides on your lock screen, even when the app is closed or the phone is locked.</p>
           <div class="actions"><button class="btn-blue" data-push="on">🔔 Turn on notifications</button>${install}</div>`;
       }
-      card.innerHTML = `<h2 style="margin:0">📲 Phone notifications</h2>${body}${say}`;
+      card.innerHTML = `<h2 style="margin:0">Lock-screen alerts</h2>${body}${say}`;
     }
     async function act(what) {
       msg = '';
@@ -483,20 +536,20 @@
     function paint() {
       const list = candidates();
       if (saved) {
-        card.innerHTML = `<div class="card-head" style="margin:0"><h2 style="margin:0">🗺 Your route</h2><span class="small muted">planned ${fmtTime(saved.planned_at)}</span></div>
+        card.innerHTML = `<div class="card-head" style="margin:0"><h2 style="margin:0">Your route</h2><span class="small muted">planned ${fmtTime(saved.planned_at)}</span></div>
           ${timeline(saved)}${appPicker()}${goButton(saved, false)}
           <details style="margin-top:.6rem" ${App.navApp() === 'google' ? '' : 'open'}><summary class="small">Stops with directions one at a time</summary>${stopList(saved, true)}</details>
           <div class="actions">
             <button class="btn-ghost" data-r="replan">🔄 Re-plan from here</button><button class="btn-ghost" data-r="edit">Change stops</button><button class="btn-ghost" data-r="clear">Clear route</button></div>${msg}`;
       } else if (preview) {
-        card.innerHTML = `<h2 style="margin:0">🗺 Your trip</h2>${timeline(preview)}${appPicker()}${goButton(preview, true)}
+        card.innerHTML = `<h2 style="margin:0">Your trip</h2>${timeline(preview)}${appPicker()}${goButton(preview, true)}
           <details style="margin-top:.6rem"><summary class="small">See each stop</summary>${stopList(preview, false)}</details>
           <div class="actions"><button class="btn-ghost" data-r="save">Save without opening maps</button><button class="btn-ghost" data-r="back">Back</button></div>${msg}`;
       } else {
         if (list.length < 1) { card.classList.add('hidden'); return; }
         if (!picking) picking = new Set(list.filter((r) => r.driver_id === me.id).map((r) => r.id));
         for (const id of [...picking]) if (!list.some((r) => r.id === id)) picking.delete(id);
-        card.innerHTML = `<h2 style="margin:0">🗺 Plan a route</h2>
+        card.innerHTML = `<h2 style="margin:0">Plan a route</h2>
           <p class="small muted" style="margin:.3rem 0">Check the rides you want to do in one trip. You'll get the quickest order and arrival times. Unassigned rides you check become yours when you use the route.</p>
           ${list.map((r) => `<label class="route-pick"><input type="checkbox" data-pick="${r.id}" ${picking.has(r.id) ? 'checked' : ''}>
             <span>${typeBadge(r.type)} <b>${esc(r.customer_name)}</b>${r.driver_id ? '' : ' <span class="badge s-requested">Unassigned</span>'}${r.status === 'onboard' ? ' <span class="small muted">(on board)</span>' : ''}
@@ -565,6 +618,11 @@
       },
       setSaved(rt) { saved = rt; preview = null; picking = null; drawPath(saved); paint(); },
       nextRideId: () => (saved ? (saved.stops.find((x) => x.ride_id) || {}).ride_id : null),
+      upcoming() {
+        if (!saved) return null;
+        const i = saved.stops.findIndex((x) => x.ride_id);
+        return saved.stops.slice(i + 1).map((x) => ({ name: shortName(x), sub: esc(x.kind === 'dealer' ? x.label : x.address || ''), time: fmtTime(x.eta) }));
+      },
       clearLocal() { saved = null; preview = null; picking = null; drawPath(null); },
     };
   })();
@@ -668,9 +726,21 @@
     await route.render();
     const routeNext = route.nextRideId() && rides.find((x) => x.id === route.nextRideId());
     const next = routeNext || mine[0] || open[0];
+    const nextWhy = routeNext ? 'next stop on your route' : '';
     $('#nextCard').classList.toggle('hidden', !next);
-    if (next) $('#nextCard').innerHTML = `<h2>👉 Do this next${routeNext ? ' <span class="small muted">(next stop on your route)</span>' : what ? ` <span class="small muted">(${what.trim()} only)</span>` : ''}</h2>${rideHtml(next, true)}`;
-
+    $('#nextLabel').classList.toggle('hidden', !next);
+    if (next) {
+      const myList = shown.filter((x) => x.driver_id === me.id);
+      $('#nextLabel').textContent = next.driver_id === me.id ? `Next stop · ${myList.indexOf(next) + 1} of ${myList.length}` : 'A ride is waiting';
+      $('#nextCard').innerHTML = nextHtml(next, nextWhy);
+    }
+    const later = route.upcoming() || mine.filter((x) => x !== next).map((x) => ({
+      name: x.customer_name, sub: `${App.TYPE_LABEL[x.type]} · ${esc(x.address)}`, time: fmtTime(x.scheduled_at) }));
+    $('#afterCard').innerHTML = afterHtml(later.slice(0, 6));
+    $('#afterCard').classList.toggle('hidden', !later.length);
+    $('#afterLabel').classList.toggle('hidden', !later.length);
+    $('#idleCard').classList.toggle('hidden', !!next || !me.on_duty);
+    $('#idleCard').innerHTML = `<div class="empty"><b>You're all caught up.</b><br>New rides pop up here with a beep.${what ? ` (Showing${what} only — change it on <a href="#rides">Rides</a>.)` : ''}</div>`;
     draw(shown, []); // other drivers are drawn live by App.liveDrivers
   }
 
@@ -713,6 +783,12 @@
     if (me.last_lat != null) pts.push([me.last_lat, me.last_lng]);
     map.fitBounds(pts, { padding: [30, 30], maxZoom: 15 });
   };
+
+  // Today / Rides / Map / Me: the bottom bar on a phone, the side menu on a computer.
+  App.pageNav('Driver', [
+    { id: 'today', label: 'Today', icon: 'today' }, { id: 'rides', label: 'Rides', icon: 'list' },
+    { id: 'map', label: 'Map', icon: 'map' }, { id: 'me', label: 'Me', icon: 'me' },
+  ], (v) => { if (v === 'map') setTimeout(() => map.invalidateSize(), 50); });
 
   await drawShift();
   applyGps(); // on whenever the page is open

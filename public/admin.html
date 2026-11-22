@@ -9,18 +9,8 @@
 </head>
 <body>
 <header id="topbar"></header>
-<main class="wrap">
-  <div class="tabs">
-    <button data-tab="dash" class="active">Dashboard</button>
-    <button data-tab="history">Ride history</button>
-    <button data-tab="reports">Reports</button>
-    <button data-tab="users">Staff &amp; logins</button>
-    <button data-tab="vehicles">Vehicles</button>
-    <button data-tab="links">QR codes &amp; links</button>
-    <button data-tab="comms">Phone &amp; email</button>
-    <button data-tab="settings">Settings</button>
-    <button data-tab="server" hidden>Server</button>
-  </div>
+<main class="wrap mgr">
+  <div class="page-head"><div><h1 id="paneTitle">Overview</h1></div></div>
   <div id="resetAlert" class="hidden"></div>
 
   <!-- Dashboard -->
@@ -190,9 +180,13 @@
   </section>
 
   <!-- Settings -->
-  <section data-pane="settings" class="card hidden" style="max-width:640px">
-    <h2>Your business</h2>
-    <form id="setForm">
+  <section data-pane="settings" class="hidden settings-pane">
+    <nav class="sub-nav" id="setNav" aria-label="Settings"></nav>
+    <div class="card set-body">
+    <form id="setForm" data-sub="business rides drivers privacy">
+      <div data-sub="business">
+        <h2>Business</h2>
+        <p class="small muted" style="margin-top:0">Your name, address and where your shuttle is based.</p>
       <div class="seg" role="radiogroup" aria-label="Kind of business" style="margin-bottom:.4rem">
         <input type="radio" name="business_type" value="dealership" id="btDealer"><label for="btDealer">Car dealership</label>
         <input type="radio" name="business_type" value="shuttle" id="btShuttle"><label for="btShuttle">Shuttle service</label>
@@ -212,6 +206,18 @@
       </div>
       <p class="small muted">Tip: tap the map to set the dealership pin.</p>
       <div id="setMap" class="map map-sm"></div>
+      <label>Time zone (used in texts and reports)</label>
+      <select name="timezone">
+        <option value="America/Denver">Mountain (Denver)</option>
+        <option value="America/Phoenix">Mountain, no daylight saving (Phoenix)</option>
+        <option value="America/Chicago">Central (Chicago)</option>
+        <option value="America/New_York">Eastern (New York)</option>
+        <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
+      </select>
+      </div>
+      <div data-sub="rides">
+        <h2>Rides &amp; customers</h2>
+        <p class="small muted" style="margin-top:0">How far the shuttle goes, how long it waits, and what customers can do.</p>
       <label>Shuttle service area (miles from the dealership)</label>
       <input name="service_radius_mi" type="number" min="0" max="500" step="0.1">
       <p class="small muted" style="margin:.25rem 0 0">Rides farther than this are refused, and maps show it as a dashed circle. Use 0 for no limit.</p>
@@ -221,25 +227,18 @@
       <label>Wait at a pick up (minutes)</label>
       <input name="arrive_wait_min" type="number" min="1" max="30" step="1" style="max-width:200px">
       <p class="small muted" style="margin:.25rem 0 0">After a driver taps “I'm here”, the customer sees a timer for this long. Then the driver can cancel the ride as a no-show.</p>
+      <h3 style="margin:1.2rem 0 .2rem">Customers</h3>
+      <label class="check" style="margin-top:1rem"><input type="checkbox" name="public_requests"> Let customers request rides online (the /request page)</label>
+      <label class="check"><input type="checkbox" name="customer_actions"> Let customers say they're running late or cancel from their tracking page (the driver gets a notification)</label>
+      <h3 style="margin:1.2rem 0 .2rem">Ride offers</h3>
+      <label class="check" style="margin-top:.6rem"><input type="checkbox" name="ride_offers"> Offer waiting rides to the closest free driver (they get a ding and can take it or pass; if they pass, it goes to the next closest)</label>
+      </div>
+      <div data-sub="drivers">
+        <h2>Drivers</h2>
+        <p class="small muted" style="margin-top:0">Shifts and location sharing on drivers’ phones.</p>
       <label>End all driver shifts automatically at</label>
       <input name="auto_end_shift" type="time" style="max-width:200px">
       <p class="small muted" style="margin:.25rem 0 0">Every evening at this time, drivers still on duty are taken off shift (they stop getting new-ride alerts and their vehicle is freed). Rides they're finishing stay with them. Clear the time to turn this off.</p>
-      <label>Sign everyone out automatically at</label>
-      <input name="auto_sign_out" type="time" style="max-width:200px">
-      <p class="small muted" style="margin:.25rem 0 0">Every night at this time, all staff (managers, advisors and drivers) are signed out on every device and must sign in again. Clear the time to turn this off.</p>
-      <label>Delete customer info automatically at</label>
-      <input name="clear_customer_info" type="time" style="max-width:200px">
-      <p class="small muted" style="margin:.25rem 0 0">Every night at this time, finished rides (completed or cancelled) lose the customer's name, phone, email, address and notes, and their tracking links stop working. The text-message log is emptied too. Ride counts, times, drivers and cancel reasons are kept for reports. Rides that aren't finished yet keep their details. Clear the time to turn this off.</p>
-      <label>Time zone (used in texts and reports)</label>
-      <select name="timezone">
-        <option value="America/Denver">Mountain (Denver)</option>
-        <option value="America/Phoenix">Mountain, no daylight saving (Phoenix)</option>
-        <option value="America/Chicago">Central (Chicago)</option>
-        <option value="America/New_York">Eastern (New York)</option>
-        <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
-      </select>
-      <label class="check" style="margin-top:1rem"><input type="checkbox" name="public_requests"> Let customers request rides online (the /request page)</label>
-      <label class="check"><input type="checkbox" name="staff_signup"> Let new staff ask for an account from the sign-in page (a manager approves each one)</label>
       <h3 style="margin:1rem 0 .2rem">Driver location</h3>
       <p class="small muted" style="margin:0 0 .3rem">Drivers' phones share their location whenever the driver page is open. On a low battery (Android phones; iPhones don't tell websites their battery level):</p>
       <div class="grid cols-2" style="gap:.5rem">
@@ -247,29 +246,33 @@
         <div><label for="gpsMode">Then</label><select id="gpsMode" name="gps_low_battery_mode"><option value="slow">Share less often (about every 30 s) and let the screen sleep</option><option value="pause">Pause sharing until the phone is charging</option><option value="normal">Keep sharing as normal</option></select></div>
       </div>
       <label class="check"><input type="checkbox" name="driver_gps_toggle"> Let drivers turn their location off themselves</label>
-      <label class="check"><input type="checkbox" name="customer_actions"> Let customers say they're running late or cancel from their tracking page (the driver gets a notification)</label>
-      <label class="check" style="margin-top:.6rem"><input type="checkbox" name="ride_offers"> Offer waiting rides to the closest free driver (they get a ding and can take it or pass; if they pass, it goes to the next closest)</label>
+      </div>
+      <div data-sub="privacy">
+        <h2>Privacy &amp; sign-in</h2>
+        <p class="small muted" style="margin-top:0">What gets cleared each night, and who can ask for an account.</p>
+      <label>Sign everyone out automatically at</label>
+      <input name="auto_sign_out" type="time" style="max-width:200px">
+      <p class="small muted" style="margin:.25rem 0 0">Every night at this time, all staff (managers, advisors and drivers) are signed out on every device and must sign in again. Clear the time to turn this off.</p>
+      <label>Delete customer info automatically at</label>
+      <input name="clear_customer_info" type="time" style="max-width:200px">
+      <p class="small muted" style="margin:.25rem 0 0">Every night at this time, finished rides (completed or cancelled) lose the customer's name, phone, email, address and notes, and their tracking links stop working. The text-message log is emptied too. Ride counts, times, drivers and cancel reasons are kept for reports. Rides that aren't finished yet keep their details. Clear the time to turn this off.</p>
+      <h3 style="margin:1.2rem 0 .2rem">New staff</h3>
+      <label class="check"><input type="checkbox" name="staff_signup"> Let new staff ask for an account from the sign-in page (a manager approves each one)</label>
+      </div>
       <div id="setMsg"></div>
       <button style="margin-top:1rem">Save settings</button>
     </form>
-    <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
-    <h2>Your branding</h2>
-    <p class="small muted" style="margin-top:0">Your name, colors, logo, app icon and banner show on every page: sign-in, the staff and driver pages, the customer request and tracking pages, the browser tab, and phones' home screens. Try the <b>Branded</b> look on just this device first, then switch it on for everyone.</p>
-    <div class="actions" style="margin:.2rem 0 .8rem">
-      <a class="btn btn-ghost" href="/admin?look=branded#settings">👀 Preview the Branded look on this device</a>
-      <a class="btn btn-ghost" href="/admin?look=off#settings">Stop preview</a>
-    </div>
+    <div data-sub="branding">
+    <h2>Branding</h2>
+    <p class="small muted" style="margin-top:0">Your name, colors, logo, app icon and banner show on every page: sign-in, the staff and driver pages, the customer request and tracking pages, the browser tab, and phones' home screens.</p>
     <form id="lookForm">
-      <div class="seg" role="radiogroup" aria-label="Look for everyone">
-        <input type="radio" name="look" value="classic" id="lookClassic"><label for="lookClassic">Classic</label>
-        <input type="radio" name="look" value="branded" id="lookBranded"><label for="lookBranded">Branded</label>
-      </div>
-      <label style="margin-top:.8rem">Name shown in the header and the browser tab</label>
+      <input type="hidden" name="look">
+      <label style="margin-top:.4rem">Name shown in the menu and the browser tab</label>
       <input name="brand_name" placeholder="Your business name">
       <p class="small muted" style="margin:.25rem 0 0">The first word is shown big and the rest small. Leave blank to use the business name.</p>
       <div class="look-swatches" style="margin-top:.8rem">
-        <div><label>Accent color</label><input type="color" name="brand_color"></div>
-        <div><label>Header color</label><input type="color" name="brand_dark"></div>
+        <div><label>Your color</label><input type="color" name="brand_color"></div>
+        <div><label>Dark color <span class="muted">(QR signs)</span></label><input type="color" name="brand_dark"></div>
         <button type="button" class="btn-ghost btn-sm" id="lookReset">Back to the plain colors</button>
       </div>
       <label style="margin-top:1rem">Logo (optional)</label>
@@ -278,7 +281,7 @@
         <input type="file" id="logoFile" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="max-width:260px">
         <button type="button" class="btn-ghost btn-sm hidden" id="logoRemove">Remove logo</button>
       </div>
-      <p class="small muted">A white or light logo on a transparent background looks best in the dark header. PNG, JPG, WebP or SVG, up to 600 KB. Without a logo, the header shows the business name as a wordmark.</p>
+      <p class="small muted">Shown on dark backgrounds, like a banner photo. PNG, JPG, WebP or SVG, up to 600 KB. Without a logo, the header shows the business name as a wordmark.</p>
       <label style="margin-top:1rem">Logo for light backgrounds (optional)</label>
       <div class="actions" style="align-items:center;margin-top:0">
         <span class="logo-preview logo-preview-light" id="logoLightPreview"></span>
@@ -301,9 +304,10 @@
       </div>
       <p class="small muted">A wide photo (your building, your fleet) behind your name on the sign-in page and the customer pages. It's darkened so the words stay readable.</p>
       <div id="lookMsg"></div>
-      <button class="btn-block" style="margin-top:.6rem">Save look</button>
+      <button class="btn-block" style="margin-top:.6rem">Save branding</button>
     </form>
-    <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
+    </div>
+    <div data-sub="address">
     <h2>Web address</h2>
     <p class="small muted" style="margin-top:0">The address used in customer links, texts, emails and QR codes. Use your own, like <b>shuttle.yourdealership.com</b>. <span id="urlState"></span></p>
     <form id="urlForm">
@@ -316,9 +320,10 @@
         <li>Come back here, type the address, tap <b>Check</b>, then <b>Save</b>. Staff sign in again on the new address.</li>
       </ol></details>
     </form>
-    <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
+    </div>
+    <div data-sub="help">
     <h2>Help &amp; suggestions (Discord)</h2>
-    <p class="small muted" style="margin-top:0">Everyone on staff has a <b>💬 Help</b> button at the top. Messages show up here, and in a Discord channel if you add its webhook.</p>
+    <p class="small muted" style="margin-top:0">Everyone on staff has <b>Help &amp; ideas</b> in the menu under their name. Messages show up here, and in a Discord channel if you add its webhook.</p>
     <p class="small" id="fbHookState" style="margin:.2rem 0 .4rem"></p>
     <form id="fbForm">
       <div class="progress" data-progress></div>
@@ -366,13 +371,13 @@
       <div class="actions" style="margin-top:.4rem"><button type="button" class="btn-ghost btn-sm hidden" id="fbRemove">Remove all webhooks</button></div>
     </form>
     <details style="margin-top:.6rem"><summary class="small">Recent messages</summary><div id="fbList" class="small"></div></details>
-    <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
-    <h2>Easter egg</h2>
+    <h2 style="margin-top:1.6rem">Easter egg</h2>
     <label class="check"><input type="checkbox" id="eggOn"> 🌮 Taco rain every Tuesday at noon (for 10 seconds, on every open page)</label>
     <div class="actions" style="margin-top:.4rem"><button type="button" class="btn-ghost btn-sm" id="eggTry">Try it now</button></div>
     <div id="eggMsg"></div>
-    <hr style="border:0;border-top:1px solid var(--line);margin:1.5rem 0 1rem">
-    <p class="small muted">Software updates, backups, the server log and restart are on the <b>Server</b> tab.</p>
+    </div>
+    <p class="small muted" style="margin:1.4rem 0 0">Software updates, backups, the server log and restart are on the <b>Server</b> page.</p>
+    </div>
   </section>
 
 
@@ -634,15 +639,31 @@
   }
   const readRoles = (root) => ['admin', 'advisor', 'bdc', 'driver'].filter((r) => root.querySelector(`[name=roles][value=${r}]:checked`));
 
-  // ---------- tabs ----------
+  // ---------- sections ----------
+  // Overview, Rides, Reports… are in the side menu (the bottom bar on a phone). Settings
+  // has short pages by topic (#settings/branding); Phone & email is one of them.
   const loaders = {};
+  const SETTINGS = [['business', 'Business'], ['rides', 'Rides & customers'], ['drivers', 'Drivers'], ['privacy', 'Privacy & sign-in'],
+    ['branding', 'Branding'], ['phone', 'Phone & email'], ['address', 'Web address'], ['help', 'Help & extras']];
+  const commsPane = $('[data-pane="comms"]');
+  commsPane.classList.remove('hidden'); commsPane.dataset.sub = 'phone';
+  $('.settings-pane').appendChild(commsPane);
+  $('#setNav').innerHTML = SETTINGS.map(([id, label]) => `<a href="#settings/${id}" data-set-sub="${id}">${esc(label)}</a>`).join('');
+  const TITLES = { dash: 'Overview', history: 'Rides', reports: 'Reports', users: 'People', vehicles: 'Vehicles', links: 'QR codes & links', settings: 'Settings', server: 'Server' };
   function show(tab) {
-    $$('[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
-    $$('[data-pane]').forEach((p) => p.classList.toggle('hidden', p.dataset.pane !== tab));
-    history.replaceState(null, '', '#' + tab);
+    $('#paneTitle').textContent = TITLES[tab] || '';
+    const want = location.hash.slice(1).split('/')[1] || '';
+    const sub = tab === 'settings' ? (SETTINGS.some(([id]) => id === want) ? want : 'business') : '';
+    $$('[data-pane]:not([data-pane="comms"])').forEach((p) => p.classList.toggle('hidden', p.dataset.pane !== tab));
+    if (tab === 'settings') {
+      $$('.settings-pane [data-sub]').forEach((el) => el.classList.toggle('view-off', !el.dataset.sub.split(' ').includes(sub)));
+      $('.set-body').classList.toggle('view-off', sub === 'phone');
+      $$('[data-set-sub]').forEach((a) => { const on = a.dataset.setSub === sub; a.classList.toggle('active', on); if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+      if (sub === 'phone') return loaders.comms?.();
+      if (sub === 'business') setTimeout(() => { if (setMap) setMap.invalidateSize(); }, 60);
+    }
     loaders[tab]?.();
   }
-  $$('[data-tab]').forEach((b) => b.onclick = () => show(b.dataset.tab));
 
   // ---------- dashboard ----------
   const map = App.makeMap($('#map'), { lat: Number(App.settings.dealer_lat), lng: Number(App.settings.dealer_lng) });
@@ -1056,12 +1077,12 @@
     sel.value = keep;
     const { links } = await api('/api/spectate-links');
     const left = (iso) => { const m = Math.round((new Date(iso) - Date.now()) / 60000); return m >= 120 ? `${Math.round(m / 60)} h left` : `${Math.max(0, m)} min left`; };
-    $('#specList').innerHTML = links.length ? `<table><tr><th>Link</th><th>Who</th><th>Status</th><th>Views</th><th></th></tr>${links.map((l) => `<tr data-id="${l.id}">
+    $('#specList').innerHTML = links.length ? `<div class="table-wrap"><table><tr><th>Link</th><th>Who</th><th>Status</th><th>Views</th><th></th></tr>${links.map((l) => `<tr data-id="${l.id}">
         <td>${esc(l.label || 'Spectator link')}<br><span class="muted">by ${esc(l.created_by || '—')} · ${fmtTime(l.created_at)}</span></td>
         <td>${esc(l.driver_name || 'Every driver on shift')}</td>
         <td>${l.active ? `<span class="badge s-completed">Active</span> ${left(l.expires_at)}` : `<span class="badge s-cancelled">${l.revoked ? 'Revoked' : 'Ended'}</span>`}</td>
         <td>${l.views}</td>
-        <td style="text-align:right">${l.active ? '<button class="btn-ghost btn-sm" data-revoke>Revoke</button>' : ''}</td></tr>`).join('')}</table>`
+        <td style="text-align:right">${l.active ? '<button class="btn-ghost btn-sm" data-revoke>Revoke</button>' : ''}</td></tr>`).join('')}</table></div>`
       : '<span class="muted">No spectator links yet.</span>';
   }
   $('#specForm').onsubmit = async (e) => {
@@ -1756,7 +1777,7 @@
     e.preventDefault();
     try {
       await api('/api/settings', { method: 'PATCH', body: { look: lf.elements.look.value, brand_color: lf.elements.brand_color.value, brand_dark: lf.elements.brand_dark.value, brand_name: lf.elements.brand_name.value.trim().slice(0, 60) } });
-      App.flash($('#lookMsg'), lf.elements.look.value === 'branded' ? 'Saved. Everyone now gets the Branded look.' : 'Saved. Everyone gets the Classic look.', true);
+      App.flash($('#lookMsg'), 'Saved. Everyone sees it the next time a page opens.', true);
       try { localStorage.removeItem('shuttle.look'); } catch { /* ignore */ }
       setTimeout(() => location.reload(), 900);
     } catch (err) { App.flash($('#lookMsg'), err.message); }
@@ -1939,8 +1960,14 @@
   };
 
   // Server tab: super admins only.
-  if (me.super_admin) $('[data-tab="server"]').hidden = false; else delete loaders.server;
-  show(location.hash.slice(1) in loaders ? location.hash.slice(1) : 'dash');
+  if (!me.super_admin) delete loaders.server;
+  App.pageNav('Manager', [
+    { id: 'dash', label: 'Overview', icon: 'manager' }, { id: 'history', label: 'Rides', icon: 'list' },
+    { id: 'reports', label: 'Reports', icon: 'chart' }, { id: 'users', label: 'People', icon: 'people' },
+    { id: 'vehicles', label: 'Vehicles', icon: 'driver' }, { id: 'links', label: 'QR codes & links', icon: 'qr' },
+    { id: 'settings', label: 'Settings', icon: 'gear' },
+    ...(me.super_admin ? [{ id: 'server', label: 'Server', icon: 'server' }] : []),
+  ], show);
   checkResets();
   setInterval(() => { if (!$('[data-pane="dash"]').classList.contains('hidden') && !document.hidden) loadDash().catch(() => {}); }, 15000);
 })();
