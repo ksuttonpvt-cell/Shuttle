@@ -831,3 +831,33 @@ body.drawer-open { overflow: hidden; }
 /* Step-by-step forms: "Next" is the main action, in your color */
 .step-nav [data-next].btn-dark { background: var(--accent); color: #fff; }
 .step-nav [data-next].btn-dark:hover { background: var(--accent-hover); }
+
+/* ==========================================================================
+   Manager: sections in the side menu; Settings as short pages by topic
+   ========================================================================== */
+.mgr .page-head { margin-bottom: 1rem; }
+.settings-pane { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+.settings-pane > .card, .settings-pane > [data-pane="comms"] { grid-column: 2; max-width: 760px; }
+.sub-nav { grid-row: 1 / span 3; position: sticky; top: 1rem; display: flex; flex-direction: column; gap: .15rem; }
+.sub-nav a { padding: .55rem .8rem; border-radius: 10px; color: var(--muted); font-size: .92rem; font-weight: 550; text-decoration: none; }
+.sub-nav a:hover { background: var(--hover); color: var(--ink); }
+.sub-nav a.active { background: var(--card); color: var(--ink); font-weight: 650; box-shadow: var(--shadow), inset 3px 0 0 var(--accent); }
+.set-body h2 { font-size: 1.3rem; }
+.set-body > form > [data-sub] + [data-sub] { margin-top: 0; }
+@media (max-width: 899px) {
+  .settings-pane { grid-template-columns: minmax(0, 1fr); }
+  .settings-pane > .card, .settings-pane > [data-pane="comms"] { grid-column: 1; }
+  .sub-nav { grid-row: auto; position: static; flex-direction: row; overflow-x: auto; gap: .3rem; padding-bottom: .2rem; scrollbar-width: none; }
+  .sub-nav a { white-space: nowrap; background: var(--subtle); border-radius: 99px; padding: .45rem .85rem; }
+  .sub-nav a.active { background: var(--ink); color: var(--on-ink); box-shadow: none; }
+}
+/* A phone bottom bar holds at most five; the rest scroll sideways. */
+@media (max-width: 899px) {
+  .bottom-nav { overflow-x: auto; grid-auto-columns: minmax(72px, 1fr); scrollbar-width: none; }
+  .bottom-nav a span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; padding: 0 2px; }
+}
+.acct-who .ver-new { color: #fff; font-size: .62rem; overflow: visible; }
+.logo-preview .wordmark { color: #fff; }
+.logo-preview .brand-sub { color: rgba(255,255,255,.75); }
+.logo-preview-light .wordmark { color: #0f172a; }
+.logo-preview-light .brand-sub { color: #52606d; }

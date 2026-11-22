@@ -15,8 +15,8 @@ stay; only the layout and look change. No build step.
 | 1 | Shared look (colors, type, buttons, chips, cards, forms, tabs, windows) and the shared app frame (side menu on a computer, top bar + bottom bar on a phone, account menu under your name) | Done |
 | 2 | Driver, customer tracking, request a ride, watch-only map | Done |
 | 3 | Advisor desk and BDC | Done |
-| 4–5 | Manager: overview, rides, reports, people, vehicles, settings as short topic pages, Server | Next |
-| 6 | Sign in, setup, password reset; full test run and browser check at phone and computer sizes; hand over for review | |
+| 4–5 | Manager: overview, rides, reports, people, vehicles, settings as short topic pages, Server | Done |
+| 6 | Sign in, setup, password reset; full test run and browser check at phone and computer sizes; hand over for review | Next |
 
 ## Day 1 notes
 
@@ -75,7 +75,21 @@ stay; only the layout and look change. No build step.
   call-first layout (find, book, today / booked ahead / finished) is unchanged.
 - Step-by-step forms: Next is in your color now (was black).
 
+## Days 4–5 notes
+
+- Manager sections are in the side menu (bottom bar on a phone, scrolls
+  sideways): Overview, Rides, Reports, People, Vehicles, QR codes & links,
+  Settings, and Server (super admins only). Each has a page title.
+- Settings is short pages by topic, each at its own address
+  (`#settings/branding`): Business, Rides & customers, Drivers, Privacy &
+  sign-in, Branding, Phone & email, Web address, Help & extras. Business /
+  Rides / Drivers / Privacy are still one form saved together (only the
+  matching fields show), so nothing about saving changed.
+- The Classic / Branded switch and its preview links are gone. The saved
+  value is kept in a hidden field. Any old "preview" choice on a device is
+  forgotten, and its pill no longer shows.
+- `App.pageNav` understands sub-pages (`#settings/phone`).
+
 ## Still to do later
 
 - Each page's own layout (Days 2–5) — today's change only restyles them.
-- Remove the look switch and "Previewing the … look" pill (Day 4–5).

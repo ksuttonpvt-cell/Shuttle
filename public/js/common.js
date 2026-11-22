@@ -163,6 +163,11 @@ const App = (() => {
     list: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
     map: '<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>',
     me: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
+    people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1-3.5 3.5-5.5 6.5-5.5s5.5 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.8 3 2.5 3.5 5.2"/>',
+    chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    qr: '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z"/><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+    server: '<rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/>',
   };
   const icon = (k) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k] || ''}</svg>`;
   const ROLE_NAME = { admin: 'Manager', advisor: 'Advisor', bdc: 'BDC', driver: 'Driver' };
@@ -236,7 +241,8 @@ const App = (() => {
       menu.insertAdjacentHTML('afterbegin', `${roleLinks.map((a) => `<a href="${a.getAttribute('href')}" class="acct-page">${esc(a.textContent.trim())}</a>`).join('')}<div class="acct-sep acct-page"></div>`);
     }
     const ids = items.map((it) => it.id);
-    const current = () => { const h = location.hash.slice(1); return ids.includes(h) ? h : ids[0]; };
+    // "#settings/branding" belongs to the Settings section (the part after / is a sub-page).
+    const current = () => { const h = location.hash.slice(1).split('/')[0]; return ids.includes(h) ? h : ids[0]; };
     function show() {
       const v = current();
       document.body.dataset.view = v;
@@ -249,7 +255,7 @@ const App = (() => {
     }
     window.addEventListener('hashchange', () => { show(); window.scrollTo(0, 0); });
     show();
-    return { go(id) { if (current() === id) show(); else location.hash = id; }, current };
+    return { go(id) { if (location.hash.slice(1) === id) show(); else location.hash = id; }, current, sub: () => location.hash.slice(1).split('/')[1] || '' };
   }
 
   // ---------- Help & suggestions ----------
@@ -324,22 +330,14 @@ const App = (() => {
     const rest = [words.join(' '), extra].filter(Boolean).join(' · ');
     return `<span class="wordmark">${esc(first)}</span><span class="brand-sub">${esc(rest)}</span>`;
   }
-  // Fills [data-brand] spots and shows a note while previewing a look on this device.
+  // Fills [data-brand] spots with your logo or name.
   function applyBrand(dealerName) {
     $$('[data-brand]').forEach((el) => { el.innerHTML = brandMark(dealerName, el.dataset.brand || '', { light: !(document.documentElement.dataset.banner && el.closest('.hero')) }); });
     const name = document.documentElement.dataset.brandName || dealerName;
     $$('[data-foot]').forEach((el) => { el.innerHTML = `${name ? `<b>${esc(name)}</b> · ` : ''}${place() === 'dealership' ? 'Service shuttle' : 'Shuttle'}`; });
     $$('span[data-word]').forEach((el) => { el.textContent = el.dataset.word === 'cap' ? Place() : place(); });
-    let preview = null;
-    try { preview = localStorage.getItem('shuttle.look'); } catch { /* storage blocked */ }
-    const site = document.documentElement.dataset.siteLook;
-    if (preview && preview !== site && !$('#lookPreview')) {
-      const pill = document.createElement('div');
-      pill.id = 'lookPreview'; pill.className = 'look-preview no-print';
-      pill.innerHTML = `<span>Previewing the <b>${preview === 'branded' ? 'Branded' : 'Classic'}</b> look<span class="lp-long"> on this device</span></span><button type="button">Stop preview</button>`;
-      pill.querySelector('button').onclick = () => { try { localStorage.removeItem('shuttle.look'); } catch { /* ignore */ } location.reload(); };
-      document.body.appendChild(pill);
-    }
+    // There's one look for everyone now; forget any old "preview the look" choice on this device.
+    try { localStorage.removeItem('shuttle.look'); delete document.documentElement.dataset.look; } catch { /* storage blocked */ }
   }
 
   // Light / dark screen: 'auto' follows the device setting. Saved on this device only.
