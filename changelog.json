@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.2.0",
+    "date": "2026-11-22",
+    "title": "Mapbox maps (optional)",
+    "changes": [
+      "New: Manager → Settings → Map. Choose OpenStreetMap (free, no account) or Mapbox (reliable; a free Mapbox account and a public token).",
+      "The choice applies to every map: staff, drivers, the customer tracking page and the watch-only map.",
+      "Test checks the token right there. Secret tokens are refused. If Mapbox stops answering or the token is wrong, maps switch back to OpenStreetMap by themselves."
+    ]
+  },
+  {
     "version": "3.1.0",
     "date": "2026-11-22",
     "title": "Keep customer info for a month, and a map fix",

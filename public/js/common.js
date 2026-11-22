@@ -458,19 +458,40 @@ const App = (() => {
   function telLink(phone) { return phone ? `tel:${phone.replace(/[^\d+]/g, '')}` : null; }
 
   // ---------- maps (Leaflet + OpenStreetMap) ----------
+  // Map pictures come from Mapbox when a manager has set it up (Settings → Map), otherwise
+  // from OpenStreetMap. If one source keeps failing before any picture loads (a wrong key,
+  // a refused request), the map moves on to the next, so it still shows.
+  const OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
+  function mapSources() {
+    const d = document.documentElement.dataset;
+    const osm = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    // OSM pictures are fetched so the device can keep copies (see sw.js); plain images if that's refused.
+    const list = [
+      { url: osm, opts: { maxZoom: 19, attribution: OSM_ATTR, crossOrigin: true } },
+      { url: osm, opts: { maxZoom: 19, attribution: OSM_ATTR } },
+    ];
+    if (d.map === 'mapbox' && d.mapKey) {
+      list.unshift({ url: mapboxTiles(d.mapKey), opts: { maxZoom: 20, tileSize: 512, zoomOffset: -1,
+        attribution: `&copy; <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener">Mapbox</a> ${OSM_ATTR} <a href="https://www.mapbox.com/map-feedback/" target="_blank" rel="noopener"><b>Improve this map</b></a>` } });
+    }
+    return list;
+  }
+  const mapboxTiles = (key) => `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token=${encodeURIComponent(key)}`;
   function makeMap(el, center, zoom = 12) {
     const map = L.map(el, { scrollWheelZoom: true }).setView([center.lat, center.lng], zoom);
-    // Map images are fetched so the device can keep copies (see sw.js). If the map server
-    // ever refuses that, switch to plain images so the map still shows.
-    const opts = { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' };
-    const url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-    let layer = L.tileLayer(url, { ...opts, crossOrigin: true }).addTo(map);
-    let loaded = 0; let failed = 0;
-    layer.on('tileload', () => { loaded++; });
-    layer.on('tileerror', () => {
-      if (++failed < 4 || loaded) return;
-      map.removeLayer(layer); layer = L.tileLayer(url, opts).addTo(map);
-    });
+    const sources = mapSources();
+    let i = 0; let layer = null;
+    (function use() {
+      if (layer) map.removeLayer(layer);
+      const src = sources[i];
+      layer = L.tileLayer(src.url, src.opts).addTo(map);
+      let loaded = 0; let failed = 0;
+      layer.on('tileload', () => { loaded++; });
+      layer.on('tileerror', () => {
+        if (++failed < 4 || loaded || i >= sources.length - 1) return;
+        i++; use();
+      });
+    })();
     return map;
   }
   function pinIcon(kind, label = '') {
@@ -868,7 +889,7 @@ const App = (() => {
   }
 
   return {
-    whatsNew, esc, $, $$, api, requireUser, pageNav, icon, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
+    whatsNew, esc, $, $$, api, requireUser, pageNav, icon, mapboxTiles, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
     brandMark, applyBrand, place, Place, endOfToday, stepper, pickPhoto, waitMeter, tacoRain, live, liveState, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
@@ -956,7 +977,7 @@ const App = (() => {
       const res = performance.getEntriesByType('resource');
       const own = res.filter((r) => r.name.startsWith(location.origin));
       const api = own.filter((r) => /\/api\//.test(r.name) && !/\/api\/(events|perf)/.test(r.name) && r.startTime < 10000);
-      const tiles = res.filter((r) => /tile\.openstreetmap\.org/.test(r.name) && r.startTime < 15000);
+      const tiles = res.filter((r) => /tile\.openstreetmap\.org|api\.mapbox\.com\/styles/.test(r.name) && r.startTime < 15000);
       const conn = navigator.connection || {};
       const data = {
         page: location.pathname, type: n.type, proto: n.nextHopProtocol || '',

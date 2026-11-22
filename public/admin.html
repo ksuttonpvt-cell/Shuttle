@@ -183,7 +183,7 @@
   <section data-pane="settings" class="hidden settings-pane">
     <nav class="sub-nav" id="setNav" aria-label="Settings"></nav>
     <div class="card set-body">
-    <form id="setForm" data-sub="business rides drivers privacy">
+    <form id="setForm" data-sub="business rides drivers privacy maps">
       <div data-sub="business">
         <h2>Business</h2>
         <p class="small muted" style="margin-top:0">Your name, address and where your shuttle is based.</p>
@@ -264,6 +264,27 @@
       <p class="small muted" style="margin:.25rem 0 0">At this time, rides that finished longer ago than the setting above lose the customer's details, and their tracking links stop working. Ride counts, times, drivers, cities, miles and cancel reasons are kept for reports. Rides that aren't finished keep everything. Clear the time to turn this off and keep customer info until someone deletes it.</p>
       <h3 style="margin:1.2rem 0 .2rem">New staff</h3>
       <label class="check"><input type="checkbox" name="staff_signup"> Let new staff ask for an account from the sign-in page (a manager approves each one)</label>
+      </div>
+      <div data-sub="maps">
+        <h2>Map</h2>
+        <p class="small muted" style="margin-top:0">Where the map pictures come from, on every page: staff, drivers, the customer tracking page and the watch-only map.</p>
+        <fieldset class="opt-group" style="margin-top:0">
+          <label class="check"><input type="radio" name="map_provider" value="osm"> <span><b>OpenStreetMap</b> <span class="muted">(free, no account. Run by volunteers, so it can turn busy sites away.)</span></span></label>
+          <label class="check"><input type="radio" name="map_provider" value="mapbox"> <span><b>Mapbox</b> <span class="muted">(needs a free Mapbox account. Reliable; free up to a monthly amount, then paid.)</span></span></label>
+        </fieldset>
+        <div data-mapbox-only>
+          <label for="mapboxToken">Mapbox public token</label>
+          <div class="linkbox"><input id="mapboxToken" name="mapbox_token" type="password" autocomplete="off" spellcheck="false" placeholder="pk.…"><button type="button" class="btn-ghost btn-sm" id="mapboxShow">Show</button><button type="button" class="btn-ghost btn-sm" id="mapboxTest">Test</button></div>
+          <div id="mapboxMsg"></div>
+          <details style="margin-top:.5rem" open><summary class="small">How to get a token</summary><ol class="small steps-list">
+            <li>Make a free account at <a href="https://account.mapbox.com/auth/signup/" target="_blank" rel="noopener">mapbox.com</a>.</li>
+            <li>Open <b>Tokens</b> in your Mapbox account. Use the <b>Default public token</b>, or tap <b>Create a token</b> (public scopes only).</li>
+            <li>Recommended: under <b>URL restrictions</b>, add <b id="mapboxSite"></b> so only your site can use it.</li>
+            <li>Copy the token (it starts with <b>pk.</b>), paste it here, tap <b>Test</b>, then <b>Save settings</b>.</li>
+          </ol>
+          <p class="small muted" style="margin:.2rem 0 0">A public token is meant to be in web pages, so it's sent with every map. Never paste a secret token (sk.). If Mapbox stops answering or the token is wrong, maps switch back to OpenStreetMap by themselves.</p></details>
+        </div>
+        <p class="small muted" style="margin:.6rem 0 0">Pages pick up a change the next time they open.</p>
       </div>
       <div id="setMsg"></div>
       <button style="margin-top:1rem">Save settings</button>
@@ -650,7 +671,7 @@
   // has short pages by topic (#settings/branding); Phone & email is one of them.
   const loaders = {};
   const SETTINGS = [['business', 'Business'], ['rides', 'Rides & customers'], ['drivers', 'Drivers'], ['privacy', 'Privacy & sign-in'],
-    ['branding', 'Branding'], ['phone', 'Phone & email'], ['address', 'Web address'], ['help', 'Help & extras']];
+    ['branding', 'Branding'], ['maps', 'Map'], ['phone', 'Phone & email'], ['address', 'Web address'], ['help', 'Help & extras']];
   const commsPane = $('[data-pane="comms"]');
   commsPane.classList.remove('hidden'); commsPane.dataset.sub = 'phone';
   $('.settings-pane').appendChild(commsPane);
@@ -1281,7 +1302,8 @@
     sf.elements.place_word.value = settings.place_word || ''; sf.elements.place_word.placeholder = settings.business_type === 'shuttle' ? 'office' : 'dealership';
     sf.elements.request_path.value = settings.request_path || ''; $('#reqBase').textContent = `${location.host}/`;
     sf.querySelectorAll('[name=business_type]').forEach((r) => { r.onchange = () => { sf.elements.place_word.placeholder = r.value === 'shuttle' ? 'office' : 'dealership'; }; });
-    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi', 'dropoff_wait_min', 'arrive_wait_min', 'auto_end_shift', 'auto_sign_out', 'clear_customer_info', 'keep_customer_days']) sf.elements[k].value = settings[k] ?? '';
+    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi', 'dropoff_wait_min', 'arrive_wait_min', 'auto_end_shift', 'auto_sign_out', 'clear_customer_info', 'keep_customer_days', 'mapbox_token']) sf.elements[k].value = settings[k] ?? '';
+    sf.elements.map_provider.value = settings.map_provider || 'osm'; syncMapbox();
     if (sf.elements.service_radius_mi.value === '') sf.elements.service_radius_mi.value = '0';
     if (!sf.elements.timezone.value) sf.elements.timezone.value = 'America/Denver';
     sf.elements.public_requests.checked = settings.public_requests === '1';
@@ -1953,6 +1975,7 @@
   loaders.comms = () => { loadSms(); loadPhone().catch(() => {}); return loadEmail().catch(() => {}); };
   sf.onsubmit = async (e) => {
     e.preventDefault();
+    if (sf.elements.map_provider.value === 'mapbox' && !sf.elements.mapbox_token.value.trim()) { location.hash = 'settings/maps'; return App.flash($('#setMsg'), 'To use Mapbox, paste your Mapbox public token on the Map page first.'); }
     const body = Object.fromEntries(new FormData(sf));
     body.public_requests = sf.elements.public_requests.checked ? '1' : '0';
     body.customer_actions = sf.elements.customer_actions.checked ? '1' : '0';
@@ -1963,6 +1986,26 @@
     body.ride_offers = sf.elements.ride_offers.checked ? '1' : '0';
     try { const { settings } = await api('/api/settings', { method: 'PATCH', body }); App.settings = settings; App.flash($('#setMsg'), 'Saved.', true); }
     catch (err) { App.flash($('#setMsg'), err.message); }
+  };
+
+  // ---------- Map (Mapbox) ----------
+  function syncMapbox() {
+    $('[data-mapbox-only]').hidden = sf.elements.map_provider.value !== 'mapbox';
+    $('#mapboxSite').textContent = location.origin;
+  }
+  sf.addEventListener('change', (e) => { if (e.target.name === 'map_provider') syncMapbox(); });
+  $('#mapboxToken').addEventListener('input', () => App.flash($('#mapboxMsg'), ''));
+  $('#mapboxShow').onclick = () => { const t = $('#mapboxToken'); t.type = t.type === 'password' ? 'text' : 'password'; $('#mapboxShow').textContent = t.type === 'password' ? 'Show' : 'Hide'; };
+  $('#mapboxTest').onclick = async () => {
+    const key = $('#mapboxToken').value.trim();
+    if (!/^pk\./.test(key)) return App.flash($('#mapboxMsg'), key.startsWith('sk.') ? 'That is a secret token. Use a public one (starts with pk.).' : 'Paste a public token first (it starts with pk.).');
+    App.flash($('#mapboxMsg'), '');
+    try {
+      const r = await fetch(App.mapboxTiles(key).replace('{z}/{x}/{y}', '1/0/0'));
+      if (r.ok) App.flash($('#mapboxMsg'), 'It works: Mapbox sent a map picture. Tap Save settings to use it.', true);
+      else App.flash($('#mapboxMsg'), r.status === 401 ? 'Mapbox says this token isn’t valid. Copy it again from your Mapbox account.'
+        : r.status === 403 ? `Mapbox refused it. If the token has URL restrictions, add ${location.origin} to them.` : `Mapbox answered with an error (${r.status}). Try again in a minute.`);
+    } catch { App.flash($('#mapboxMsg'), 'Couldn’t reach Mapbox from this device. Check the internet connection and try again.'); }
   };
 
   // Server tab: super admins only.

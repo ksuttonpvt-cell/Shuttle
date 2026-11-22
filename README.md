@@ -55,10 +55,11 @@ A new install opens **/setup**:
 Want sample data to try it? `npm run seed:demo` adds a few vans, staff (password `shuttle123`) and rides.
 
 ## Make it yours (Manager → Settings)
-Settings is a set of short pages: Business, Rides & customers, Drivers, Privacy & sign-in, Branding, Phone & email, Web address, and Help & extras.
+Settings is a set of short pages: Business, Rides & customers, Drivers, Privacy & sign-in, Branding, Map, Phone & email, Web address, and Help & extras.
 A new install has no branding: plain colors, a plain icon, and “Your logo” placeholders where a logo goes, until you add yours here.
 - **Business:** dealership or shuttle service, name, address, phone, and the word for your base. Drivers and customers see that word everywhere, including route stops, texts and emails.
 - **Branding:** name, your color, logo (and a second logo for light backgrounds), **app icon** (browser tab, phone home screen, notifications) and a **banner** photo for the sign-in and customer pages. Every browser tab shows your name.
+- **Map:** OpenStreetMap (free, no account) or Mapbox (paste a public `pk.` token; restrict it to your web address in Mapbox). Maps fall back to OpenStreetMap if Mapbox fails.
 - **Web address:** your own address, with a **Check** that confirms it reaches this site. Links, texts, emails and QR codes use it. There's also an optional short request link like `/ride`.
 - **Phone & email** (its own page under Settings):
   - **Calls and texts:** from staff's own phones, or through a business number. With the business number, Call rings the staff member's phone and connects them; Text sends from that number and saves the message on the ride.

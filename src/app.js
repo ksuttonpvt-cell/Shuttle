@@ -68,6 +68,8 @@ const DEFAULT_SETTINGS = {
   brand_dark: '#1e293b',    // Branded look: header and banner background
   brand_name: '',           // Branded look: name shown in the header (blank = business name); first word is big        // offer waiting rides to the closest free driver, who can accept or pass
   clear_customer_info: '00:00',
+  map_provider: 'osm',     // map pictures: 'osm' (OpenStreetMap, free, no account) or 'mapbox' (needs a public token)
+  mapbox_token: '',         // Mapbox public token (pk.…). Public by design: it's in every page, so restrict it to your web address in Mapbox.
   keep_customer_days: '30', // finished rides keep the customer's details this many days, then the nightly clear removes them (0 = the same night)
   backup_time: '00:00',    // nightly database backup: at midnight, right after the day's report is saved and customer info is cleared ('' = off) // finished rides lose their customer details at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
@@ -2086,6 +2088,12 @@ function createApp(db, opts = {}) {
         v = v.trim();
         if (v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) return bad(res, 'Pick a time, like 8:00 PM, or leave it empty to turn it off.');
       }
+      if (k === 'map_provider' && !['osm', 'mapbox'].includes(v)) return bad(res, 'Pick OpenStreetMap or Mapbox.');
+      if (k === 'mapbox_token') {
+        v = v.trim();
+        if (/^sk\./.test(v)) return bad(res, 'That is a secret Mapbox token (it starts with sk.). Use a public token instead: it starts with pk.');
+        if (v && !/^pk\.[A-Za-z0-9_.-]{20,250}$/.test(v)) return bad(res, 'Paste a Mapbox public token. It starts with pk. and is one long line.');
+      }
       if (k === 'keep_customer_days') {
         const n = Number(v);
         if (v === '' || !Number.isInteger(n) || n < 0 || n > 365) return bad(res, 'Keep customer info for 0 to 365 days.');
@@ -3310,7 +3318,7 @@ function createApp(db, opts = {}) {
     return stamps.get(url);
   }
   // Early hint on map pages: start connecting to the map image server while the page loads.
-  const MAP_HINT = '<link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin><link rel="dns-prefetch" href="https://tile.openstreetmap.org">';
+  const mapHint = (host) => `<link rel="preconnect" href="https://${host}" crossorigin><link rel="dns-prefetch" href="https://${host}">`;
   // One short id for everything the browser runs (pages, scripts, styles). Each page
   // carries it, and the live connection says the current one, so a page left open
   // through an update knows it's out of date.
@@ -3334,7 +3342,7 @@ function createApp(db, opts = {}) {
     if (!html) {
       try { html = fs.readFileSync(path.join(pub, file), 'utf8'); } catch (e) { return next(e); }
       html = html.replace(/((?:src|href)="(\/(?:js|css|vendor\/leaflet)\/[^"?]+\.(?:js|css)))"/g, (m, attr, url) => `${attr}?v=${stampOf(url)}"`);
-      const hints = html.includes('/vendor/leaflet/') ? MAP_HINT : '';
+      const hints = html.includes('/vendor/leaflet/') ? '<!--map-hint-->' : '';
       html = html.replace('<meta charset="utf-8">', `<meta charset="utf-8">${hints}<!--brand-head-->`);
       // Icons and the manifest come from the brand (below), so drop the fixed ones.
       html = html.replace(/<link rel="(?:manifest|apple-touch-icon|icon)"[^>]*>\s*/g, '').replace(/<meta name="theme-color"[^>]*>\s*/g, '');
@@ -3349,11 +3357,15 @@ function createApp(db, opts = {}) {
     const name = String(s.brand_name || s.dealer_name || '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
     const iv = s.brand_icon_512 ? `?v=${s.brand_icon_v || 1}` : '';
     const banner = s.brand_banner ? `;--banner:url(/brand/banner.jpg?v=${s.brand_banner_v || 1})` : '';
+    // Which map pictures every page uses (Mapbox only once a public token is saved).
+    const mapbox = s.map_provider === 'mapbox' && /^pk\.[A-Za-z0-9_.-]{20,250}$/.test(s.mapbox_token || '');
+    const mapAttrs = mapbox ? `data-map="mapbox" data-map-key="${s.mapbox_token}" ` : '';
+    html = html.replace('<!--map-hint-->', mapHint(mapbox ? 'api.mapbox.com' : 'tile.openstreetmap.org'));
     const head = `<link rel="icon" href="/brand/icon-192.png${iv}"><link rel="apple-touch-icon" href="/brand/icon-180.png${iv}"><link rel="manifest" href="/manifest.webmanifest${iv}"><meta name="theme-color" content="${dark}">`;
     res.set('Cache-Control', 'no-store').type('html')
       .send(html.replace('<!--brand-head-->', head)
         .replace(/<title>([^<]*)<\/title>/, (m, t) => `<title>${t}${name ? ` · ${name}` : ''}</title>`)
-        .replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-logo-light="${logoLight}" data-brand-name="${name}" data-place="${placeWord().replace(/[&<>"']/g, '')}" ${banner ? 'data-banner="1" ' : ''}data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" data-build="${buildId()}" style="--brand:${color};--brand-dark:${dark}${banner}">`));
+        .replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-logo-light="${logoLight}" data-brand-name="${name}" data-place="${placeWord().replace(/[&<>"']/g, '')}" ${mapAttrs}${banner ? 'data-banner="1" ' : ''}data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" data-build="${buildId()}" style="--brand:${color};--brand-dark:${dark}${banner}">`));
   };
   // ---------- first-run setup ----------
   // A new install opens on /setup: the owner makes the first admin account (with the setup
