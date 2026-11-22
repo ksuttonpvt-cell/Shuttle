@@ -1,5 +1,16 @@
 [
   {
+    "version": "3.2.0",
+    "date": "2026-11-22",
+    "title": "Choose your map: OpenStreetMap, Mapbox, MapTiler, Stadia, Thunderforest or Google",
+    "changes": [
+      "New: Manager → Settings → Map. Pick where map pictures come from: OpenStreetMap (free, no account), Mapbox, MapTiler, Stadia Maps, Thunderforest or Google Maps.",
+      "Each service has its own key box with step-by-step instructions and a Test button. Keys are kept for each service, so you can switch back and forth.",
+      "The choice applies to every map: staff, drivers, the customer tracking page and the watch-only map.",
+      "If a key is wrong or a service stops answering, maps switch back to OpenStreetMap by themselves."
+    ]
+  },
+  {
     "version": "3.1.0",
     "date": "2026-11-22",
     "title": "Keep customer info for a month, and a map fix",

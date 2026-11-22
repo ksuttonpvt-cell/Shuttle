@@ -68,6 +68,13 @@ const DEFAULT_SETTINGS = {
   brand_dark: '#1e293b',    // Branded look: header and banner background
   brand_name: '',           // Branded look: name shown in the header (blank = business name); first word is big        // offer waiting rides to the closest free driver, who can accept or pass
   clear_customer_info: '00:00',
+  map_provider: 'osm',     // where map pictures come from: osm (free, no account), mapbox, maptiler, stadia, thunderforest or google (each needs its key)
+  // Map keys. They're public by design (sent with every map), so restrict each one to your web address at the provider.
+  mapbox_token: '',         // Mapbox public token (pk.…)
+  maptiler_key: '',
+  stadia_key: '',
+  thunderforest_key: '',
+  google_maps_key: '',      // Google Cloud API key with the Map Tiles API turned on
   keep_customer_days: '30', // finished rides keep the customer's details this many days, then the nightly clear removes them (0 = the same night)
   backup_time: '00:00',    // nightly database backup: at midnight, right after the day's report is saved and customer info is cleared ('' = off) // finished rides lose their customer details at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
@@ -229,6 +236,21 @@ function createApp(db, opts = {}) {
     return { ...s };
   }
   // Only these settings ever leave the server (never the notification keys).
+  // Map services that need a key: which setting holds it, what a key looks like, and the host
+  // the pages connect to. OpenStreetMap needs none.
+  const MAP_KEYS = {
+    mapbox: { setting: 'mapbox_token', re: /^pk\.[A-Za-z0-9_.-]{20,250}$/, host: 'api.mapbox.com', bad: 'Paste a Mapbox public token. It starts with pk. and is one long line.' },
+    maptiler: { setting: 'maptiler_key', re: /^[A-Za-z0-9]{16,64}$/, host: 'api.maptiler.com', bad: 'Paste your MapTiler API key: one word of letters and numbers.' },
+    stadia: { setting: 'stadia_key', re: /^[A-Za-z0-9-]{16,64}$/, host: 'tiles.stadiamaps.com', bad: 'Paste your Stadia Maps API key: letters, numbers and dashes.' },
+    thunderforest: { setting: 'thunderforest_key', re: /^[A-Za-z0-9]{16,64}$/, host: 'tile.thunderforest.com', bad: 'Paste your Thunderforest API key: one word of letters and numbers.' },
+    google: { setting: 'google_maps_key', re: /^AIza[0-9A-Za-z_-]{35}$/, host: 'tile.googleapis.com', bad: 'Paste a Google API key. It starts with AIza and is 39 characters.' },
+  };
+  // The map service pages use right now: the chosen one if its key is saved, otherwise OpenStreetMap.
+  function mapInUse(s = getSettings()) {
+    const m = MAP_KEYS[s.map_provider];
+    const key = m && String(s[m.setting] || '');
+    return m && m.re.test(key) ? { provider: s.map_provider, key, host: m.host } : { provider: 'osm', key: '', host: 'tile.openstreetmap.org' };
+  }
   function shareableSettings() {
     const s = getSettings(); const out = {};
     for (const k of Object.keys(DEFAULT_SETTINGS)) out[k] = s[k];
@@ -2086,6 +2108,13 @@ function createApp(db, opts = {}) {
         v = v.trim();
         if (v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) return bad(res, 'Pick a time, like 8:00 PM, or leave it empty to turn it off.');
       }
+      if (k === 'map_provider' && !['osm', ...Object.keys(MAP_KEYS)].includes(v)) return bad(res, 'Pick one of the map services.');
+      const mapKey = Object.values(MAP_KEYS).find((m) => m.setting === k);
+      if (mapKey) {
+        v = v.trim();
+        if (k === 'mapbox_token' && /^sk\./.test(v)) return bad(res, 'That is a secret Mapbox token (it starts with sk.). Use a public token instead: it starts with pk.');
+        if (v && !mapKey.re.test(v)) return bad(res, mapKey.bad);
+      }
       if (k === 'keep_customer_days') {
         const n = Number(v);
         if (v === '' || !Number.isInteger(n) || n < 0 || n > 365) return bad(res, 'Keep customer info for 0 to 365 days.');
@@ -3310,7 +3339,7 @@ function createApp(db, opts = {}) {
     return stamps.get(url);
   }
   // Early hint on map pages: start connecting to the map image server while the page loads.
-  const MAP_HINT = '<link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin><link rel="dns-prefetch" href="https://tile.openstreetmap.org">';
+  const mapHint = (host) => `<link rel="preconnect" href="https://${host}" crossorigin><link rel="dns-prefetch" href="https://${host}">`;
   // One short id for everything the browser runs (pages, scripts, styles). Each page
   // carries it, and the live connection says the current one, so a page left open
   // through an update knows it's out of date.
@@ -3334,7 +3363,7 @@ function createApp(db, opts = {}) {
     if (!html) {
       try { html = fs.readFileSync(path.join(pub, file), 'utf8'); } catch (e) { return next(e); }
       html = html.replace(/((?:src|href)="(\/(?:js|css|vendor\/leaflet)\/[^"?]+\.(?:js|css)))"/g, (m, attr, url) => `${attr}?v=${stampOf(url)}"`);
-      const hints = html.includes('/vendor/leaflet/') ? MAP_HINT : '';
+      const hints = html.includes('/vendor/leaflet/') ? '<!--map-hint-->' : '';
       html = html.replace('<meta charset="utf-8">', `<meta charset="utf-8">${hints}<!--brand-head-->`);
       // Icons and the manifest come from the brand (below), so drop the fixed ones.
       html = html.replace(/<link rel="(?:manifest|apple-touch-icon|icon)"[^>]*>\s*/g, '').replace(/<meta name="theme-color"[^>]*>\s*/g, '');
@@ -3349,11 +3378,15 @@ function createApp(db, opts = {}) {
     const name = String(s.brand_name || s.dealer_name || '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
     const iv = s.brand_icon_512 ? `?v=${s.brand_icon_v || 1}` : '';
     const banner = s.brand_banner ? `;--banner:url(/brand/banner.jpg?v=${s.brand_banner_v || 1})` : '';
+    // Which map pictures every page uses (a paid/keyed service only once its key is saved).
+    const map = mapInUse(s);
+    const mapAttrs = map.provider !== 'osm' ? `data-map="${map.provider}" data-map-key="${map.key}" ` : '';
+    html = html.replace('<!--map-hint-->', mapHint(map.host));
     const head = `<link rel="icon" href="/brand/icon-192.png${iv}"><link rel="apple-touch-icon" href="/brand/icon-180.png${iv}"><link rel="manifest" href="/manifest.webmanifest${iv}"><meta name="theme-color" content="${dark}">`;
     res.set('Cache-Control', 'no-store').type('html')
       .send(html.replace('<!--brand-head-->', head)
         .replace(/<title>([^<]*)<\/title>/, (m, t) => `<title>${t}${name ? ` · ${name}` : ''}</title>`)
-        .replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-logo-light="${logoLight}" data-brand-name="${name}" data-place="${placeWord().replace(/[&<>"']/g, '')}" ${banner ? 'data-banner="1" ' : ''}data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" data-build="${buildId()}" style="--brand:${color};--brand-dark:${dark}${banner}">`));
+        .replace('<html lang="en">', `<html lang="en" data-look="${look}" data-site-look="${look}" data-logo="${logo}" data-logo-light="${logoLight}" data-brand-name="${name}" data-place="${placeWord().replace(/[&<>"']/g, '')}" ${mapAttrs}${banner ? 'data-banner="1" ' : ''}data-egg="${s.easter_egg === '0' ? '0' : '1'}" data-tz="${tz()}" data-build="${buildId()}" style="--brand:${color};--brand-dark:${dark}${banner}">`));
   };
   // ---------- first-run setup ----------
   // A new install opens on /setup: the owner makes the first admin account (with the setup

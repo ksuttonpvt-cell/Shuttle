@@ -458,19 +458,74 @@ const App = (() => {
   function telLink(phone) { return phone ? `tel:${phone.replace(/[^\d+]/g, '')}` : null; }
 
   // ---------- maps (Leaflet + OpenStreetMap) ----------
+  // Map pictures come from the service a manager picked in Settings → Map (once its key is
+  // saved), otherwise from OpenStreetMap. If one source keeps failing before any picture loads
+  // (a wrong key, a refused request), the map moves on to the next, ending at OpenStreetMap.
+  const OSM = '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
+  const ln = (href, text) => `<a href="${href}" target="_blank" rel="noopener">${text}</a>`;
+  const MAP_SERVICES = {
+    mapbox: { name: 'Mapbox', tiles: (k) => `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token=${k}`,
+      opts: { maxZoom: 20, tileSize: 512, zoomOffset: -1, attribution: `&copy; ${ln('https://www.mapbox.com/about/maps/', 'Mapbox')} &copy; ${OSM} ${ln('https://www.mapbox.com/map-feedback/', '<b>Improve this map</b>')}` } },
+    maptiler: { name: 'MapTiler', tiles: (k) => `https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=${k}`,
+      opts: { maxZoom: 20, tileSize: 512, zoomOffset: -1, attribution: `&copy; ${ln('https://www.maptiler.com/copyright/', 'MapTiler')} &copy; ${OSM}` } },
+    stadia: { name: 'Stadia Maps', tiles: (k) => `https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}{r}.png?api_key=${k}`,
+      opts: { maxZoom: 20, attribution: `&copy; ${ln('https://stadiamaps.com/', 'Stadia Maps')} &copy; ${ln('https://openmaptiles.org/', 'OpenMapTiles')} &copy; ${OSM}` } },
+    thunderforest: { name: 'Thunderforest', tiles: (k) => `https://tile.thunderforest.com/atlas/{z}/{x}/{y}{r}.png?apikey=${k}`,
+      opts: { maxZoom: 22, attribution: `Maps &copy; ${ln('https://www.thunderforest.com/', 'Thunderforest')}, data &copy; ${OSM}` } },
+    // Google's map pictures need a "session" first (asked once and kept on the device until it runs out).
+    google: { name: 'Google', session: googleSession, tiles: (k, session) => `https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?session=${session}&key=${k}`,
+      opts: { maxZoom: 22, attribution: 'Map data &copy; Google' } },
+  };
+  async function googleSession(key) {
+    const store = `shuttle.gsession.${key.slice(-8)}`;
+    try { const kept = JSON.parse(localStorage.getItem(store) || 'null'); if (kept && kept.expiry * 1000 > Date.now() + 3600000) return kept.session; } catch { /* storage blocked */ }
+    const r = await fetch(`https://tile.googleapis.com/v1/createSession?key=${encodeURIComponent(key)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mapType: 'roadmap', language: 'en-US', region: 'US' }) });
+    if (!r.ok) throw new Error(`Google answered ${r.status}`);
+    const d = await r.json();
+    try { localStorage.setItem(store, JSON.stringify({ session: d.session, expiry: Number(d.expiry) })); } catch { /* fine */ }
+    return d.session;
+  }
+  function mapSources() {
+    const d = document.documentElement.dataset;
+    const osm = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    // OSM pictures are fetched so the device can keep copies (see sw.js); plain images if that's refused.
+    const list = [
+      { url: osm, opts: { maxZoom: 19, attribution: `&copy; ${OSM}`, crossOrigin: true } },
+      { url: osm, opts: { maxZoom: 19, attribution: `&copy; ${OSM}` } },
+    ];
+    const svc = MAP_SERVICES[d.map];
+    if (svc && d.mapKey) {
+      const key = encodeURIComponent(d.mapKey);
+      list.unshift(svc.session
+        ? { prepare: async () => svc.tiles(key, encodeURIComponent(await svc.session(d.mapKey))), opts: svc.opts }
+        : { url: svc.tiles(key), opts: svc.opts });
+    }
+    return list;
+  }
+  // Settings → Map "Test": does this service send a picture with this key?
+  async function testMapKey(provider, key) {
+    const svc = MAP_SERVICES[provider]; if (!svc) return false;
+    const k = encodeURIComponent(key);
+    const url = (svc.session ? svc.tiles(k, encodeURIComponent(await svc.session(key))) : svc.tiles(k)).replace('{z}/{x}/{y}', '1/0/0').replace('{r}', '');
+    return new Promise((resolve) => { const img = new Image(); img.onload = () => resolve(true); img.onerror = () => resolve(false); img.src = url; });
+  }
   function makeMap(el, center, zoom = 12) {
     const map = L.map(el, { scrollWheelZoom: true }).setView([center.lat, center.lng], zoom);
-    // Map images are fetched so the device can keep copies (see sw.js). If the map server
-    // ever refuses that, switch to plain images so the map still shows.
-    const opts = { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' };
-    const url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-    let layer = L.tileLayer(url, { ...opts, crossOrigin: true }).addTo(map);
-    let loaded = 0; let failed = 0;
-    layer.on('tileload', () => { loaded++; });
-    layer.on('tileerror', () => {
-      if (++failed < 4 || loaded) return;
-      map.removeLayer(layer); layer = L.tileLayer(url, opts).addTo(map);
-    });
+    const sources = mapSources();
+    let i = 0; let layer = null;
+    const next = () => { if (i < sources.length - 1) { i++; use(); } };
+    async function use() {
+      if (layer) { map.removeLayer(layer); layer = null; }
+      const src = sources[i];
+      let url = src.url;
+      if (src.prepare) { try { url = await src.prepare(); } catch { return next(); } }
+      layer = L.tileLayer(url, src.opts).addTo(map);
+      let loaded = 0; let failed = 0;
+      layer.on('tileload', () => { loaded++; });
+      layer.on('tileerror', () => { if (++failed >= 4 && !loaded) next(); });
+    }
+    use();
     return map;
   }
   function pinIcon(kind, label = '') {
@@ -868,7 +923,7 @@ const App = (() => {
   }
 
   return {
-    whatsNew, esc, $, $$, api, requireUser, pageNav, icon, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
+    whatsNew, esc, $, $$, api, requireUser, pageNav, icon, testMapKey, MAP_SERVICES, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
     brandMark, applyBrand, place, Place, endOfToday, stepper, pickPhoto, waitMeter, tacoRain, live, liveState, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };
@@ -956,7 +1011,7 @@ const App = (() => {
       const res = performance.getEntriesByType('resource');
       const own = res.filter((r) => r.name.startsWith(location.origin));
       const api = own.filter((r) => /\/api\//.test(r.name) && !/\/api\/(events|perf)/.test(r.name) && r.startTime < 10000);
-      const tiles = res.filter((r) => /tile\.openstreetmap\.org/.test(r.name) && r.startTime < 15000);
+      const tiles = res.filter((r) => /tile\.openstreetmap\.org|api\.mapbox\.com\/styles|api\.maptiler\.com|tiles\.stadiamaps\.com|tile\.thunderforest\.com|tile\.googleapis\.com\/v1\/2dtiles/.test(r.name) && r.startTime < 15000);
       const conn = navigator.connection || {};
       const data = {
         page: location.pathname, type: n.type, proto: n.nextHopProtocol || '',
