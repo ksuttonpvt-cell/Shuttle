@@ -18,7 +18,7 @@
       <input id="find" type="search" autocomplete="off" placeholder="Name, phone number or RO #" aria-describedby="findHelp">
       <button type="button" class="btn-lg" id="bookBtn">Book a ride</button>
     </div>
-    <p class="small muted" id="findHelp" style="margin:.3rem 0 0">Rides from the last 30 days and anything booked ahead. Customer details are cleared each night once a ride is done.</p>
+    <p class="small muted" id="findHelp" style="margin:.3rem 0 0">Recent rides and anything booked ahead.</p>
     <div id="results" aria-live="polite"></div>
     <div id="waitNow" style="margin-top:.8rem"></div>
   </section>
@@ -46,6 +46,8 @@
 (async () => {
   const { $, $$, api, esc } = App;
   await App.requireUser('advisor');
+  const keep = Number(App.settings.keep_customer_days) || 0;
+  if (App.settings.clear_customer_info) $('#findHelp').textContent += keep ? ` Customer details are kept ${keep} days after a ride is done.` : ' Customer details are cleared each night once a ride is done.';
   let scope = 'today'; let rides = []; let found = [];
   const byId = (id) => rides.concat(found).find((r) => r.id === id);
   const sortTime = (list, newestFirst) => list.slice().sort((a, b) => (newestFirst ? -1 : 1) * (new Date(a.scheduled_at) - new Date(b.scheduled_at)));

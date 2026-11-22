@@ -168,7 +168,7 @@
     <div class="card"><h2>Busiest hours</h2><div id="repHours"></div></div>
     <div class="card">
       <div class="card-head"><h2>Ride log</h2><div class="actions" style="margin:0"><button type="button" class="btn-ghost btn-sm" id="logCsv">Download ride log (CSV)</button></div></div>
-      <p class="small muted" style="margin-top:-.4rem">Every ride in the range with its times. Customer names are cleared each night once a ride is done.</p>
+      <p class="small muted" style="margin-top:-.4rem">Every ride in the range with its times. Customer names are cleared once a ride is older than the Privacy setting.</p>
       <div class="table-wrap" id="repLog"></div>
     </div>
     <div class="grid cols-even">
@@ -249,13 +249,19 @@
       </div>
       <div data-sub="privacy">
         <h2>Privacy &amp; sign-in</h2>
-        <p class="small muted" style="margin-top:0">What gets cleared each night, and who can ask for an account.</p>
+        <p class="small muted" style="margin-top:0">How long customer info is kept, and who can ask for an account.</p>
       <label>Sign everyone out automatically at</label>
       <input name="auto_sign_out" type="time" style="max-width:200px">
       <p class="small muted" style="margin:.25rem 0 0">Every night at this time, all staff (managers, advisors and drivers) are signed out on every device and must sign in again. Clear the time to turn this off.</p>
-      <label>Delete customer info automatically at</label>
+      <label for="keepDays">Keep customer info for</label>
+      <select id="keepDays" name="keep_customer_days" style="max-width:280px">
+        <option value="0">Clear it the same night</option><option value="7">7 days</option><option value="14">14 days</option>
+        <option value="30">30 days (a month)</option><option value="60">60 days</option><option value="90">90 days</option>
+      </select>
+      <p class="small muted" style="margin:.25rem 0 0">How long a finished ride (completed or cancelled) keeps the customer's name, phone, email, address and notes, so staff can still look it up. Text messages are kept just as long.</p>
+      <label>Clear old customer info each night at</label>
       <input name="clear_customer_info" type="time" style="max-width:200px">
-      <p class="small muted" style="margin:.25rem 0 0">Every night at this time, finished rides (completed or cancelled) lose the customer's name, phone, email, address and notes, and their tracking links stop working. The text-message log is emptied too. Ride counts, times, drivers and cancel reasons are kept for reports. Rides that aren't finished yet keep their details. Clear the time to turn this off.</p>
+      <p class="small muted" style="margin:.25rem 0 0">At this time, rides that finished longer ago than the setting above lose the customer's details, and their tracking links stop working. Ride counts, times, drivers, cities, miles and cancel reasons are kept for reports. Rides that aren't finished keep everything. Clear the time to turn this off and keep customer info until someone deletes it.</p>
       <h3 style="margin:1.2rem 0 .2rem">New staff</h3>
       <label class="check"><input type="checkbox" name="staff_signup"> Let new staff ask for an account from the sign-in page (a manager approves each one)</label>
       </div>
@@ -1275,7 +1281,7 @@
     sf.elements.place_word.value = settings.place_word || ''; sf.elements.place_word.placeholder = settings.business_type === 'shuttle' ? 'office' : 'dealership';
     sf.elements.request_path.value = settings.request_path || ''; $('#reqBase').textContent = `${location.host}/`;
     sf.querySelectorAll('[name=business_type]').forEach((r) => { r.onchange = () => { sf.elements.place_word.placeholder = r.value === 'shuttle' ? 'office' : 'dealership'; }; });
-    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi', 'dropoff_wait_min', 'arrive_wait_min', 'auto_end_shift', 'auto_sign_out', 'clear_customer_info']) sf.elements[k].value = settings[k] ?? '';
+    for (const k of ['dealer_name', 'dealer_address', 'dealer_phone', 'dealer_lat', 'dealer_lng', 'timezone', 'service_radius_mi', 'dropoff_wait_min', 'arrive_wait_min', 'auto_end_shift', 'auto_sign_out', 'clear_customer_info', 'keep_customer_days']) sf.elements[k].value = settings[k] ?? '';
     if (sf.elements.service_radius_mi.value === '') sf.elements.service_radius_mi.value = '0';
     if (!sf.elements.timezone.value) sf.elements.timezone.value = 'America/Denver';
     sf.elements.public_requests.checked = settings.public_requests === '1';

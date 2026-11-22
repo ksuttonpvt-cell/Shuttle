@@ -67,7 +67,7 @@ A new install has no branding: plain colors, a plain icon, and “Your logo” p
 
 ## Running it
 - **Updates:** the site checks its Git repository every 5 minutes (`AUTO_UPDATE`, `UPDATE_CHECK_MINUTES`). When a new version is there, it installs it and restarts in a few seconds, and open screens switch over by themselves. Manager → Server shows the version and has **Check for updates now**.
-- **Every night at midnight:** the day's report is saved, finished rides lose their customer details, then the database is backed up (kept 14 days, in `data/backups`; any backup can be restored from Manager → Server).
+- **Every night at midnight:** the day's report is saved, finished rides older than **Keep customer info for** (Settings → Privacy & sign-in, 30 days by default) lose their customer details, then the database is backed up (kept 14 days, in `data/backups`; any backup can be restored from Manager → Server).
 - **Server page** (super admins): health checks, live traffic, response times, page speed on real devices, the log, daily reports, backups and restore, cores / memory / bandwidth limits, restart, and **Remove all staff** (keeps super admins and all history).
 - **Shuttle Control** (on the PC, `Shuttle Control.bat`): status, live log, start / stop / restart, and the Cloudflare connection with the reason if it can't connect.
 - **Privacy:** customer names, phones, addresses and notes are cleared nightly from finished rides. Reports keep only counts, times and cities. Passwords are hashed; secrets (email password, Twilio token, tunnel token) stay on the server.

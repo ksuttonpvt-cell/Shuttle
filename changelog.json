@@ -1,5 +1,16 @@
 [
   {
+    "version": "3.1.0",
+    "date": "2026-11-22",
+    "title": "Keep customer info for a month (or as long as you choose)",
+    "changes": [
+      "Finished rides now keep the customer's name, phone, address and notes for 30 days, so staff can still look them up. Before, they were cleared the same night.",
+      "Choose how long in Manager → Settings → Privacy & sign-in: the same night, 7, 14, 30, 60 or 90 days. Text messages are kept just as long.",
+      "Customer calls (BDC) search reaches back as far as customer info is kept.",
+      "Rides already cleared before this update can't be brought back; the new setting applies from now on."
+    ]
+  },
+  {
     "version": "3.0.1",
     "date": "2026-11-22",
     "title": "“On the way” instead of “Driver en route”",

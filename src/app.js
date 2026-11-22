@@ -68,6 +68,7 @@ const DEFAULT_SETTINGS = {
   brand_dark: '#1e293b',    // Branded look: header and banner background
   brand_name: '',           // Branded look: name shown in the header (blank = business name); first word is big        // offer waiting rides to the closest free driver, who can accept or pass
   clear_customer_info: '00:00',
+  keep_customer_days: '30', // finished rides keep the customer's details this many days, then the nightly clear removes them (0 = the same night)
   backup_time: '00:00',    // nightly database backup: at midnight, right after the day's report is saved and customer info is cleared ('' = off) // finished rides lose their customer details at this local time each day ('' = off)
   // Automatic customer texts (only sent once Twilio is set up in .env)
   sms_booked: '1',
@@ -1522,13 +1523,13 @@ function createApp(db, opts = {}) {
     } else if (scope === 'recent') { // finished in the last 3 days
       where.push("r.status IN ('completed','cancelled') AND COALESCE(r.completed_at, r.cancelled_at, r.updated_at) >= ?");
       args.push(new Date(Date.now() - 3 * 86400000).toISOString());
-    } else if (scope === 'search') { // a customer on the phone: name, phone or RO number (last 30 days and ahead)
+    } else if (scope === 'search') { // a customer on the phone: name, phone or RO number (last 30 days, or as long as customer info is kept, and ahead)
       const text = String(req.query.q || '').trim().slice(0, 60);
       if (text.length < 2) return res.json({ rides: [], queue: [] });
       const digits = text.replace(/\D/g, '');
       const like = `%${text.replace(/[%_]/g, '')}%`;
       where.push(`(r.customer_name LIKE ? OR r.ro_number LIKE ?${digits.length >= 3 ? " OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(r.customer_phone,'-',''),' ',''),'(',''),')',''),'.',''),'+','') LIKE ?" : ''}) AND r.scheduled_at >= ? AND r.cleared_at IS NULL`);
-      args.push(like, like, ...(digits.length >= 3 ? [`%${digits}%`] : []), new Date(Date.now() - 30 * 86400000).toISOString());
+      args.push(like, like, ...(digits.length >= 3 ? [`%${digits}%`] : []), new Date(Date.now() - Math.max(30, keepDays()) * 86400000).toISOString());
     }
     if ((req.query.mine === '1' && req.user.role === 'advisor') || req.query.mine === 'advisor') { where.push('r.advisor_id = ?'); args.push(req.user.id); }
     if ((req.query.mine === '1' && req.user.role === 'driver') || req.query.mine === 'driver') { where.push('r.driver_id = ?'); args.push(req.user.id); }
@@ -2085,6 +2086,11 @@ function createApp(db, opts = {}) {
         v = v.trim();
         if (v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) return bad(res, 'Pick a time, like 8:00 PM, or leave it empty to turn it off.');
       }
+      if (k === 'keep_customer_days') {
+        const n = Number(v);
+        if (v === '' || !Number.isInteger(n) || n < 0 || n > 365) return bad(res, 'Keep customer info for 0 to 365 days.');
+        v = String(n);
+      }
       if (k === 'arrive_wait_min') {
         const n = Number(v);
         if (!Number.isInteger(n) || n < 1 || n > 30) return bad(res, 'The waiting time at a pick up must be 1 to 30 minutes.');
@@ -2188,21 +2194,26 @@ function createApp(db, opts = {}) {
   app.locals.autoSignOut = autoSignOut;
 
   // ---------- nightly customer-info wipe ----------
-  // Once a day at the set time (default midnight, dealership time zone), every finished
-  // ride (completed or cancelled) loses the customer's name, phone, email, address, map
-  // spot and notes, its tracking link stops working, and the text-message log is emptied.
+  // Once a day at the set time (default midnight, dealership time zone), finished rides
+  // (completed or cancelled) more than "keep customer info" days old (30 by default; 0 = all
+  // of them, the same night) lose the customer's name, phone, email, address, map spot and
+  // notes, and their tracking links stop working. Texts older than that are deleted too.
   // Ride counts, times, drivers, vehicles and cancel reasons stay, so reports still work.
   // Rides that are still open keep their details until they're done.
   const CLEARED_NAME = 'Customer (info cleared)';
-  function clearCustomerInfo() {
+  const keepDays = () => { const n = Number(getSettings().keep_customer_days); return Number.isInteger(n) && n > 0 ? n : 0; };
+  function clearCustomerInfo(at = new Date()) {
     ridesChanged();
-    const ids = q(`SELECT id FROM rides WHERE status IN ('completed','cancelled') AND cleared_at IS NULL`).all().map((r) => r.id);
+    const days = keepDays();
+    const before = days ? new Date(at.getTime() - days * 86400000).toISOString() : null;
+    const ids = q(`SELECT id FROM rides WHERE status IN ('completed','cancelled') AND cleared_at IS NULL
+                     AND (? IS NULL OR COALESCE(completed_at, cancelled_at, updated_at) <= ?)`).all(before, before).map((r) => r.id);
     const wipe = q(`UPDATE rides SET customer_name = ?, customer_phone = NULL, customer_email = NULL,
                       address = '(cleared)', lat = NULL, lng = NULL, notes = NULL, ro_number = NULL,
                       customer_vehicle = NULL, track_token = ?, cleared_at = ? WHERE id = ?`);
-    const at = now();
-    for (const id of ids) wipe.run(CLEARED_NAME, randomToken(18), at, id);
-    const texts = q('DELETE FROM sms_log').run().changes;
+    const stamp = now();
+    for (const id of ids) wipe.run(CLEARED_NAME, randomToken(18), stamp, id);
+    const texts = (before ? q("DELETE FROM sms_log WHERE datetime(created_at) <= datetime(?)").run(before) : q('DELETE FROM sms_log').run()).changes;
     geoCache.clear(); // searched addresses
     // Hand-made and before-restore backups still hold the day's customer details: remove them.
     if (opts.backups) { try { opts.backups.prune({ temporary: true }); } catch (e) { console.error('Removing temporary backups failed:', e.message); } }
@@ -2222,7 +2233,7 @@ function createApp(db, opts = {}) {
       if (!s[LAST]) { setLast(nowHM >= cutoff ? today : 'pending'); return 0; }
       if (nowHM < cutoff || s[LAST] === today) return 0;
       setLast(today);
-      return clearCustomerInfo();
+      return clearCustomerInfo(at);
     }
     function reset(cutoff, at = new Date()) {
       q('DELETE FROM settings WHERE key = ?').run(LAST);
