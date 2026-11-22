@@ -16,7 +16,7 @@ stay; only the layout and look change. No build step.
 | 2 | Driver, customer tracking, request a ride, watch-only map | Done |
 | 3 | Advisor desk and BDC | Done |
 | 4–5 | Manager: overview, rides, reports, people, vehicles, settings as short topic pages, Server | Done |
-| 6 | Sign in, setup, password reset; full test run and browser check at phone and computer sizes; hand over for review | Next |
+| 6 | Sign in, setup, password reset; full test run and browser check at phone and computer sizes; hand over for review | Done |
 
 ## Day 1 notes
 
@@ -89,6 +89,24 @@ stay; only the layout and look change. No build step.
   value is kept in a hidden field. Any old "preview" choice on a device is
   forgotten, and its pill no longer shows.
 - `App.pageNav` understands sub-pages (`#settings/phone`).
+
+## Day 6 notes
+
+- Sign in, password reset and setup use the new look (light header, your
+  logo on a white card). Setup lost an old gray subtitle color.
+- A page that sends you elsewhere (not signed in, or the wrong role) now just
+  goes, instead of logging a "redirect" error.
+- Spectator links table scrolls inside its card on a phone.
+- Version 3.0.0 with "What's new" notes; README says Manager and Settings pages.
+- Full browser check: 143 page views (every page and settings page, as a
+  manager, advisor, BDC and driver, signed out, phone and computer, light and
+  dark): no script errors, no failed requests, nothing wider than the screen.
+  `npm test`: 92 of 92 pass.
+
+## Ready for review
+
+Not merged and not live. When the owner says "merge it", this branch goes to
+`main` and the shuttle PC updates itself as usual.
 
 ## Still to do later
 

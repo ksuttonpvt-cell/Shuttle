@@ -1077,12 +1077,12 @@
     sel.value = keep;
     const { links } = await api('/api/spectate-links');
     const left = (iso) => { const m = Math.round((new Date(iso) - Date.now()) / 60000); return m >= 120 ? `${Math.round(m / 60)} h left` : `${Math.max(0, m)} min left`; };
-    $('#specList').innerHTML = links.length ? `<table><tr><th>Link</th><th>Who</th><th>Status</th><th>Views</th><th></th></tr>${links.map((l) => `<tr data-id="${l.id}">
+    $('#specList').innerHTML = links.length ? `<div class="table-wrap"><table><tr><th>Link</th><th>Who</th><th>Status</th><th>Views</th><th></th></tr>${links.map((l) => `<tr data-id="${l.id}">
         <td>${esc(l.label || 'Spectator link')}<br><span class="muted">by ${esc(l.created_by || '—')} · ${fmtTime(l.created_at)}</span></td>
         <td>${esc(l.driver_name || 'Every driver on shift')}</td>
         <td>${l.active ? `<span class="badge s-completed">Active</span> ${left(l.expires_at)}` : `<span class="badge s-cancelled">${l.revoked ? 'Revoked' : 'Ended'}</span>`}</td>
         <td>${l.views}</td>
-        <td style="text-align:right">${l.active ? '<button class="btn-ghost btn-sm" data-revoke>Revoke</button>' : ''}</td></tr>`).join('')}</table>`
+        <td style="text-align:right">${l.active ? '<button class="btn-ghost btn-sm" data-revoke>Revoke</button>' : ''}</td></tr>`).join('')}</table></div>`
       : '<span class="muted">No spectator links yet.</span>';
   }
   $('#specForm').onsubmit = async (e) => {

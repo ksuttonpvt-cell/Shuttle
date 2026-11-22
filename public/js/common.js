@@ -142,9 +142,10 @@ const App = (() => {
   async function requireUser(...roles) {
     const { user, settings, base_url, version } = await api('/api/me');
     App.baseUrl = base_url; App.version = version || null;
-    if (!user) { location.href = '/login?next=' + encodeURIComponent(location.pathname); throw new Error('redirect'); }
+    // Leaving the page: wait here instead of failing, so nothing half-loads or reports an error.
+    if (!user) { location.href = '/login?next=' + encodeURIComponent(location.pathname); return new Promise(() => {}); }
     const can = user.can || [user.role]; // every role they have (several for some people)
-    if (roles.length && !roles.some((r) => can.includes(r))) { location.href = user.home || '/' + user.role; throw new Error('redirect'); }
+    if (roles.length && !roles.some((r) => can.includes(r))) { location.href = user.home || '/' + user.role; return new Promise(() => {}); }
     App.user = user; App.settings = settings;
     renderTopbar(user, settings);
     return user;

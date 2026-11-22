@@ -38,7 +38,7 @@ Requires **Node.js 22.13 or newer** (the database is Node's built-in SQLite; not
    copy .env.example .env
    ```
 3. Double-click **start-shuttle.bat**. The window shows a **setup code**. Open http://localhost:3000. It goes to **Setup** (below).
-4. To reach it from phones, use a **Cloudflare Tunnel** (free, HTTPS, no router changes). In Cloudflare: **Zero Trust → Networks → Tunnels → Create a tunnel**. Copy the install command it shows and paste it into **Shuttle Control.bat → Cloudflare → tunnel token**. Shuttle Control then runs and reconnects the tunnel. Add a **Public hostname** (for example `shuttle.yourbusiness.com` → `http://localhost:3000`), then enter that address in **Admin → Settings → Web address** and tap **Check**.
+4. To reach it from phones, use a **Cloudflare Tunnel** (free, HTTPS, no router changes). In Cloudflare: **Zero Trust → Networks → Tunnels → Create a tunnel**. Copy the install command it shows and paste it into **Shuttle Control.bat → Cloudflare → tunnel token**. Shuttle Control then runs and reconnects the tunnel. Add a **Public hostname** (for example `shuttle.yourbusiness.com` → `http://localhost:3000`), then enter that address in **Manager → Settings → Web address** and tap **Check**.
 5. To start it with Windows, put **start-shuttle-hidden.vbs** in the Startup folder (`shell:startup`), or make a Task Scheduler task “At startup” that runs `start-shuttle.bat`. Only one copy ever runs: a second start just says it's already running. Set the PC to never sleep.
 
 ### In the cloud
@@ -55,18 +55,19 @@ A new install opens **/setup**:
 Want sample data to try it? `npm run seed:demo` adds a few vans, staff (password `shuttle123`) and rides.
 
 ## Make it yours (Manager → Settings)
+Settings is a set of short pages: Business, Rides & customers, Drivers, Privacy & sign-in, Branding, Phone & email, Web address, and Help & extras.
 A new install has no branding: plain colors, a plain icon, and “Your logo” placeholders where a logo goes, until you add yours here.
-- **Your business:** dealership or shuttle service, name, address, phone, and the word for your base. Drivers and customers see that word everywhere, including route stops, texts and emails.
-- **Your branding:** name, colors, logo (and a second logo for light backgrounds), **app icon** (browser tab, phone home screen, notifications) and a **banner** photo for the sign-in and customer pages. Every browser tab shows your name.
+- **Business:** dealership or shuttle service, name, address, phone, and the word for your base. Drivers and customers see that word everywhere, including route stops, texts and emails.
+- **Branding:** name, your color, logo (and a second logo for light backgrounds), **app icon** (browser tab, phone home screen, notifications) and a **banner** photo for the sign-in and customer pages. Every browser tab shows your name.
 - **Web address:** your own address, with a **Check** that confirms it reaches this site. Links, texts, emails and QR codes use it. There's also an optional short request link like `/ride`.
-- **Phone & email** (its own tab):
+- **Phone & email** (its own page under Settings):
   - **Calls and texts:** from staff's own phones, or through a business number. With the business number, Call rings the staff member's phone and connects them; Text sends from that number and saves the message on the ride.
   - **Customers and incoming calls:** choose which number customers see, and who calls to the shuttle number ring (the driver on that customer's ride, drivers on shift, or a desk phone).
   - **Email:** a shared mailbox from your own email system. Staff members' own addresses aren't accepted. Choose which emails go out and who gets the daily report.
 
 ## Running it
-- **Updates:** the site checks its Git repository every 5 minutes (`AUTO_UPDATE`, `UPDATE_CHECK_MINUTES`). When a new version is there, it installs it and restarts in a few seconds, and open screens switch over by themselves. Admin → Server shows the version and has **Check for updates now**.
-- **Every night at midnight:** the day's report is saved, finished rides lose their customer details, then the database is backed up (kept 14 days, in `data/backups`; any backup can be restored from Admin → Server).
+- **Updates:** the site checks its Git repository every 5 minutes (`AUTO_UPDATE`, `UPDATE_CHECK_MINUTES`). When a new version is there, it installs it and restarts in a few seconds, and open screens switch over by themselves. Manager → Server shows the version and has **Check for updates now**.
+- **Every night at midnight:** the day's report is saved, finished rides lose their customer details, then the database is backed up (kept 14 days, in `data/backups`; any backup can be restored from Manager → Server).
 - **Server page** (super admins): health checks, live traffic, response times, page speed on real devices, the log, daily reports, backups and restore, cores / memory / bandwidth limits, restart, and **Remove all staff** (keeps super admins and all history).
 - **Shuttle Control** (on the PC, `Shuttle Control.bat`): status, live log, start / stop / restart, and the Cloudflare connection with the reason if it can't connect.
 - **Privacy:** customer names, phones, addresses and notes are cleared nightly from finished rides. Reports keep only counts, times and cities. Passwords are hashed; secrets (email password, Twilio token, tunnel token) stay on the server.
@@ -81,10 +82,10 @@ Each business gets **its own install**, either on its own PC (as above) or one y
 | `CONTROL_PORT` | `3001` | Shuttle Control's port (this PC only) |
 | `DB_FILE` | `data/shuttle.db` | The database (backups go next to it) |
 | `ADMIN_EMAIL` / `ADMIN_NAME` / `ADMIN_PASSWORD` | — | Optional first admin. Without them, Setup makes one. |
-| `PUBLIC_URL` | from the request | Web address for links. Admin → Settings → Web address wins. |
+| `PUBLIC_URL` | from the request | Web address for links. Manager → Settings → Web address wins. |
 | `AUTO_UPDATE` / `UPDATE_CHECK_MINUTES` | `1` / `5` | Automatic updates |
-| `CORES` / `RAM_MB` | auto | Processor cores and memory limit. These win over Admin → Server. |
-| `SMTP_*`, `TWILIO_*` | — | Email and phone. Usually set in Admin → Phone & email. These win. |
+| `CORES` / `RAM_MB` | auto | Processor cores and memory limit. These win over Manager → Server. |
+| `SMTP_*`, `TWILIO_*` | — | Email and phone. Usually set in Manager → Settings → Phone & email. These win. |
 | `CLOUDFLARE_TUNNEL_TOKEN` / `TUNNEL_PROTOCOL` | — | Set from Shuttle Control |
 | `ROUTING=off` | — | Use straight-line estimates instead of road times |
 
