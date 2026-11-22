@@ -295,7 +295,7 @@ tbody tr:hover td { background: color-mix(in srgb, var(--hover) 60%, transparent
 .chips button.active { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
 
 /* ---------- windows ---------- */
-.modal-back { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: grid; place-items: center; z-index: 2000; padding: 1rem; }
+.modal-back { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: grid; place-items: center; z-index: 3050; /* above ride offers, so a window you opened is never covered */ padding: 1rem; }
 .modal { background: var(--card); color: var(--ink); border-radius: 18px; max-width: 480px; width: 100%; padding: 1.4rem; max-height: 92vh; overflow: auto; box-shadow: var(--shadow-lg); }
 .modal h2:first-child { font-size: 1.25rem; }
 .modal img.qr { display: block; margin: .5rem auto; width: 240px; height: 240px; image-rendering: pixelated; }
@@ -861,3 +861,7 @@ body.drawer-open { overflow: hidden; }
 .logo-preview .brand-sub { color: rgba(255,255,255,.75); }
 .logo-preview-light .wordmark { color: #0f172a; }
 .logo-preview-light .brand-sub { color: #52606d; }
+/* On a phone, the new-ride alert sits just under the top bar, so the menu under your name stays tappable. */
+@media (max-width: 899px) { body:has(> .topbar) .ride-alert { top: 68px; } }
+/* An open menu under your name sits above alerts and ride offers. */
+.topbar:has(.acct-menu:not([hidden])) { z-index: 3100; }
