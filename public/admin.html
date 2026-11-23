@@ -518,6 +518,19 @@
   <section data-pane="server" class="grid hidden">
     <div class="stats" id="srvStats"></div>
     <div class="grid cols-2">
+      <div class="card" style="grid-column:1/-1" id="bizCard" hidden>
+        <div class="card-head"><h2>Businesses on this PC</h2><span class="small muted" id="bizSignin"></span></div>
+        <p class="small muted" style="margin-top:0">Each business you add gets its own separate space: its own staff, rides, customers, settings and backups. Nothing is shared with this shuttle or any other business. Its people sign in at the shared sign-in page and land in their own business.</p>
+        <form id="bizForm" class="linkbox" style="align-items:end;gap:.6rem;flex-wrap:wrap">
+          <div style="flex:2;min-width:200px"><label for="bizName">Business name</label><input id="bizName" name="name" required maxlength="120" placeholder="Pine Valley Auto" autocomplete="off"></div>
+          <div style="flex:2;min-width:220px"><label for="bizSlug">Web address</label>
+            <div class="addr-in"><input id="bizSlug" name="slug" required maxlength="32" placeholder="pinevalley" autocomplete="off" autocapitalize="off" spellcheck="false"><span class="addr-domain" id="bizDomain">.turaslubtha.com</span></div></div>
+          <button class="btn-blue">Add business</button>
+        </form>
+        <div id="bizMsg"></div>
+        <div id="bizMade"></div>
+        <div class="table-wrap" id="bizList"></div>
+      </div>
       <div class="card">
         <div class="card-head"><h2>Health checks</h2><button class="btn-ghost btn-sm" id="srvRecheck">Check again</button></div>
         <ul class="checks" id="srvChecks"><li class="muted small">Checking…</li></ul>
@@ -1663,7 +1676,58 @@
     App.modal(`<h2>Daily report · ${dayName(day)}</h2><pre class="daily-text">${esc(await r.text())}</pre><div class="actions"><a class="btn" href="/api/server/daily-reports/${day}?format=txt">Download</a><button type="button" class="btn-ghost" data-close>Close</button></div>`);
   }
   $('#drList').addEventListener('click', (e) => { const b = e.target.closest('[data-dr-view]'); if (b) showDaily(b.dataset.drView); });
-  loaders.server = () => { loadDaily().catch(() => {}); loadPerf().catch((err) => { $('#perfOut').textContent = err.message; }); loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
+  // ---------- Businesses on this PC ----------
+  const bizSlugOf = (name) => String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '').slice(0, 32);
+  let bizSlugTouched = false;
+  const copyBtn = (text, label = 'Copy') => `<button type="button" class="btn-ghost btn-sm" data-copy="${esc(text)}">${label}</button>`;
+  function bizRow(b) {
+    const status = b.paused ? '<span class="badge">Paused</span>'
+      : b.setup_done ? `<span class="badge b-ok">Ready</span> <span class="small muted">${b.staff} staff</span>`
+        : '<span class="badge b-warn">Waiting for setup</span>';
+    return `<tr><td><b>${esc(b.name)}</b><div class="small muted">Added ${esc(new Date(b.created_at).toLocaleDateString())}</div></td>
+      <td><a href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.url.replace(/^https?:\/\//, ''))}</a></td>
+      <td>${status}${b.setup_url ? `<div style="margin-top:.3rem">${copyBtn(b.setup_url, 'Copy setup link')}</div>` : ''}</td>
+      <td style="text-align:right"><button type="button" class="btn-ghost btn-sm" data-biz-pause="${esc(b.slug)}" data-paused="${b.paused ? 1 : 0}">${b.paused ? 'Turn back on' : 'Pause'}</button></td></tr>`;
+  }
+  async function loadBiz() {
+    const d = await api('/api/server/businesses');
+    $('#bizCard').hidden = !d.available;
+    if (!d.available) return;
+    $('#bizDomain').textContent = `.${d.domain}`;
+    $('#bizSignin').innerHTML = `Sign-in page: <a href="${esc(d.signin_url)}" target="_blank" rel="noopener">${esc(d.signin_url.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`;
+    $('#bizList').innerHTML = d.businesses.length
+      ? `<table><thead><tr><th>Business</th><th>Address</th><th>Status</th><th></th></tr></thead><tbody>${d.businesses.map(bizRow).join('')}</tbody></table>`
+      : '<p class="small muted">No other businesses yet. Add one above.</p>';
+  }
+  $('#bizName').addEventListener('input', (e) => { if (!bizSlugTouched) $('#bizSlug').value = bizSlugOf(e.target.value); });
+  $('#bizSlug').addEventListener('input', (e) => { bizSlugTouched = !!e.target.value; e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''); });
+  $('#bizForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target; const btn = f.querySelector('button');
+    btn.disabled = true;
+    try {
+      const { business: b } = await api('/api/server/businesses', { body: { name: f.elements.name.value, slug: f.elements.slug.value } });
+      f.reset(); bizSlugTouched = false; $('#bizMsg').textContent = '';
+      $('#bizMade').innerHTML = `<div class="notice ok" style="margin:.6rem 0"><b>${esc(b.name)} is ready to set up.</b>
+        <p class="small" style="margin:.3rem 0">Send this link to the business owner. They'll make their own manager account and fill in their business. It works until they finish setup.</p>
+        <div class="linkbox"><input readonly value="${esc(b.setup_url)}" aria-label="Setup link" onclick="this.select()">${copyBtn(b.setup_url)}</div></div>`;
+      await loadBiz();
+    } catch (err) { App.flash($('#bizMsg'), err.message); }
+    btn.disabled = false;
+  });
+  $('#bizCard').addEventListener('click', async (e) => {
+    const c = e.target.closest('[data-copy]');
+    if (c) { try { await navigator.clipboard.writeText(c.dataset.copy); const t = c.textContent; c.textContent = 'Copied ✓'; setTimeout(() => { c.textContent = t; }, 1500); } catch { prompt('Copy this link:', c.dataset.copy); } return; }
+    const p = e.target.closest('[data-biz-pause]');
+    if (!p) return;
+    const pausing = p.dataset.paused !== '1';
+    if (pausing && !confirm('Pause this business? Its people can’t open their shuttle until you turn it back on. Nothing is deleted.')) return;
+    p.disabled = true;
+    try { await api(`/api/server/businesses/${encodeURIComponent(p.dataset.bizPause)}/pause`, { body: { paused: pausing } }); await loadBiz(); }
+    catch (err) { App.flash($('#bizMsg'), err.message); p.disabled = false; }
+  });
+
+  loaders.server = () => { loadBiz().catch((err) => App.flash($('#bizMsg'), err.message)); loadDaily().catch(() => {}); loadPerf().catch((err) => { $('#perfOut').textContent = err.message; }); loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
   setInterval(() => { if (serverVisible()) { loadServer().catch(() => {}); if ($('#srvLive').checked) loadLog().catch(() => {}); } }, 5000);
   setInterval(() => { if (serverVisible()) loadChecks(); }, 60000);
 

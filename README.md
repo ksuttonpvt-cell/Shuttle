@@ -77,7 +77,20 @@ A new install has no branding: plain colors, a plain icon, and “Your logo” p
 - **Privacy:** customer names, phones, addresses and notes are cleared nightly from finished rides. Reports keep only counts, times and cities. Passwords are hashed; secrets (email password, Twilio token, tunnel token) stay on the server.
 
 ## Offering it to other businesses
-Each business gets **its own install**, either on its own PC (as above) or one you host for them (for example a Render service per business). Each install has its own database, branding, staff and web address, and starts on Setup. Installs update themselves from the repository they were cloned from, so when you publish a new version to that repository's `main` branch, every install picks it up within minutes.
+**Host them on this PC (Manager → Server → Businesses on this PC, super admins only).** Type the business name and pick its web address (`pinevalley` → **pinevalley.turaslubtha.com**), then send the owner the one-time setup link. They make their own manager account and fill in their business on the usual Setup page.
+- Each business gets **its own separate database** (`data/businesses/<name>/shuttle.db`) with its own staff, rides, customers, settings and nightly backups (`data/businesses/<name>/backups`). Nothing is shared with this shuttle or with any other business.
+- Business owners are managers of their own business only. They can never open the Server page, because it runs the whole PC.
+- **One sign-in for everyone: app.turaslubtha.com** (also the website's Sign in page). People type their email and password and land straight in their own business. Someone at more than one business picks which one. It never says which emails or businesses exist.
+- **Pause** closes a business until you turn it back on. Nothing is deleted.
+- `data/directory.db` only lists the businesses. Back it up with the rest of `data/`.
+
+One-time Cloudflare setup, so every business address reaches this PC:
+1. **DNS** for turaslubtha.com: add a **CNAME** named `*` pointing to your tunnel (`<tunnel-id>.cfargotunnel.com`, proxied, orange cloud).
+2. **Zero Trust → Networks → Tunnels →** your tunnel **→ Public hostnames → Add**: subdomain `*`, domain **turaslubtha.com**, service **HTTP**, URL **localhost:3000**.
+
+This also covers app.turaslubtha.com. On this PC you can try it without Cloudflare: http://app.localhost:3000 and http://<name>.localhost:3000.
+
+**Or give a business its own install** on its own PC (as above). It has its own database, branding, staff and web address, and starts on Setup. Installs update themselves from the repository they were cloned from, so when you publish a new version to `main`, every install picks it up within minutes.
 
 ## Settings file (`.env`)
 | Setting | Default | What it's for |
@@ -92,6 +105,7 @@ Each business gets **its own install**, either on its own PC (as above) or one y
 | `SMTP_*`, `TWILIO_*` | — | Email and phone. Usually set in Manager → Settings → Phone & email. These win. |
 | `CLOUDFLARE_TUNNEL_TOKEN` / `TUNNEL_PROTOCOL` | — | Set from Shuttle Control |
 | `ROUTING=off` | — | Use straight-line estimates instead of road times |
+| `BUSINESS_DOMAIN` | `turaslubtha.com` | Hosted businesses live at `<name>.` this; the shared sign-in is `app.` this |
 
 Maps and address search use OpenStreetMap (no API key).
 

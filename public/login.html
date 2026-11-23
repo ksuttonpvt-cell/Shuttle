@@ -69,6 +69,7 @@
   const next = new URLSearchParams(location.search).get('next');
   const go = (u) => { location.href = next && next.startsWith('/') && !next.startsWith('//') ? next : (u.home || '/' + u.role); };
   if (user) return go(user);
+  if (new URLSearchParams(location.search).get('expired')) App.flash(App.$('#msg'), 'That sign-in link ran out or was already used. Sign in here instead.');
   if (settings.staff_signup !== '0') App.$('#signupLine').classList.remove('hidden');
   const showSignup = (on) => {
     App.$('#f').classList.toggle('hidden', on); App.$('#signup').classList.toggle('hidden', !on);

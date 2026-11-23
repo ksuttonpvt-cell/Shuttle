@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.4.0",
+    "date": "2026-11-23",
+    "title": "Host other businesses, with one sign-in for everyone",
+    "changes": [
+      "Server → Businesses on this PC (super admins): add a business and it gets its own separate space (its own database, staff, rides, customers, settings and backups) at its own address, like pinevalley.turaslubtha.com. Send the owner the one-time setup link.",
+      "One sign-in for everyone at app.turaslubtha.com and on the website: type your email and password and you land straight in your own business. Someone at more than one business picks which one.",
+      "Business owners manage only their own business; the Server page stays with this PC's super admins. Pause closes a business without deleting anything."
+    ]
+  },
+  {
     "version": "3.3.3",
     "date": "2026-11-23",
     "title": "Website sign-in sends you to your own shuttle",

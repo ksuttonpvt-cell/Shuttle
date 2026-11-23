@@ -33,32 +33,49 @@
   <img src="img/logo-dark.svg" alt="" width="72" height="72" style="width:72px">
   <h1 style="margin:0"><span class="name on-dark">Turas <b>Lúbtha</b></span></h1>
   <div class="prompt mono">&gt; turaslubtha sign in<span class="cursor"></span></div>
-  <p style="color:#cbd2d9;font-size:18px;margin:0">Already have the shuttle? Sign in at your business's own address.</p>
-  <div class="go-saved" data-saved hidden>
-    <a class="btn btn-main go-btn" data-saved-link href="#"><span class="go-small">Continue to</span><span class="go-host mono"><span data-saved-host></span> &rarr;</span></a>
-    <button type="button" class="link-btn" data-forget>Use a different address</button>
-  </div>
-  <form class="go-form" data-go novalidate>
-    <label for="addr">Your shuttle address</label>
+  <p style="color:#cbd2d9;font-size:18px;margin:0">Sign in once and we'll take you straight to your own business.</p>
+  <form class="go-form" data-signin novalidate>
+    <label for="email">Email</label>
+    <div class="go-row"><input id="email" name="email" type="email" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="you@yourbusiness.com" required></div>
+    <label for="password">Password</label>
     <div class="go-row">
-      <span class="go-pre mono">https://</span>
-      <input id="addr" name="addr" class="mono" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="yourshuttle.com" required>
-      <button class="btn btn-main" type="submit">Go &rarr;</button>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button class="btn btn-main" type="submit" data-submit>Sign in &rarr;</button>
     </div>
-    <p class="go-err" data-err role="alert" hidden>That doesn't look like a web address. Try something like <span class="mono">yourshuttle.com</span></p>
-    <label class="go-remember"><input type="checkbox" checked data-remember> Remember on this device</label>
+    <p class="go-err" data-err role="alert" hidden></p>
   </form>
-  <p style="color:#9aa5b1;margin:0">Don't know it? Ask your shuttle desk or manager. It's the same address your drivers use. New here? <a href="./#demo" style="color:var(--green)">Book a demo</a>.</p>
+  <div class="go-choose" data-choose hidden>
+    <p style="color:#cbd2d9;margin:0;font-weight:600">You're at more than one business. Which one?</p>
+    <div class="go-list" data-list></div>
+  </div>
+  <p style="color:#9aa5b1;margin:0">Forgot your password? Ask a manager at your business for a reset link. New here? <a href="./#demo" style="color:var(--green)">Book a demo</a>.</p>
   <script>
   (function(){
-    var K='tl-shuttle', form=document.querySelector('[data-go]'), box=document.querySelector('[data-saved]');
-    function clean(v){ v=String(v||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/[\/?#].*$/,''); return /^(localhost|[a-z0-9-]+(\.[a-z0-9-]+)+)(:\d+)?$/.test(v)?v:''; }
-    function get(){ try{return localStorage.getItem(K)}catch(e){return null} }
-    function set(v){ try{ v?localStorage.setItem(K,v):localStorage.removeItem(K) }catch(e){} }
-    function show(){ var h=clean(get()); box.hidden=!h; form.hidden=!!h; if(h){ document.querySelector('[data-saved-host]').textContent=h; document.querySelector('[data-saved-link]').href='https://'+h+'/login'; } }
-    form.addEventListener('submit',function(e){ e.preventDefault(); var h=clean(form.addr.value), err=document.querySelector('[data-err]'); err.hidden=!!h; if(!h) return form.addr.focus(); set(document.querySelector('[data-remember]').checked?h:''); location.href='https://'+h+'/login'; });
-    document.querySelector('[data-forget]').addEventListener('click',function(){ set(''); show(); form.addr.focus(); });
-    show();
+    var form=document.querySelector('[data-signin]'), err=document.querySelector('[data-err]'), btn=document.querySelector('[data-submit]');
+    var K='tl-email';
+    try{ var last=localStorage.getItem(K); if(last){ form.email.value=last; } }catch(e){}
+    function say(t){ err.textContent=t; err.hidden=!t; }
+    form.addEventListener('submit',function(e){
+      e.preventDefault(); say('');
+      var email=form.email.value.trim(), password=form.password.value;
+      if(!email||!password){ say('Enter your email and password.'); return (email?form.password:form.email).focus(); }
+      btn.disabled=true; btn.textContent='Signing in…';
+      fetch('/api/frontdoor/signin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,password:password})})
+        .then(function(r){ return r.json().catch(function(){return {error:'Something went wrong. Try again.'};}); })
+        .then(function(d){
+          if(d.go||d.choose){ try{localStorage.setItem(K,email)}catch(e){} }
+          if(d.go){ location.href=d.go; return; }
+          if(d.choose){
+            var list=document.querySelector('[data-list]'); list.textContent='';
+            d.choose.forEach(function(c){ var a=document.createElement('a'); a.className='btn btn-main go-pick'; a.href=c.url; a.textContent=c.name+' \u2192'; list.appendChild(a); });
+            form.hidden=true; document.querySelector('[data-choose]').hidden=false; return;
+          }
+          say(d.error||'Something went wrong. Try again.'); form.password.select();
+        })
+        .catch(function(){ say("Couldn't reach the sign-in. Check your connection and try again."); })
+        .then(function(){ btn.disabled=false; btn.innerHTML='Sign in &rarr;'; });
+    });
+    if(form.email.value) form.password.focus();
   })();
   </script>
 </div>

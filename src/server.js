@@ -11,6 +11,9 @@ const { createApp, ensureAdmin } = require('./app');
 const { createOsrmRouter } = require('./routing');
 const { createUpdater, RESTART_CODE } = require('./updater');
 const { createBus, startPrimary, coresWanted } = require('./cluster');
+const http = require('node:http');
+const { createBusinesses } = require('./businesses');
+const { createSite } = require('./frontdoor');
 
 const port = Number(process.env.PORT) || 3000;
 const dbFile = path.resolve(process.env.DB_FILE || path.join(__dirname, '..', 'data', 'shuttle.db'));
@@ -20,6 +23,8 @@ const supervised = process.env.SHUTTLE_SUPERVISED === '1';
 const logsDir = path.join(dataDir, 'logs');
 const stampNow = () => new Date().toLocaleString();
 const MB_PER_COPY = 192; // the least memory one copy of the site needs
+// Other businesses hosted on this PC live at <name>.BUSINESS_DOMAIN; the shared sign-in is app.BUSINESS_DOMAIN.
+const businessDomain = String(process.env.BUSINESS_DOMAIN || 'turaslubtha.com').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
 
 if (cluster.isPrimary) primary(); else worker();
 
@@ -53,6 +58,9 @@ function primary() {
   // Set up the database (new settings and one-time changes) once, before the copies start.
   createApp(db, { noTimers: true });
   db.close();
+  // The same for every other business on this PC.
+  const dir = createBusinesses({ dataDir, openDb, makeApp: (slug, bdb) => createApp(bdb, { noTimers: true, business: slug }) });
+  dir.loadAll(); dir.close();
   const heapMb = ramMb ? Math.max(96, Math.floor((ramMb / count) * 0.7)) : 0; // the rest is for Node itself
   let group = null;
   const restartAll = () => {
@@ -102,10 +110,16 @@ function runSite(db, { logbook, bus }) {
   const updater = createUpdater({ restart });
   // Road routing for the driver route planner (ROUTING=off turns it off; ROUTING_URL picks another OSRM server).
   const router = process.env.ROUTING === 'off' ? null : createOsrmRouter({ baseUrl: process.env.ROUTING_URL || undefined });
-  server = createApp(db, {
-    updater, router, logbook, logsDir, backups, dbFile, supervised, restart, bus,
-    assetVersion: process.env.SHUTTLE_ASSET_VERSION || undefined,
-  }).listen(port, () => {
+  const say = (m) => console.log(stampNow(), '[businesses]', m);
+  const assetVersion = process.env.SHUTTLE_ASSET_VERSION || undefined;
+  const site = createSite({
+    db, dataDir, domain: businessDomain, bus, openDb, createApp, log: say,
+    homeOpts: { updater, router, logbook, logsDir, backups, dbFile, supervised, restart, assetVersion },
+    // Every other business on this PC: its own database, backups and private messages.
+    businessOpts: (slug, bdb, file) => ({ router, assetVersion,
+      backups: createBackups({ db: bdb, dir: path.join(path.dirname(file), 'backups'), log: (m) => say(`${slug}: ${m}`) }) }),
+  });
+  server = http.createServer(site.handler).listen(port, () => {
     if (!bus.clustered) console.log(`Shuttle app running at http://localhost:${port}`);
     if (bus.jobs) updater.start(); else updater.readVersion(); // one copy checks for updates
   });

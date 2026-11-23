@@ -880,3 +880,16 @@ body.drawer-open { overflow: hidden; }
 .runs-on:hover { background: var(--hover); }
 .runs-on + .side-foot { margin-top: .35rem; }
 @media (max-width: 899px) { .topbar .runs-on { display: none; } }
+
+/* Server → Businesses on this PC */
+.b-ok { background: var(--green-bg); color: var(--green); }
+.b-warn { background: var(--amber-bg); color: var(--amber); }
+.badge:not([class*=" b-"]):not([class*=" s-"]) { background: var(--gray-bg); color: var(--gray-fg); }
+.addr-in { display: flex; align-items: stretch; border: 1px solid var(--line, #d0d5dd); border-radius: 10px; overflow: hidden; background: var(--card, #fff); }
+.addr-in input { border: 0; border-radius: 0; flex: 1; min-width: 0; margin: 0; }
+.addr-in input:focus { outline: none; box-shadow: none; }
+.addr-in:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.addr-domain { display: flex; align-items: center; padding: 0 .7rem; color: var(--muted); background: var(--gray-bg); font-size: .9rem; white-space: nowrap; }
+.notice.ok { padding: .8rem 1rem; border-radius: 12px; background: var(--green-bg); color: var(--ink); border: 1px solid color-mix(in srgb, var(--green) 30%, transparent); }
+.notice.ok .linkbox input { flex: 1; }
+#bizList td { vertical-align: top; }
