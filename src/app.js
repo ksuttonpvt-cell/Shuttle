@@ -114,6 +114,27 @@ function createApp(db, opts = {}) {
     }
     next();
   });
+
+  // ---------- the Turas Lúbtha website ----------
+  // The public website (site/) is served from this same PC when it's visited by its own
+  // name: turaslubtha.com (point it at this PC in the Cloudflare tunnel, like the shuttle
+  // address). Visits by that name only ever get the website's pages, never the shuttle app.
+  // On this PC it can be previewed at http://website.localhost:3000. WEBSITE_HOSTS in .env
+  // replaces the list (comma-separated; "www." is added for each).
+  const siteDir = path.join(__dirname, '..', 'site');
+  const websiteHosts = new Set(['website.localhost']);
+  for (const h of String(process.env.WEBSITE_HOSTS || 'turaslubtha.com').split(',')) {
+    const host = h.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    if (host) { websiteHosts.add(host); websiteHosts.add(host.startsWith('www.') ? host.slice(4) : `www.${host}`); }
+  }
+  const website = express.static(siteDir, { maxAge: '10m', extensions: ['html'], index: 'index.html' });
+  app.use((req, res, next) => {
+    const host = String(req.get('host') || '').toLowerCase().replace(/:\d+$/, '');
+    if (!websiteHosts.has(host)) return next();
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (!['GET', 'HEAD'].includes(req.method)) return res.status(405).type('text').send('Not allowed.');
+    website(req, res, () => res.status(404).sendFile(path.join(siteDir, '404.html'), (err) => { if (err) res.end(); }));
+  });
   app.use('/api/phone/incoming', express.urlencoded({ extended: false, limit: '20kb' })); // Twilio sends forms
   app.use((req, res, next) => (['/api/brand/logo', '/api/brand/logo-light', '/api/brand/icon', '/api/brand/banner', '/api/vehicles/import'].includes(req.path) ? next()
     : express.json({ limit: /^\/api\/(me|users\/\d+)\/photo$/.test(req.path) ? '300kb' : '100kb' })(req, res, next)));

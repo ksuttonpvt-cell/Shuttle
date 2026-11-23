@@ -18,16 +18,20 @@ app never serves this folder. Changing these pages can't affect anyone's shuttle
 | `img/logo.svg`, `img/logo-dark.svg`, `img/icon.svg` | Logo #2 and the app/tab icon |
 
 ## Look at it on your computer
-Open `index.html` in a browser. That's it.
+On the shuttle PC, with the shuttle running: open **http://website.localhost:3000**.
+(Or just open `index.html` in a browser.)
 
-## Put it online (Cloudflare Pages, free)
-1. Buy **turaslubtha.com** and add it to Cloudflare.
-2. Cloudflare dashboard → **Workers & Pages → Create → Pages → Connect to Git**.
-3. Pick this repository. Settings: **Framework preset: None**, **Build command:** leave empty,
-   **Build output directory:** `site`. Save and deploy.
-4. In the new project: **Custom domains → Set up a domain → turaslubtha.com** (and `www`).
+## Put it online, on your own PC
+The shuttle program on your PC serves this website too, whenever it's visited by its own
+name. Visits by that name only ever get these pages, never the shuttle app.
+1. Buy **turaslubtha.com** and add it to Cloudflare (the same account as your shuttle tunnel).
+2. Cloudflare dashboard: **Zero Trust → Networks → Tunnels** → your shuttle's tunnel →
+   **Public hostnames → Add a public hostname**: subdomain empty, domain **turaslubtha.com**,
+   service **HTTP**, URL **localhost:3000**. Add another for **www**.
+3. Open https://turaslubtha.com. Every change merged to `main` reaches the PC with the
+   usual automatic update.
 
-Every change merged to `main` republishes the website in about a minute.
+Using a different name? Put `WEBSITE_HOSTS=yourname.com` in the shuttle's `.env` file.
 
 ## Light and dark
 The site follows each visitor's device setting; the sun/moon button switches it and remembers the choice. Screenshots swap to the app's dark versions. Visitors who turn off motion on their device get no animations.

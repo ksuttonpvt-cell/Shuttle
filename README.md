@@ -54,6 +54,9 @@ A new install opens **/setup**:
 
 Want sample data to try it? `npm run seed:demo` adds a few vans, staff (password `shuttle123`) and rides.
 
+## The Turas Lúbtha website
+The public website lives in `site/` and is served by this same program when it's visited as **turaslubtha.com** (preview on the PC: http://website.localhost:3000). Those visits only get the website, never the shuttle app. See `site/README.md`.
+
 ## Make it yours (Manager → Settings)
 Settings is a set of short pages: Business, Rides & customers, Drivers, Privacy & sign-in, Branding, Map, Phone & email, Web address, and Help & extras.
 A new install has no branding: plain colors, a plain icon, and “Your logo” placeholders where a logo goes, until you add yours here.

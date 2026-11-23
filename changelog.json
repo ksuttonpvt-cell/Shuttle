@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.3.1",
+    "date": "2026-11-23",
+    "title": "The Turas Lúbtha website runs on this PC too",
+    "changes": [
+      "The shuttle program now also serves the Turas Lúbtha website when it's visited as turaslubtha.com, so it can be hosted on your own PC through the same Cloudflare tunnel.",
+      "Those visits only ever get the website's pages, never the shuttle app. Preview it on the PC at http://website.localhost:3000."
+    ]
+  },
+  {
     "version": "3.3.0",
     "date": "2026-11-23",
     "title": "Shuttle is now Turas Lúbtha",
