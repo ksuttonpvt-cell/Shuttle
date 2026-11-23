@@ -1,11 +1,12 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Turas Lúbtha · Run your customer shuttle from one calm screen</title>
 <meta name="description" content="Turas Lúbtha runs your customer shuttle: book rides in seconds, give drivers one clear next stop, and let customers track the van live. For dealerships, repair shops and courtesy shuttles.">
 <meta name="theme-color" content="#6d28d9">
+<script>(function(){var r=document.documentElement,t;try{t=localStorage.getItem("tl-theme")}catch(e){}if(t!=="dark"&&t!=="light")t=window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";r.dataset.theme=t;r.classList.add("js")})()</script>
 <meta property="og:title" content="Turas Lúbtha · Your customer shuttle, from one calm screen">
 <meta property="og:description" content="Book rides in seconds, give drivers one clear next stop, and let customers watch the van come to them.">
 <meta property="og:type" content="website">
@@ -16,95 +17,98 @@
 </head>
 <body>
 <a class="skip" href="#main">Skip to the page</a>
-
 <header class="top">
   <div class="wrap">
-    <a class="brand" href="./" aria-label="Turas Lúbtha home"><img src="img/logo.svg" alt="" width="38" height="38"><span class="name">Turas <b>Lúbtha</b></span></a>
-    <nav class="nav" aria-label="Sections">
-      <a href="#how">How it works</a><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#questions">Questions</a>
-    </nav>
+    <a class="brand" href="./" aria-label="Turas Lúbtha home"><img class="for-light" src="img/logo.svg" alt="" width="38" height="38"><img class="for-dark" src="img/logo-dark.svg" alt="" width="38" height="38"><span class="name">Turas <b>Lúbtha</b></span></a>
+    <nav class="nav" aria-label="Sections"><a href="./#screens">The app</a><a href="./#how">How it works</a><a href="./#features">Features</a><a href="./#pricing">Pricing</a><a href="./#questions">Questions</a></nav>
     <div class="top-actions">
+      <button class="theme-btn" type="button" data-theme-toggle aria-label="Switch to dark mode">
+        <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
       <a class="signin" href="signin.html">Sign in</a>
-      <a class="btn btn-main" href="#demo">Book a demo</a>
+      <a class="btn btn-main" href="./#demo">Book a demo</a>
     </div>
   </div>
 </header>
 
 <main id="main">
-  <!-- Hero -->
   <section class="hero">
     <div class="wrap">
       <div>
         <span class="chip">For dealerships, repair shops and courtesy shuttles</span>
-        <h1>Run your customer shuttle from one calm screen.</h1>
+        <h1>Run your customer shuttle from <em>one calm screen.</em></h1>
         <p class="lead">Book a ride in seconds, give your driver one clear next stop, and let customers watch the van come to them. No phone tag, no whiteboard, no guessing.</p>
-        <div class="ctas">
-          <a class="btn btn-main" href="#demo">Book a demo</a>
-          <a class="btn btn-line" href="#how">See how it works</a>
-        </div>
-        <div class="ticks"><span>Works on any phone</span><span>Your name and logo</span><span>Set up in a day</span></div>
+        <div class="ctas"><a class="btn btn-main" href="#demo">Book a demo</a><a class="btn btn-line" href="#screens">See the app</a></div>
+        <div class="ticks"><span>Works on any phone</span><span>Your name and logo</span><span>Light and dark</span></div>
       </div>
-
-      <div class="shot" aria-hidden="true">
-        <div class="screen"><div class="screen-in">
-          <div class="screen-head"><b>Shuttle queue</b><span class="mini-btn">New ride</span></div>
-          <div class="meter">Pick ups are taking about 12 min · 2 of 3 vans out</div>
-          <div class="q">
-            <div class="q-row"><b class="n">1</b><span class="who"><b>Kai Near</b><span>Pick up · 1214 Pine St</span></span><span class="tag tag-blue">On the way</span><span class="t">3:40 PM</span></div>
-            <div class="q-row"><b class="n" style="color:#b91c1c">2</b><span class="who"><b>Ana Ruiz</b><span>Drop off · 402 Elm Ct</span></span><span class="tag tag-red">Urgent</span><span class="t">3:45 PM</span></div>
-            <div class="q-row"><b class="n">3</b><span class="who"><b>Lee Far</b><span>Pick up · 88 Oak Ave</span></span><span class="tag tag-amber">Waiting</span><span class="t">3:55 PM</span></div>
-            <div class="q-row"><b class="n">4</b><span class="who"><b>Pat Quinn</b><span>Pick up · 9 Birch Ln</span></span><span class="tag tag-amber">Waiting</span><span class="t">4:15 PM</span></div>
-          </div>
-        </div></div>
-        <div class="phone"><div class="phone-in">
-          <div class="phone-map"><i></i><span>🚐</span></div>
-          <div class="phone-card">
-            <small>Hi Kai, Sam is on the way!</small>
-            <strong>8 min</strong>
-            <small>One stop before you · about 3:41 PM</small>
-            <div class="driver"><span class="av">S</span><span><b>Sam</b><br><span style="color:#52606d">White Sienna</span></span><span class="plate">TLB 482</span></div>
-          </div>
-        </div></div>
+      <div class="devices">
+        <div class="laptop"><img class="for-light" src="img/shots/desk-light.jpg" alt="The advisor desk: the shuttle queue in order, with the picked ride beside it" width="2560" height="1600" decoding="async"><img class="for-dark" src="img/shots/desk-dark.jpg" alt="The advisor desk: the shuttle queue in order, with the picked ride beside it" width="2560" height="1600" loading="lazy" decoding="async"></div>
+        <div class="phone"><img class="for-light" src="img/shots/track-light.jpg" alt="A customer's tracking page: the van on a live map and its arrival time" width="780" height="1688" decoding="async"><img class="for-dark" src="img/shots/track-dark.jpg" alt="A customer's tracking page: the van on a live map and its arrival time" width="780" height="1688" loading="lazy" decoding="async"></div>
       </div>
     </div>
   </section>
 
   <div class="made"><div class="wrap"><span>Made for</span><span>Car dealerships</span><span>Repair &amp; tire shops</span><span>Body shops</span><span>Hotels</span><span>Any business with a courtesy shuttle</span></div></div>
 
-  <!-- Three screens -->
   <section class="section" id="screens">
     <div class="wrap">
-      <div class="kicker">One app, three easy screens</div>
-      <h2>Everyone sees just what they need, and one big button for what's next.</h2>
-      <div class="cards">
-        <article class="card">
+      <div class="reveal"><div class="kicker">One app, three easy screens</div>
+      <h2>Everyone sees just what they need, and one big button for what's next.</h2></div>
+
+      <div class="row reveal">
+        <div>
           <div class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6d28d9" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
           <h3>Your service desk</h3>
-          <p>Book a pick up or drop off in four taps. The queue puts urgent and late rides first, and a meter tells you how long the shuttle is running right now.</p>
-        </article>
-        <article class="card">
+          <p>Book a pick up or drop off in four taps. The queue sorts itself: urgent and late rides first, then soonest, then closest.</p>
+          <ul><li>A meter says how long the shuttle is running right now</li><li>Pick a ride to assign a driver, edit, or send the tracking link</li><li>Customers back at your shop are counted, ready for their ride home</li></ul>
+        </div>
+        <div class="row-pic"><div class="laptop"><img class="for-light" src="img/shots/desk-light.jpg" alt="The advisor desk on a computer" width="2560" height="1600" loading="lazy" decoding="async"><img class="for-dark" src="img/shots/desk-dark.jpg" alt="The advisor desk on a computer" width="2560" height="1600" loading="lazy" decoding="async"></div></div>
+      </div>
+
+      <div class="row reveal">
+        <div>
           <div class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6d28d9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 16V8a2 2 0 0 1 2-2h10l4 4v6"/><path d="M3 16h18"/><circle cx="7.5" cy="17.5" r="1.8"/><circle cx="16.5" cy="17.5" r="1.8"/></svg></div>
           <h3>Your drivers</h3>
-          <p>One card for the next stop with Navigate, Call and Text, then "I'm here", "On board", "Done". New rides near them pop up to take or pass.</p>
-        </article>
-        <article class="card">
+          <p>One card for the next stop, with Navigate, Call and Text, and one big button for what's next: on the way, I'm here, on board, done.</p>
+          <ul><li>New rides near them pop up to take or pass</li><li>The best order for several stops, with arrival times</li><li>Lock-screen alerts, even with the app closed</li></ul>
+        </div>
+        <div class="row-pic"><div class="phone"><img class="for-light" src="img/shots/driver-light.jpg" alt="The driver's next stop on a phone" width="780" height="1688" loading="lazy" decoding="async"><img class="for-dark" src="img/shots/driver-dark.jpg" alt="The driver's next stop on a phone" width="780" height="1688" loading="lazy" decoding="async"></div></div>
+      </div>
+
+      <div class="row reveal">
+        <div>
           <div class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6d28d9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></div>
           <h3>Your customers</h3>
-          <p>A text with a link: the van on a live map, minutes away, the driver and plate. They can say "running late" or cancel, with no app to download.</p>
-        </article>
+          <p>A text with a link: the van on a live map, minutes away, the driver and the plate. Nothing to download.</p>
+          <ul><li>"I'm running late" and cancel, right from the link</li><li>"Your shuttle is here", with how long the driver can wait</li><li>Your name and logo, not ours</li></ul>
+        </div>
+        <div class="row-pic"><div class="phone"><img class="for-light" src="img/shots/track-light.jpg" alt="A customer's tracking page on a phone" width="780" height="1688" loading="lazy" decoding="async"><img class="for-dark" src="img/shots/track-dark.jpg" alt="A customer's tracking page on a phone" width="780" height="1688" loading="lazy" decoding="async"></div></div>
       </div>
     </div>
   </section>
 
-  <!-- How it works -->
   <section class="section how" id="how" style="padding-top:0">
     <div class="wrap">
-      <div>
+      <div class="reveal">
         <div class="kicker">How it works</div>
         <h2>Running by this afternoon.</h2>
         <p class="intro">No hardware to buy. Your team signs in on the phones and computers they already have.</p>
+        <svg class="loop-art" viewBox="0 0 320 130" role="img" aria-label="A van driving around a Celtic loop">
+  <path id="loopPath" class="road-dash" d="M40 65 C40 18, 125 18, 160 65 S280 112, 280 65 S195 18, 160 65 S40 112, 40 65 Z"/>
+  <path class="road" d="M40 65 C40 18, 125 18, 160 65 S280 112, 280 65 S195 18, 160 65 S40 112, 40 65 Z"/>
+  <g class="van-move">
+    <g transform="translate(-15 -11)">
+      <path d="M2 18V9c0-2.2 1.8-4 4-4h14l7 6h1c1.1 0 2 .9 2 2v5z" fill="#6d28d9"/>
+      <rect x="6" y="8" width="10" height="5" rx="1" fill="#0f172a"/><rect x="18" y="8" width="5" height="5" rx="1" fill="#0f172a"/>
+      <circle cx="8" cy="19" r="3" fill="#0f172a" stroke="#fff" stroke-width="1.2"/><circle cx="23" cy="19" r="3" fill="#0f172a" stroke="#fff" stroke-width="1.2"/>
+      <circle cx="28" cy="15" r="1.3" fill="#39ff88"/>
+    </g>
+    <animateMotion dur="9s" repeatCount="indefinite" rotate="auto"><mpath href="#loopPath"/></animateMotion>
+  </g>
+</svg>
       </div>
-      <div class="steps">
+      <div class="steps reveal">
         <div class="step"><span class="num">1</span><div><h3>Get Turas Lúbtha</h3><p>We host it for you, or install it on your own computer. It walks you through your name, address and logo.</p></div></div>
         <div class="step"><span class="num">2</span><div><h3>Add your vans and your team</h3><p>Advisors, drivers and managers each get their own sign-in, step by step.</p></div></div>
         <div class="step"><span class="num">3</span><div><h3>Print your QR sign and book the first ride</h3><p>Customers scan it at the counter to request a ride or follow theirs. Add a "Request a ride" button to your own website too.</p></div></div>
@@ -112,98 +116,81 @@
     </div>
   </section>
 
-  <!-- Features -->
   <section class="section night on-dark" id="features">
     <div class="wrap">
-      <div class="kicker">Features</div>
+      <div class="reveal"><div class="kicker">Features</div>
       <h2>Everything a busy shuttle needs, nothing it doesn't.</h2>
-      <p class="intro">Built with a real dealership shuttle team, one rush hour at a time.</p>
-      <div class="feats">
+      <p class="intro">Built with a real dealership shuttle team, one rush hour at a time.</p></div>
+      <div class="feats reveal">
         <div class="feat"><h3>Live map</h3><p>Every van, moving, with its planned route.</p></div>
         <div class="feat"><h3>Smart ride offers</h3><p>Waiting rides go to the closest free driver.</p></div>
         <div class="feat"><h3>Best route</h3><p>Several stops in the quickest order, with arrival times.</p></div>
         <div class="feat"><h3>Wait-time meter</h3><p>Tell callers honestly how long the shuttle is.</p></div>
         <div class="feat"><h3>Texts &amp; calls</h3><p>From your business number, never a driver's cell.</p></div>
         <div class="feat"><h3>Reports</h3><p>Rides, wait times, miles and drivers, as a spreadsheet too.</p></div>
-        <div class="feat"><h3>Your brand</h3><p>Your name, logo and color on every screen and link.</p></div>
+        <div class="feat"><h3>Light &amp; dark</h3><p>Easy on the eyes at 6 AM and on a sunny lot.</p></div>
         <div class="feat"><h3>Privacy built in</h3><p>Customer details cleared on the schedule you choose.</p></div>
       </div>
     </div>
   </section>
 
-  <!-- The name -->
   <section class="section story" id="name">
-    <div class="wrap">
-      <img src="img/logo.svg" alt="The Turas Lúbtha logo: a van whose windshield is a screen with a blinking command line, on a Celtic loop" width="200" height="200">
+    <div class="wrap reveal">
+      <div><img class="logo-big for-light" src="img/logo.svg" alt="The Turas Lúbtha logo: a van whose windshield is a screen with a command line, on a Celtic loop" width="200" height="200"><img class="logo-big for-dark" src="img/logo-dark.svg" alt="The Turas Lúbtha logo" width="200" height="200"></div>
       <div>
         <div class="kicker">The name</div>
-        <blockquote>“Turas Lúbtha” is Irish for <span style="color:#6d28d9">the looped journey</span>: out to your customer and back again, every ride.</blockquote>
+        <blockquote>“Turas Lúbtha” is Irish for <span>the looped journey</span>: out to your customer and back again, every ride.</blockquote>
         <p class="say">Say it: <b>TOO-rus LOOB-ha</b>. Purple for the Scottish thistle, green for Ireland, teal for the sea between.</p>
       </div>
     </div>
   </section>
 
-  <!-- Pricing -->
   <section class="section pricing" id="pricing">
     <div class="wrap">
-      <div class="head">
+      <div class="head reveal">
         <div class="kicker">Pricing</div>
         <h2>One simple monthly price per location.</h2>
         <p class="intro">Hosted by us, or a lower price if you run it on your own computer.</p>
       </div>
-      <div class="plans">
-        <div class="plan">
-          <div class="ph"><h3>Shop</h3></div><div class="for">One van, a small team</div>
-          <div class="price">Coming soon</div>
-          <ul><li>1 van · 5 staff</li><li>Customer tracking links</li><li>Your logo and color</li></ul>
-          <a class="btn btn-line" href="#demo">Ask about it</a>
-        </div>
-        <div class="plan best">
-          <div class="ph"><h3>Dealership</h3><span class="badge">Most popular</span></div><div class="for">A busy service drive</div>
-          <div class="price">Coming soon</div>
-          <ul><li>Unlimited vans and staff</li><li>Ride offers and best routes</li><li>Texts &amp; calls from your number</li><li>Reports</li></ul>
-          <a class="btn btn-main" href="#demo">Book a demo</a>
-        </div>
-        <div class="plan">
-          <div class="ph"><h3>Group</h3></div><div class="for">Several locations</div>
-          <div class="price">Let's talk</div>
-          <ul><li>Every location, one sign-in</li><li>Setup and training for you</li><li>Priority help</li></ul>
-          <a class="btn btn-line" href="#demo">Contact us</a>
-        </div>
+      <div class="plans reveal">
+        <div class="plan"><div class="ph"><h3>Shop</h3></div><div class="for">One van, a small team</div><div class="price">Coming soon</div>
+          <ul><li>1 van · 5 staff</li><li>Customer tracking links</li><li>Your logo and color</li></ul><a class="btn btn-line" href="#demo">Ask about it</a></div>
+        <div class="plan best"><div class="ph"><h3>Dealership</h3><span class="badge">Most popular</span></div><div class="for">A busy service drive</div><div class="price">Coming soon</div>
+          <ul><li>Unlimited vans and staff</li><li>Ride offers and best routes</li><li>Texts &amp; calls from your number</li><li>Reports</li></ul><a class="btn btn-main" href="#demo">Book a demo</a></div>
+        <div class="plan"><div class="ph"><h3>Group</h3></div><div class="for">Several locations</div><div class="price">Let's talk</div>
+          <ul><li>Every location, one sign-in</li><li>Setup and training for you</li><li>Priority help</li></ul><a class="btn btn-line" href="#demo">Contact us</a></div>
       </div>
       <p class="fine">Prices are being finalized. Book a demo and we'll share them.</p>
     </div>
   </section>
 
-  <!-- Questions -->
   <section class="section faq" id="questions">
     <div class="wrap">
-      <h2>Questions</h2>
-      <div>
+      <h2 class="reveal">Questions</h2>
+      <div class="reveal">
         <details><summary>Do my drivers need an app?</summary><p>No. It opens in the phone's browser and can be added to the home screen like an app. A phone app for the app stores is on the way.</p></details>
         <details><summary>Can it use my own website address?</summary><p>Yes, like shuttle.yourshop.com, and you can add a "Request a ride" button to your own website.</p></details>
         <details><summary>Hosted or on my own computer?</summary><p>Either. We can host it for you, or you can install it on a computer at your business for a lower price.</p></details>
+        <details><summary>Is there a dark mode?</summary><p>Yes, everywhere: the app follows each phone's setting, and anyone can switch it under their name.</p></details>
         <details><summary>What about customer privacy?</summary><p>You choose how long customer details are kept (30 days by default); then they're cleared automatically.</p></details>
         <details><summary>We're a repair shop, not a dealership. Will it fit?</summary><p>Yes. Repair shops, body shops and hotels use the same screens, with your own word for your place.</p></details>
       </div>
     </div>
   </section>
 
-  <!-- Closing call -->
   <section class="final" id="demo">
-    <div class="wrap"><div class="box">
+    <div class="wrap"><div class="box reveal">
       <div><h2>See it with your own vans.</h2><p>A 20-minute demo, on your phone and your desk.</p></div>
       <a class="btn btn-light" href="mailto:hello@turaslubtha.com?subject=Turas%20L%C3%BAbtha%20demo">Book a demo</a>
     </div></div>
   </section>
 </main>
-
 <footer class="foot">
   <div class="wrap">
     <span><span class="name">Turas <b>Lúbtha</b></span> · © <span id="year">2026</span></span>
     <nav aria-label="Footer"><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="mailto:hello@turaslubtha.com">Contact</a><a href="signin.html">Sign in</a></nav>
   </div>
 </footer>
-<script>document.getElementById('year').textContent = new Date().getFullYear();</script>
+<script src="js/site.js"></script>
 </body>
 </html>

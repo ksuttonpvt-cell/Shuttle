@@ -12,7 +12,9 @@ app never serves this folder. Changing these pages can't affect anyone's shuttle
 | `signin.html` | Sign in: "coming soon" until app.turaslubtha.com exists |
 | `privacy.html`, `terms.html` | Drafts, to be reviewed before launch |
 | `404.html` | "Page not found" |
-| `css/site.css` | All the styles (purple, teal, neon green) |
+| `css/site.css` | All the styles (purple, teal, neon green), light and dark |
+| `js/site.js` | Light/dark switch (remembered per device), sections sliding in |
+| `img/shots/` | Real app screenshots (desk, driver, tracking), light and dark. Sample data only: made-up business and riders |
 | `img/logo.svg`, `img/logo-dark.svg`, `img/icon.svg` | Logo #2 and the app/tab icon |
 
 ## Look at it on your computer
@@ -27,7 +29,10 @@ Open `index.html` in a browser. That's it.
 
 Every change merged to `main` republishes the website in about a minute.
 
+## Light and dark
+The site follows each visitor's device setting; the sun/moon button switches it and remembers the choice. Screenshots swap to the app's dark versions. Visitors who turn off motion on their device get no animations.
+
 ## Still to decide
 - Prices (the page says "Coming soon").
-- "Book a demo" opens an email to hello@turaslubtha.com; it could become a form or calendar link.
+- "Book a demo" opens an email to hello@turaslubtha.com; a proper form or calendar link is planned, and a walkthrough video.
 - Privacy and Terms need a proper review before launch.
