@@ -255,3 +255,23 @@ html.js .reveal.in { opacity: 1; transform: none; }
   html.js .reveal { opacity: 1; transform: none; }
   .loop-art .van-move { display: none; }
 }
+
+/* Sign in: send people to their own shuttle address. */
+.go-form { display: grid; gap: 10px; max-width: 560px; }
+.go-form label[for] { color: #cbd2d9; font-weight: 600; font-size: 15px; }
+.go-row { display: flex; align-items: stretch; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.16); border-radius: 14px; overflow: hidden; }
+.go-row:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px rgba(57,255,136,.18); }
+.go-pre { display: flex; align-items: center; padding: 0 0 0 16px; color: #7b8794; font-size: 16px; }
+.go-row input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: #fff; font-size: 17px; padding: 0 8px 0 2px; min-height: 52px; }
+.go-row input::placeholder { color: #616e7c; }
+.go-row .btn { border-radius: 0; }
+.go-err { color: #ffb4a8; margin: 0; font-size: 15px; }
+.go-remember { display: flex; align-items: center; gap: 8px; color: #9aa5b1; font-size: 15px; }
+.go-remember input { accent-color: var(--green); width: 18px; height: 18px; }
+.go-saved { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.go-btn { flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 22px; height: auto; max-width: 100%; text-align: left; }
+.go-small { font-size: 13px; font-weight: 600; opacity: .85; }
+.go-host { font-weight: 700; overflow-wrap: anywhere; }
+.link-btn { background: none; border: 0; color: #cbd2d9; text-decoration: underline; font: inherit; cursor: pointer; padding: 8px 0; }
+@media (max-width: 520px) { .go-pre { display: none; } .go-row input { padding-left: 14px; } .go-btn { width: 100%; } }
+[hidden] { display: none !important; }

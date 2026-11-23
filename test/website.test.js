@@ -36,7 +36,8 @@ test('the Turas Lúbtha website is served by its own name, and only the website'
   let r = await get('/css/site.css', 'turaslubtha.com');
   assert.equal(r.status, 200); assert.match(r.headers.get('content-type'), /text\/css/);
   r = await get('/signin', 'turaslubtha.com'); // works without ".html" too
-  assert.equal(r.status, 200); assert.match(await r.text(), /turaslubtha sign in/);
+  assert.equal(r.status, 200);
+  { const html = await r.text(); assert.match(html, /turaslubtha sign in/); assert.match(html, /Your shuttle address/); assert.match(html, /\/login'/); }
   // Shuttle app pages and its API are not reachable by the website's name.
   for (const path of ['/admin', '/api/me', '/login', '/driver']) {
     r = await get(path, 'turaslubtha.com');

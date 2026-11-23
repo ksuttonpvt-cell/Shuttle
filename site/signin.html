@@ -33,9 +33,34 @@
   <img src="img/logo-dark.svg" alt="" width="72" height="72" style="width:72px">
   <h1 style="margin:0"><span class="name on-dark">Turas <b>Lúbtha</b></span></h1>
   <div class="prompt mono">&gt; turaslubtha sign in<span class="cursor"></span></div>
-  <p style="color:#cbd2d9;font-size:18px">Sign-in opens soon. Each business will sign in here and land in its own area.</p>
-  <p style="color:#9aa5b1">Already using the shuttle at your business? Keep using your usual address for now; nothing changes until we tell you.</p>
-  <div><a class="btn btn-main" href="mailto:hello@turaslubtha.com?subject=Turas%20L%C3%BAbtha%20sign-in">Get told when it opens</a></div>
+  <p style="color:#cbd2d9;font-size:18px;margin:0">Already have the shuttle? Sign in at your business's own address.</p>
+  <div class="go-saved" data-saved hidden>
+    <a class="btn btn-main go-btn" data-saved-link href="#"><span class="go-small">Continue to</span><span class="go-host mono"><span data-saved-host></span> &rarr;</span></a>
+    <button type="button" class="link-btn" data-forget>Use a different address</button>
+  </div>
+  <form class="go-form" data-go novalidate>
+    <label for="addr">Your shuttle address</label>
+    <div class="go-row">
+      <span class="go-pre mono">https://</span>
+      <input id="addr" name="addr" class="mono" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="yourshuttle.com" required>
+      <button class="btn btn-main" type="submit">Go &rarr;</button>
+    </div>
+    <p class="go-err" data-err role="alert" hidden>That doesn't look like a web address. Try something like <span class="mono">yourshuttle.com</span></p>
+    <label class="go-remember"><input type="checkbox" checked data-remember> Remember on this device</label>
+  </form>
+  <p style="color:#9aa5b1;margin:0">Don't know it? Ask your shuttle desk or manager. It's the same address your drivers use. New here? <a href="./#demo" style="color:var(--green)">Book a demo</a>.</p>
+  <script>
+  (function(){
+    var K='tl-shuttle', form=document.querySelector('[data-go]'), box=document.querySelector('[data-saved]');
+    function clean(v){ v=String(v||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/[\/?#].*$/,''); return /^(localhost|[a-z0-9-]+(\.[a-z0-9-]+)+)(:\d+)?$/.test(v)?v:''; }
+    function get(){ try{return localStorage.getItem(K)}catch(e){return null} }
+    function set(v){ try{ v?localStorage.setItem(K,v):localStorage.removeItem(K) }catch(e){} }
+    function show(){ var h=clean(get()); box.hidden=!h; form.hidden=!!h; if(h){ document.querySelector('[data-saved-host]').textContent=h; document.querySelector('[data-saved-link]').href='https://'+h+'/login'; } }
+    form.addEventListener('submit',function(e){ e.preventDefault(); var h=clean(form.addr.value), err=document.querySelector('[data-err]'); err.hidden=!!h; if(!h) return form.addr.focus(); set(document.querySelector('[data-remember]').checked?h:''); location.href='https://'+h+'/login'; });
+    document.querySelector('[data-forget]').addEventListener('click',function(){ set(''); show(); form.addr.focus(); });
+    show();
+  })();
+  </script>
 </div>
 </div></main>
 <footer class="foot">
