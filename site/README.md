@@ -19,6 +19,7 @@ app never serves this folder. Changing these pages can't affect anyone's shuttle
 
 ## Look at it on your computer
 On the shuttle PC, with the shuttle running: open **http://website.localhost:3000**.
+Or from anywhere: **your shuttle address + `/website/`** (for example https://corwinshuttleservice.com/website/).
 (Or just open `index.html` in a browser.)
 
 ## Put it online, on your own PC

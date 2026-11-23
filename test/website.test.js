@@ -51,3 +51,14 @@ test('the Turas Lúbtha website is served by its own name, and only the website'
   r = await get('/api/me', 'shuttle.test');
   assert.equal(r.status, 200);
 });
+
+test('the website can be previewed at /website/ on the shuttle address', async () => {
+  let r = await get('/website', 'shuttle.test');
+  assert.equal(r.status, 301); assert.equal(r.headers.get('location'), '/website/');
+  r = await get('/website/', 'shuttle.test');
+  assert.equal(r.status, 200); assert.match(await r.text(), /Run your customer shuttle from/);
+  r = await get('/website/css/site.css', 'shuttle.test'); assert.equal(r.status, 200);
+  r = await get('/website/signin', 'shuttle.test'); assert.equal(r.status, 200);
+  r = await get('/website/nope', 'shuttle.test'); assert.equal(r.status, 404);
+  r = await get('/login', 'shuttle.test'); assert.equal(r.status, 200, 'the shuttle still works');
+});
