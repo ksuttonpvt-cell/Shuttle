@@ -511,7 +511,11 @@ function createApp(db, opts = {}) {
   // ---------- super admins ----------
   // The Server page (health, logs, updates, restart, backups) is for super admins only.
   // The admin named in .env (ADMIN_EMAIL) is always one; if there are none, the first admin is.
+  // A business hosted on this PC (opts.business) never has super admins: the Server page runs
+  // the whole PC, so only the PC's own shuttle can open it.
+  const hosted = !!opts.business;
   (function ensureSuperAdmin() {
+    if (hosted) { q('UPDATE users SET super_admin = 0 WHERE super_admin = 1').run(); return; }
     const email = opts.superEmail !== undefined ? opts.superEmail : process.env.ADMIN_EMAIL;
     if (email) q("UPDATE users SET super_admin = 1 WHERE email = ? AND role = 'admin'").run(email);
     if (!q("SELECT 1 FROM users WHERE super_admin = 1 AND role = 'admin' AND active = 1").get()) {
@@ -519,7 +523,7 @@ function createApp(db, opts = {}) {
       if (first) q('UPDATE users SET super_admin = 1 WHERE id = ?').run(first.id);
     }
   })();
-  const isSuper = (u) => !!u && u.role === 'admin' && !!u.super_admin;
+  const isSuper = (u) => !hosted && !!u && u.role === 'admin' && !!u.super_admin;
   app.use(['/api/server', '/api/version', '/api/updates'], (req, res, next) => {
     if (!req.user) return bad(res, 'Please sign in.', 401);
     if (!isSuper(req.user)) return bad(res, 'Only a super admin can use the Server page.', 403);
@@ -563,6 +567,21 @@ function createApp(db, opts = {}) {
     q('DELETE FROM sessions WHERE expires_at < ?').run(now());
     setSessionCookie(req, res, token, SESSION_DAYS * 86400);
     res.json({ user: publicUser(user) });
+  });
+
+  // Arriving from the shared Turas Lúbtha sign-in: a one-time pass (60 seconds, used once,
+  // only good here) signs this device in, like the normal sign-in does.
+  app.get('/auth/handoff', (req, res) => {
+    const userId = opts.redeemHandoff ? opts.redeemHandoff(String(req.query.t || '')) : null;
+    const user = userId && q('SELECT * FROM users WHERE id = ? AND active = 1').get(userId);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    if (!user) return res.redirect('/login?expired=1');
+    const token = randomToken(32);
+    q('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, user.id, new Date(Date.now() + SESSION_DAYS * 86400000).toISOString());
+    q('DELETE FROM sessions WHERE expires_at < ?').run(now());
+    setSessionCookie(req, res, token, SESSION_DAYS * 86400);
+    res.redirect('/');
   });
 
   app.post('/api/logout', (req, res) => {
@@ -2898,6 +2917,40 @@ function createApp(db, opts = {}) {
     res.json({ version: APP_VERSION, build: { hash: u.version || null, date: u.versionDate || null }, changelog: CHANGELOG });
   });
 
+  // ---------- other businesses on this PC (Server → Businesses) ----------
+  // Each one gets its own separate database and its own address; its owner finishes setting it
+  // up with a one-time setup link. Super admins only (the /api/server gate above).
+  const bizzes = opts.businesses || null;
+  const bizDomain = opts.businessDomain || 'turaslubtha.com';
+  const bizUrl = (req, slug) => {
+    const host = String(req.get('host') || '').toLowerCase();
+    return /(^|\.)localhost(:\d+)?$/.test(host) ? `http://${slug}.localhost${host.match(/:\d+$/) ? host.match(/:\d+$/)[0] : ''}` : `https://${slug}.${bizDomain}`;
+  };
+  const bizOut = (req, d) => ({ ...d, url: bizUrl(req, d.slug), setup_url: d.setup_code ? `${bizUrl(req, d.slug)}/setup?code=${encodeURIComponent(d.setup_code)}` : '' });
+  app.get('/api/server/businesses', requireRole('admin'), (req, res) => {
+    if (!bizzes) return res.json({ available: false, businesses: [] });
+    const { suggestName } = require('./businesses');
+    res.json({ available: true, domain: bizDomain, signin_url: /(^|\.)localhost(:\d+)?$/.test(String(req.get('host') || '')) ? `http://app.localhost${(String(req.get('host')).match(/:\d+$/) || [''])[0]}/` : `https://app.${bizDomain}/`,
+      suggest: req.query.name ? suggestName(req.query.name) : undefined,
+      businesses: bizzes.list().map((b) => bizzes.details(b.slug)).filter(Boolean).map((d) => bizOut(req, d)) });
+  });
+  app.post('/api/server/businesses', requireRole('admin'), (req, res) => {
+    if (!bizzes) return bad(res, 'Hosting other businesses isn’t turned on for this site.');
+    const b = req.body || {};
+    const made = bizzes.create({ slug: b.slug, name: str(b.name, 120), by: req.user.email });
+    if (made.error) return bad(res, made.error);
+    bus.publish('businesses-changed');
+    res.status(201).json({ business: bizOut(req, bizzes.details(made.business.slug)) });
+  });
+  app.post('/api/server/businesses/:slug/pause', requireRole('admin'), (req, res) => {
+    if (!bizzes) return bad(res, 'Hosting other businesses isn’t turned on for this site.');
+    const paused = !!(req.body && req.body.paused);
+    if (!bizzes.setPaused(String(req.params.slug), paused)) return bad(res, 'Business not found.', 404);
+    bus.publish('businesses-changed');
+    console.log(new Date().toLocaleString(), `[businesses] ${req.params.slug} ${paused ? 'paused' : 'turned back on'} by ${req.user.email}.`);
+    res.json({ business: bizOut(req, bizzes.details(String(req.params.slug))) });
+  });
+
   app.get('/api/server/status', requireRole('admin'), async (req, res) => {
     const u = await updaterState();
     const b = opts.backups;
@@ -3425,7 +3478,7 @@ function createApp(db, opts = {}) {
   const setupDone = () => getSettings().setup_done === '1';
   const noUsers = () => q('SELECT COUNT(*) AS n FROM users').get().n === 0;
   if (!setupDone() && !getSettings().setup_code) setSetting('setup_code', `${randomToken(6).replace(/[^A-Za-z0-9]/g, 'x').slice(0, 4)}-${randomToken(6).replace(/[^A-Za-z0-9]/g, 'x').slice(0, 4)}`.toUpperCase());
-  if (jobsHere && !setupDone()) {
+  if (jobsHere && !setupDone() && !hosted) {
     console.log(`\n  NEW INSTALL: open http://localhost:${process.env.PORT || 3000}/setup to set up your shuttle site.\n  Setup code: ${getSettings().setup_code}\n`);
   }
   app.get('/setup', (req, res, next) => (setupDone() ? res.redirect('/') : page('setup.html')(req, res, next)));
@@ -3467,7 +3520,7 @@ function createApp(db, opts = {}) {
     try {
       if (admin) {
         if (!noUsers()) throw Object.assign(new Error('Someone just set this site up. Sign in instead.'), { code: 409 });
-        const id = Number(q("INSERT INTO users (name, email, role, password_hash, super_admin) VALUES (?, ?, 'admin', ?, 1)").run(admin.aname, admin.email, admin.hash).lastInsertRowid);
+        const id = Number(q("INSERT INTO users (name, email, role, password_hash, super_admin) VALUES (?, ?, 'admin', ?, ?)").run(admin.aname, admin.email, admin.hash, hosted ? 0 : 1).lastInsertRowid);
         admin.id = id;
       }
       for (const [k, v] of Object.entries({ dealer_name: name, business_type: b.business_type, place_word: word, dealer_phone: str(b.dealer_phone, 40) || '',

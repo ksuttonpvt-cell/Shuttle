@@ -82,6 +82,9 @@
   // Signed in already (the first manager came from the .env file): no account step.
   if (!info.need_admin) { const s = f.querySelector('[data-step="you"]'); s.remove(); }
   const v = info.values || {};
+  // The one-time setup link (from whoever added this business) fills in the code.
+  const linkCode = new URLSearchParams(location.search).get('code');
+  if (linkCode && f.elements.code) f.elements.code.value = linkCode.slice(0, 20);
   if (v.dealer_name) f.elements.dealer_name.value = v.dealer_name;
   if (v.dealer_phone) f.elements.dealer_phone.value = v.dealer_phone;
   if (v.business_type) f.querySelector(`[name=business_type][value="${v.business_type}"]`).checked = true;

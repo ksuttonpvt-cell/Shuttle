@@ -9,7 +9,7 @@ app never serves this folder. Changing these pages can't affect anyone's shuttle
 | File | What it is |
 |---|---|
 | `index.html` | The home page (every section) |
-| `signin.html` | Sign in: "coming soon" until app.turaslubtha.com exists |
+| `signin.html` | The shared sign-in (also served at app.turaslubtha.com): email + password → your own business |
 | `privacy.html`, `terms.html` | Drafts, to be reviewed before launch |
 | `404.html` | "Page not found" |
 | `css/site.css` | All the styles (purple, teal, neon green), light and dark |
