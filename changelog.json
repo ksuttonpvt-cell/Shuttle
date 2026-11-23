@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.4.1",
+    "date": "2026-11-23",
+    "title": "Try hosted businesses on your shuttle's own address",
+    "changes": [
+      "Until turaslubtha.com is set up, businesses also work under your shuttle's own web address (Settings → Web address): pinevalley.yourshuttle.com, with the shared sign-in at app.yourshuttle.com."
+    ]
+  },
+  {
     "version": "3.4.0",
     "date": "2026-11-23",
     "title": "Host other businesses, with one sign-in for everyone",

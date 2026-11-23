@@ -88,7 +88,7 @@ One-time Cloudflare setup, so every business address reaches this PC:
 1. **DNS** for turaslubtha.com: add a **CNAME** named `*` pointing to your tunnel (`<tunnel-id>.cfargotunnel.com`, proxied, orange cloud).
 2. **Zero Trust → Networks → Tunnels →** your tunnel **→ Public hostnames → Add**: subdomain `*`, domain **turaslubtha.com**, service **HTTP**, URL **localhost:3000**.
 
-This also covers app.turaslubtha.com. On this PC you can try it without Cloudflare: http://app.localhost:3000 and http://<name>.localhost:3000.
+This also covers app.turaslubtha.com. **Trying it before turaslubtha.com is set up:** businesses also work under the shuttle's own web address (Manager → Settings → Web address), e.g. pinevalley.corwinshuttleservice.com and app.corwinshuttleservice.com. Do the same two Cloudflare steps for that domain. On this PC you can try it without Cloudflare: http://app.localhost:3000 and http://<name>.localhost:3000.
 
 **Or give a business its own install** on its own PC (as above). It has its own database, branding, staff and web address, and starts on Setup. Installs update themselves from the repository they were cloned from, so when you publish a new version to `main`, every install picks it up within minutes.
 

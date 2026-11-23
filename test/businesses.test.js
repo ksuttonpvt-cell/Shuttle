@@ -72,8 +72,10 @@ test('a super admin adds a business: it gets its own empty space and a one-time 
   const b = made.data.business;
   assert.equal(b.slug, 'pinevalley');
   assert.equal(b.setup_done, false);
-  assert.equal(b.url, 'https://pinevalley.turaslubtha.com');
-  assert.match(b.setup_url, /^https:\/\/pinevalley\.turaslubtha\.com\/setup\?code=[A-Z0-9x]{4}-[A-Z0-9x]{4}$/i);
+  // Opened from the shuttle's own address, so its links use that address for now…
+  assert.equal(b.url, 'https://pinevalley.shuttle.test');
+  assert.equal(b.also_url, 'https://pinevalley.turaslubtha.com', '…and it will also be at the Turas Lúbtha address');
+  assert.match(b.setup_url, /^https:\/\/pinevalley\.shuttle\.test\/setup\?code=[A-Z0-9x]{4}-[A-Z0-9x]{4}$/i);
   assert.ok(fs.existsSync(path.join(dataDir, 'businesses', 'pinevalley', 'shuttle.db')), 'its own database file');
   assert.equal((await call(HOME, '/api/server/businesses', { cookie: boss, body: { name: 'Again', slug: 'pinevalley' } })).status, 400, 'taken');
   assert.equal((await call(HOME, '/api/server/businesses', { cookie: boss, body: { name: 'Front', slug: 'app' } })).status, 400, 'reserved');
@@ -191,4 +193,22 @@ test('a paused business is closed until it is turned back on; unknown addresses 
   // The home shuttle and the website carry on as before.
   assert.equal((await call(HOME, '/login')).status, 200);
   assert.match((await call('turaslubtha.com', '/')).text, /Run your customer shuttle from/);
+});
+
+test('while testing, businesses also work under the shuttle’s own address', async () => {
+  // pinevalley.shuttle.test is Pine Valley, just like pinevalley.turaslubtha.com.
+  const pat = await signIn('pinevalley.shuttle.test', 'pat@pinevalley.test', 'pine-pass-1');
+  assert.ok(pat, 'signed in at pinevalley.<shuttle address>');
+  // app.shuttle.test is the shared sign-in, and sends people to addresses under the same name.
+  const page = await call('app.shuttle.test', '/');
+  assert.match(page.text, /api\/frontdoor\/signin/);
+  assert.match(page.text, /href="https:\/\/shuttle\.test\/website\/#demo"/, 'website links go to the preview on the shuttle address');
+  const r = await call('app.shuttle.test', '/api/frontdoor/signin', { body: { email: 'pat@pinevalley.test', password: 'pine-pass-1' } });
+  const urlOf = (d) => d.go || d.choose.find((c) => c.name === 'Pine Valley Auto').url; // Pat is at Lakeside too
+  assert.match(urlOf(r.data), /^https:\/\/pinevalley\.shuttle\.test\/auth\/handoff\?t=/);
+  const r2 = await call('app.turaslubtha.com', '/api/frontdoor/signin', { body: { email: 'pat@pinevalley.test', password: 'pine-pass-1' } });
+  assert.match(urlOf(r2.data), /^https:\/\/pinevalley\.turaslubtha\.com\/auth\/handoff\?t=/);
+  // The shuttle itself, with or without www, is still the shuttle.
+  for (const h of ['shuttle.test', 'www.shuttle.test']) assert.equal((await call(h, '/login')).status, 200, h);
+  assert.equal((await call('nobody.shuttle.test', '/')).status, 404);
 });
