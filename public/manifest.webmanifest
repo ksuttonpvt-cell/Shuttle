@@ -1,6 +1,6 @@
 {
-  "name": "Shuttle Driver",
-  "short_name": "Shuttle",
+  "name": "Turas Lúbtha",
+  "short_name": "Turas",
   "description": "Shuttle rides, pick ups and drop offs for drivers.",
   "start_url": "/driver",
   "scope": "/",

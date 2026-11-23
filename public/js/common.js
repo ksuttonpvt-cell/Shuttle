@@ -192,9 +192,10 @@ const App = (() => {
     const isNew = App.version && seenVersion() !== App.version;
     el.className = 'topbar';
     el.innerHTML = `
-      <a class="brand" href="/">${brandMark(settings.dealer_name, 'Shuttle', { light: true })}</a>
+      <a class="brand" href="/">${brandMark(settings.dealer_name, '', { light: true })}</a>
       ${nav ? `<div class="side-label">Pages</div><nav class="side-nav" aria-label="Pages">${nav}</nav>` : ''}
       <div id="pageNav"></div>
+      <a class="runs-on" href="https://turaslubtha.com" target="_blank" rel="noopener" title="Turas Lúbtha"><img src="/icons/icon-192.png" alt="" width="18" height="18">Runs on <b>Turas Lúbtha</b></a>
       <div class="side-foot">
         <button type="button" class="acct-btn" id="acctBtn" aria-haspopup="menu" aria-expanded="false" title="${esc(user.name)}">
           <span class="avatar">${esc(initials(user.name))}</span>

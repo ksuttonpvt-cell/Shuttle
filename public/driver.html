@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <script>/* apply the saved light/dark choice and any look preview before the page draws */try{var t=localStorage.getItem("shuttle.theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;var q=new URLSearchParams(location.search).get("look");if(q==="branded"||q==="classic")localStorage.setItem("shuttle.look",q);else if(q==="off")localStorage.removeItem("shuttle.look");var l=localStorage.getItem("shuttle.look");if(l==="branded"||l==="classic")document.documentElement.dataset.look=l}catch(e){}</script><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Driver App</title>
+<title>Driver</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#111111">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Shuttle">
+<meta name="apple-mobile-web-app-title" content="Turas Lúbtha">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="icon" href="/icons/icon-192.png">
@@ -412,7 +412,7 @@
           <ol class="small" style="margin:.2rem 0 0;padding-left:1.2rem">
             <li>Tap the <b>Share</b> button <span aria-hidden="true">(⬆ square with an arrow)</span> in Safari.</li>
             <li>Choose <b>Add to Home Screen</b>, then <b>Add</b>.</li>
-            <li>Open <b>Shuttle</b> from your home screen and sign in.</li>
+            <li>Open the app from your home screen and sign in.</li>
             <li>Come back to this card and tap <b>Turn on notifications</b>.</li></ol>`;
       } else if (!supported) {
         body = '<p class="small" style="margin:.3rem 0">This browser can\'t show lock-screen notifications. Use <b>Chrome</b> on Android, or <b>Safari</b> on iPhone (added to the Home Screen).</p>';

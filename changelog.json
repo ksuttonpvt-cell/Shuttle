@@ -1,5 +1,16 @@
 [
   {
+    "version": "3.3.0",
+    "date": "2026-11-23",
+    "title": "Shuttle is now Turas Lúbtha",
+    "changes": [
+      "The app has its new name: Turas Lúbtha (Irish for “the looped journey”). Your business's own name and logo stay up front.",
+      "New built-in app icon: a van whose windshield is a screen with a blinking command line, in purple and teal. Sites with their own icon keep it.",
+      "The menu shows “Runs on Turas Lúbtha” at the bottom; the sign-in page says the name has changed.",
+      "New installs start in Turas Lúbtha purple. Existing sites keep their colors."
+    ]
+  },
+  {
     "version": "3.2.3",
     "date": "2026-11-23",
     "title": "Coming soon: Turas Lúbtha",

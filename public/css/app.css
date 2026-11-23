@@ -872,3 +872,11 @@ body.drawer-open { overflow: hidden; }
 .rename-pill { background: #6d28d9; color: #fff; font-size: .7rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; padding: .15rem .55rem; border-radius: 99px; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .rename-note b { color: #b79bff; } }
 :root[data-theme="dark"] .rename-note b { color: #b79bff; }
+
+/* "Runs on Turas Lúbtha" at the bottom of the side menu */
+.runs-on { display: flex; align-items: center; gap: .45rem; margin-top: auto; padding: .4rem .75rem; font-size: .75rem; color: var(--muted); text-decoration: none; border-radius: 8px; }
+.runs-on img { border-radius: 5px; }
+.runs-on b { color: var(--ink); font-weight: 700; }
+.runs-on:hover { background: var(--hover); }
+.runs-on + .side-foot { margin-top: .35rem; }
+@media (max-width: 899px) { .topbar .runs-on { display: none; } }

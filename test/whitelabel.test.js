@@ -39,8 +39,8 @@ test('your own business: name, words, icon, banner, tab titles, app manifest, sh
   assert.equal((await a('/api/me')).data.settings.place, 'hotel');
   let page = await html('/login');
   assert.match(page, /data-place="hotel"/);
-  assert.match(page, /<title>Shuttle Sign In · Pine Lodge Hotel<\/title>/, 'your name in the browser tab');
-  assert.match(await html('/driver'), /<title>Driver App · Pine Lodge Hotel<\/title>/);
+  assert.match(page, /<title>Sign in · Pine Lodge Hotel<\/title>/, 'your name in the browser tab');
+  assert.match(await html('/driver'), /<title>Driver · Pine Lodge Hotel<\/title>/);
 
   // App icon: three square PNGs; the default shuttle icon until then.
   let r = await fetch(`${base}/brand/icon-192.png`);
@@ -58,7 +58,7 @@ test('your own business: name, words, icon, banner, tab titles, app manifest, sh
   assert.match(page, /<link rel="manifest" href="\/manifest.webmanifest\?v=/);
   assert.equal((page.match(/rel="icon"/g) || []).length, 1, 'one icon link');
   const mf = await (await fetch(`${base}/manifest.webmanifest`)).json();
-  assert.equal(mf.name, 'Pine Lodge Hotel Shuttle'); assert.equal(mf.short_name, 'Pine');
+  assert.equal(mf.name, 'Pine Lodge Hotel · Turas Lúbtha'); assert.equal(mf.short_name, 'Pine');
   assert.match(mf.icons[0].src, /\/brand\/icon-192.png\?v=/);
   await a('/api/brand/icon', { method: 'DELETE' });
   r = await fetch(`${base}/brand/icon-192.png`); assert.deepEqual(Buffer.from(await r.arrayBuffer()), defaultIcon, 'back to the plain built-in icon');
