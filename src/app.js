@@ -135,6 +135,15 @@ function createApp(db, opts = {}) {
     if (!['GET', 'HEAD'].includes(req.method)) return res.status(405).type('text').send('Not allowed.');
     website(req, res, () => res.status(404).sendFile(path.join(siteDir, '404.html'), (err) => { if (err) res.end(); }));
   });
+  // A preview of the website on any address, under /website/ (for example the shuttle's own
+  // address, before turaslubtha.com is set up). The website's links are relative, so they work here.
+  app.use('/website', (req, res, next) => {
+    if (!['GET', 'HEAD'].includes(req.method)) return next();
+    // "/website" needs its trailing slash, or the page's own links would point one folder up.
+    if (req.originalUrl.split('?')[0] === '/website') return res.redirect(301, '/website/');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    website(req, res, () => res.status(404).sendFile(path.join(siteDir, '404.html'), (err) => { if (err) res.end(); }));
+  });
   app.use('/api/phone/incoming', express.urlencoded({ extended: false, limit: '20kb' })); // Twilio sends forms
   app.use((req, res, next) => (['/api/brand/logo', '/api/brand/logo-light', '/api/brand/icon', '/api/brand/banner', '/api/vehicles/import'].includes(req.path) ? next()
     : express.json({ limit: /^\/api\/(me|users\/\d+)\/photo$/.test(req.path) ? '300kb' : '100kb' })(req, res, next)));
@@ -320,7 +329,7 @@ function createApp(db, opts = {}) {
     if (b.first_name !== undefined || b.last_name !== undefined) return first && last ? `${first} ${last}`.replace(/\s+/g, ' ') : null;
     return str(b.name, 100);
   };
-  const RESERVED_PATHS = new Set(['setup', 'admin', 'advisor', 'bdc', 'driver', 'login', 'logout', 'request', 'reset', 't', 's', 'api', 'brand', 'icons', 'js', 'css', 'vendor', 'img', 'healthz', 'sw.js', 'manifest.webmanifest', 'favicon.ico', 'robots.txt']);
+  const RESERVED_PATHS = new Set(['setup', 'website', 'admin', 'advisor', 'bdc', 'driver', 'login', 'logout', 'request', 'reset', 't', 's', 'api', 'brand', 'icons', 'js', 'css', 'vendor', 'img', 'healthz', 'sw.js', 'manifest.webmanifest', 'favicon.ico', 'robots.txt']);
   const brandName = () => { const s = getSettings(); return String(s.brand_name || s.dealer_name || 'Turas Lúbtha').trim(); };
   const asRole = (r) => (r === 'bdc' ? { role: 'advisor', team: 'bdc' } : { role: r, team: null });
   // Several roles: `role` (+ team) is a person's strongest role (admin, then advisor or BDC,

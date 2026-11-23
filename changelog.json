@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.3.2",
+    "date": "2026-11-23",
+    "title": "Preview the website on your shuttle address",
+    "changes": [
+      "The Turas Lúbtha website can be previewed at /website/ on your shuttle's own address, while turaslubtha.com is being set up. The shuttle itself is unchanged."
+    ]
+  },
+  {
     "version": "3.3.1",
     "date": "2026-11-23",
     "title": "The Turas Lúbtha website runs on this PC too",
