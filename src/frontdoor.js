@@ -186,11 +186,20 @@ function createSite({ db, dataDir, domain, bus, openDb, createApp, homeOpts = {}
   });
   // Businesses live under the Turas Lúbtha domain, and also under the home shuttle's own
   // address (Settings → Web address), so they can be tried before that domain is set up.
+  // The shuttle's own address comes from Settings → Web address, or else is remembered from
+  // where a super admin opens Server → Businesses (businesses.rememberHome below).
+  const usable = (h) => !!h && h !== domain && !h.endsWith(`.${domain}`) && h !== 'localhost' && !h.endsWith('.localhost')
+    && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(h) && !/^[0-9.]+$/.test(h);
   const domains = () => {
-    const home = hostOfUrl(urlOfHome());
-    return home && home !== domain && !home.endsWith(`.${domain}`) && home !== 'localhost' && home.includes('.') ? [domain, home] : [domain];
+    const out = [domain];
+    for (const h of [hostOfUrl(urlOfHome()), businesses.getMeta('home_host')]) if (usable(h) && !out.includes(h)) out.push(h);
+    return out;
   };
-  const homeApp = createApp(db, { ...homeOpts, bus, businesses, businessDomain: domain, businessDomains: domains, redeemHandoff: (t) => businesses.redeemHandoff('', t) });
+  const rememberHome = (host) => {
+    const h = String(host || '').toLowerCase().replace(/:\d+$/, '').replace(/^www\./, '');
+    if (usable(h) && businesses.getMeta('home_host') !== h) businesses.setMeta('home_host', h);
+  };
+  const homeApp = createApp(db, { ...homeOpts, bus, businesses, businessDomain: domain, businessDomains: domains, rememberHome, redeemHandoff: (t) => businesses.redeemHandoff('', t) });
   const frontDoor = createFrontDoor({ businesses, homeDb: db, domain, domains, homeUrl: urlOfHome });
   return { handler: createRouter({ businesses, frontDoor, homeApp, domain, domains }), businesses, homeApp, frontDoor, domains };
 }

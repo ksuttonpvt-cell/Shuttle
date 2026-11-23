@@ -2936,6 +2936,8 @@ function createApp(db, opts = {}) {
   const bizOut = (req, d) => ({ ...d, url: bizUrl(req, d.slug), also_url: !/localhost/.test(String(req.get('host'))) && bizDomainFor(req) !== bizDomain ? `https://${d.slug}.${bizDomain}` : '', setup_url: d.setup_code ? `${bizUrl(req, d.slug)}/setup?code=${encodeURIComponent(d.setup_code)}` : '' });
   app.get('/api/server/businesses', requireRole('admin'), (req, res) => {
     if (!bizzes) return res.json({ available: false, businesses: [] });
+    // Opened at the shuttle's own address: businesses can be tried under that address too.
+    if (opts.rememberHome) opts.rememberHome(req.get('host'));
     const { suggestName } = require('./businesses');
     res.json({ available: true, domain: bizDomainFor(req), signin_url: /(^|\.)localhost(:\d+)?$/.test(String(req.get('host') || '')) ? `http://app.localhost${(String(req.get('host')).match(/:\d+$/) || [''])[0]}/` : `https://app.${bizDomainFor(req)}/`,
       suggest: req.query.name ? suggestName(req.query.name) : undefined,

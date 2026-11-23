@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.4.2",
+    "date": "2026-11-23",
+    "title": "Businesses show your shuttle's address",
+    "changes": [
+      "Server → Businesses now uses the address you opened it from (like corwinshuttleservice.com) for every business link, setup link and the sign-in page, even when Settings → Web address is blank."
+    ]
+  },
+  {
     "version": "3.4.1",
     "date": "2026-11-23",
     "title": "Try hosted businesses on your shuttle's own address",
