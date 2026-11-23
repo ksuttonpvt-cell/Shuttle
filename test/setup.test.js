@@ -92,7 +92,7 @@ test('a new install has no branding: plain colors, plain icon, no extras; the li
   const db = openDb(':memory:');
   const { server, call } = await serve(db);
   const setting = (k) => db.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value;
-  assert.deepEqual([setting('brand_color'), setting('brand_dark'), setting('easter_egg'), setting('dealer_name')], ['#475569', '#1e293b', '0', '']);
+  assert.deepEqual([setting('brand_color'), setting('brand_dark'), setting('easter_egg'), setting('dealer_name')], ['#6d28d9', '#1e1b4b', '0', '']);
   assert.equal(setting('brand_icon_512'), undefined, 'no icon saved: the plain built-in one');
   const port = server.address().port;
   const icon = Buffer.from(await (await fetch(`http://127.0.0.1:${port}/brand/icon-192.png`)).arrayBuffer());

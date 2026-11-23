@@ -64,8 +64,8 @@ const DEFAULT_SETTINGS = {
   business_type: 'dealership', // dealership | shuttle (hotel, airport parking, office, events…)
   place_word: '',           // what riders call your base: blank = "dealership" (or "office" for a shuttle service)
   request_path: '',         // optional short link for customers to request a ride, e.g. "ride" -> yoursite.com/ride
-  brand_color: '#475569',   // Branded look: accent (buttons, stripes). A plain placeholder until you pick yours.
-  brand_dark: '#1e293b',    // Branded look: header and banner background
+  brand_color: '#6d28d9',   // Your color (buttons, highlights). Turas Lúbtha purple until you pick yours.
+  brand_dark: '#1e1b4b',    // Dark color (QR signs, phone status bar). Deep purple until you pick yours.
   brand_name: '',           // Branded look: name shown in the header (blank = business name); first word is big        // offer waiting rides to the closest free driver, who can accept or pass
   clear_customer_info: '00:00',
   map_provider: 'osm',     // where map pictures come from: osm (free, no account), mapbox, maptiler, stadia, thunderforest or google (each needs its key)
@@ -300,7 +300,7 @@ function createApp(db, opts = {}) {
     return str(b.name, 100);
   };
   const RESERVED_PATHS = new Set(['setup', 'admin', 'advisor', 'bdc', 'driver', 'login', 'logout', 'request', 'reset', 't', 's', 'api', 'brand', 'icons', 'js', 'css', 'vendor', 'img', 'healthz', 'sw.js', 'manifest.webmanifest', 'favicon.ico', 'robots.txt']);
-  const brandName = () => { const s = getSettings(); return String(s.brand_name || s.dealer_name || 'Shuttle').trim(); };
+  const brandName = () => { const s = getSettings(); return String(s.brand_name || s.dealer_name || 'Turas Lúbtha').trim(); };
   const asRole = (r) => (r === 'bdc' ? { role: 'advisor', team: 'bdc' } : { role: r, team: null });
   // Several roles: `role` (+ team) is a person's strongest role (admin, then advisor or BDC,
   // then driver), so every admin/advisor check keeps working; the others are in extra_roles.
@@ -622,7 +622,7 @@ function createApp(db, opts = {}) {
         q('INSERT INTO password_resets (token_hash, user_id, expires_at, created_by) VALUES (?, ?, ?, NULL)')
           .run(hashToken(token), user.id, new Date(Date.now() + SELF_RESET_MIN * 60000).toISOString());
         const url = `${base}/reset/${token}`;
-        const dealer = getSettings().dealer_name || 'Shuttle';
+        const dealer = getSettings().dealer_name || 'Turas Lúbtha';
         const jobs = [];
         if (mailOk) {
           jobs.push(mailer.send({ to: user.email, subject: `Reset your ${dealer} shuttle password`,
@@ -786,7 +786,7 @@ function createApp(db, opts = {}) {
     console.log(new Date().toLocaleString(), `[staff] ${req.user.name} approved ${u.name} as ${role}.`);
     const mailOk = mailer.configured && emailOn('approved');
     if (mailOk) {
-      const dealer = getSettings().dealer_name || 'Shuttle';
+      const dealer = getSettings().dealer_name || 'Turas Lúbtha';
       mailer.send({ to: u.email, subject: `Your ${dealer} shuttle account is ready`,
         text: `Hi ${u.name.split(' ')[0]},\n\nYour shuttle account has been approved. Sign in here with your email and the password you chose:\n\n${baseUrl(req)}/login\n\n${dealer} shuttle` })
         .catch((e) => console.error(new Date().toLocaleString(), `[staff] Approval email to ${u.name} failed: ${e.message}`));
@@ -2418,7 +2418,7 @@ function createApp(db, opts = {}) {
   function reportText(d) {
     const s = d.shuttle; const v = d.server; const m = (x) => (x == null ? '—' : `${x} min`); const h = (x) => `${Math.floor(x / 60)}h ${String(x % 60).padStart(2, '0')}m`;
     const lines = [
-      `${getSettings().dealer_name || 'Shuttle'} · daily report for ${new Date(d.day + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}`, '',
+      `${getSettings().dealer_name || 'Turas Lúbtha'} · daily report for ${new Date(d.day + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}`, '',
       'SHUTTLE',
       `Rides: ${s.rides} (${s.pickups} pick ups, ${s.dropoffs} drop offs) · completed ${s.completed} · cancelled ${s.cancelled} · no-shows ${s.no_shows}${s.still_open ? ` · still open ${s.still_open}` : ''}`,
       `People carried: ${s.people} · urgent: ${s.urgent} · online requests: ${s.online_requests}`,
@@ -3158,10 +3158,10 @@ function createApp(db, opts = {}) {
     if (!hook) return { sent: false, error: null };
     const [title, color] = KINDS[kind] || KINDS.help;
     const body = {
-      username: 'Shuttle website', allowed_mentions: { parse: [] }, // never ping @everyone
+      username: 'Turas Lúbtha', allowed_mentions: { parse: [] }, // never ping @everyone
       embeds: [{ title, description: message.slice(0, 3900), color, timestamp: new Date().toISOString(),
         fields: [{ name: 'From', value: from.slice(0, 200), inline: true }, ...(page ? [{ name: 'Page', value: page.slice(0, 200), inline: true }] : [])],
-        footer: { text: getSettings().dealer_name || 'Shuttle' } }],
+        footer: { text: getSettings().dealer_name || 'Turas Lúbtha' } }],
     };
     try {
       const r = await (opts.discordFetch || fetch)(hook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(8000) });
@@ -3479,7 +3479,7 @@ function createApp(db, opts = {}) {
     const dark = /^#[0-9a-f]{6}$/i.test(s.brand_dark || '') ? s.brand_dark : '#111111';
     const v = s.brand_icon_512 ? `?v=${s.brand_icon_v || 1}` : '';
     res.set('Cache-Control', 'no-cache').type('application/manifest+json').send(JSON.stringify({
-      name: `${name} Shuttle`, short_name: name.split(' ')[0].slice(0, 12) || 'Shuttle',
+      name: name === 'Turas Lúbtha' ? name : `${name} · Turas Lúbtha`, short_name: name.split(' ')[0].slice(0, 12) || 'Turas',
       description: `Shuttle rides, pick ups and drop offs for ${name}.`, start_url: '/driver', scope: '/', display: 'standalone',
       background_color: dark, theme_color: dark,
       icons: [{ src: `/brand/icon-192.png${v}`, sizes: '192x192', type: 'image/png' }, { src: `/brand/icon-512.png${v}`, sizes: '512x512', type: 'image/png' },
