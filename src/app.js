@@ -2922,15 +2922,22 @@ function createApp(db, opts = {}) {
   // up with a one-time setup link. Super admins only (the /api/server gate above).
   const bizzes = opts.businesses || null;
   const bizDomain = opts.businessDomain || 'turaslubtha.com';
+  // Under whichever business domain this page was opened from (the Turas Lúbtha domain, or
+  // the shuttle's own address while testing).
+  const bizDomainFor = (req) => {
+    const host = String(req.get('host') || '').toLowerCase().replace(/:\d+$/, '').replace(/^www\./, '');
+    const list = opts.businessDomains ? opts.businessDomains() : [bizDomain];
+    return list.find((d) => host === d || host.endsWith(`.${d}`)) || list[0];
+  };
   const bizUrl = (req, slug) => {
     const host = String(req.get('host') || '').toLowerCase();
-    return /(^|\.)localhost(:\d+)?$/.test(host) ? `http://${slug}.localhost${host.match(/:\d+$/) ? host.match(/:\d+$/)[0] : ''}` : `https://${slug}.${bizDomain}`;
+    return /(^|\.)localhost(:\d+)?$/.test(host) ? `http://${slug}.localhost${host.match(/:\d+$/) ? host.match(/:\d+$/)[0] : ''}` : `https://${slug}.${bizDomainFor(req)}`;
   };
-  const bizOut = (req, d) => ({ ...d, url: bizUrl(req, d.slug), setup_url: d.setup_code ? `${bizUrl(req, d.slug)}/setup?code=${encodeURIComponent(d.setup_code)}` : '' });
+  const bizOut = (req, d) => ({ ...d, url: bizUrl(req, d.slug), also_url: !/localhost/.test(String(req.get('host'))) && bizDomainFor(req) !== bizDomain ? `https://${d.slug}.${bizDomain}` : '', setup_url: d.setup_code ? `${bizUrl(req, d.slug)}/setup?code=${encodeURIComponent(d.setup_code)}` : '' });
   app.get('/api/server/businesses', requireRole('admin'), (req, res) => {
     if (!bizzes) return res.json({ available: false, businesses: [] });
     const { suggestName } = require('./businesses');
-    res.json({ available: true, domain: bizDomain, signin_url: /(^|\.)localhost(:\d+)?$/.test(String(req.get('host') || '')) ? `http://app.localhost${(String(req.get('host')).match(/:\d+$/) || [''])[0]}/` : `https://app.${bizDomain}/`,
+    res.json({ available: true, domain: bizDomainFor(req), signin_url: /(^|\.)localhost(:\d+)?$/.test(String(req.get('host') || '')) ? `http://app.localhost${(String(req.get('host')).match(/:\d+$/) || [''])[0]}/` : `https://app.${bizDomainFor(req)}/`,
       suggest: req.query.name ? suggestName(req.query.name) : undefined,
       businesses: bizzes.list().map((b) => bizzes.details(b.slug)).filter(Boolean).map((d) => bizOut(req, d)) });
   });

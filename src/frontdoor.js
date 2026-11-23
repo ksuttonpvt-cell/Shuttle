@@ -18,8 +18,10 @@ function portOf(req) { const m = String(req.headers.host || '').match(/:(\d+)$/)
 //   { front: true }            app.turaslubtha.com (and app.localhost on this PC)
 //   { slug: 'pinevalley' }     pinevalley.turaslubtha.com (and pinevalley.localhost)
 //   { home: true }             anything else: the PC's own shuttle and the website, as before
+// domain can be a list: businesses also work under the home shuttle's own address while
+// testing (pinevalley.corwinshuttleservice.com as well as pinevalley.turaslubtha.com).
 function routeOf(host, domain) {
-  for (const d of [domain, 'localhost']) {
+  for (const d of [...[].concat(domain || []), 'localhost']) {
     if (!d || !host.endsWith(`.${d}`)) continue;
     const sub = host.slice(0, -(d.length + 1));
     if (!sub || sub.includes('.')) return { home: true };
@@ -30,7 +32,16 @@ function routeOf(host, domain) {
   return { home: true };
 }
 
-function createFrontDoor({ businesses, homeDb, domain, siteDir = path.join(__dirname, '..', 'site'), homeUrl = () => '' }) {
+// Which of the business domains an address is under (the first one when it's none of them).
+function domainFor(host, domains) {
+  const h = String(host || '').toLowerCase().replace(/:\d+$/, '');
+  return domains.find((d) => h === d || h.endsWith(`.${d}`)) || domains[0];
+}
+// The home shuttle's own address (from Settings → Web address), without "www.".
+function hostOfUrl(u) { try { return new URL(u).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; } }
+
+function createFrontDoor({ businesses, homeDb, domain, domains: domainsOf, siteDir = path.join(__dirname, '..', 'site'), homeUrl = () => '' }) {
+  const domains = domainsOf || (() => [domain]);
   const app = express();
   app.set('trust proxy', 'loopback');
   app.disable('x-powered-by');
@@ -52,7 +63,7 @@ function createFrontDoor({ businesses, homeDb, domain, siteDir = path.join(__dir
     if (!slug) return (homeUrl() || '').replace(/\/+$/, '');
     const host = hostOf(req);
     if (host === 'localhost' || host.endsWith('.localhost')) return `http://${slug}.localhost${portOf(req) ? `:${portOf(req)}` : ''}`;
-    return `https://${slug}.${domain}`;
+    return `https://${slug}.${domainFor(host, domains())}`;
   }
   const nameOf = (db, fallback) => {
     try { return (db.prepare("SELECT value FROM settings WHERE key = 'dealer_name'").get() || {}).value || fallback; } catch { return fallback; }
@@ -105,7 +116,9 @@ function createFrontDoor({ businesses, homeDb, domain, siteDir = path.join(__dir
   const fs = require('node:fs');
   const signinPage = (req, res) => {
     const host = hostOf(req);
-    const web = host === 'localhost' || host.endsWith('.localhost') ? `http://website.localhost${portOf(req) ? `:${portOf(req)}` : ''}/` : `https://${domain}/`;
+    const d = domainFor(host, domains());
+    const web = host === 'localhost' || host.endsWith('.localhost') ? `http://website.localhost${portOf(req) ? `:${portOf(req)}` : ''}/`
+      : d === domains()[0] ? `https://${d}/` : `https://${d}/website/`; // under the shuttle's address, the website is at /website/
     fs.readFile(path.join(siteDir, 'signin.html'), 'utf8', (err, html) => {
       if (err) return res.status(500).end();
       res.setHeader('Cache-Control', 'no-cache');
@@ -130,16 +143,17 @@ function notice(res, status, title, text, signin) {
 }
 
 // The one request handler for the whole PC: picks the shared sign-in, a business, or the home app.
-function createRouter({ businesses, frontDoor, homeApp, domain }) {
+function createRouter({ businesses, frontDoor, homeApp, domain, domains: domainsOf }) {
+  const domains = domainsOf || (() => [domain]);
   return (req, res) => {
     const host = hostOf(req);
     const url = String(req.url || '');
     // The shared sign-in's form works from any address (the website's Sign in page, its preview).
     if (url.startsWith('/api/frontdoor/')) return frontDoor(req, res);
-    const r = routeOf(host, domain);
+    const r = routeOf(host, domains());
     if (r.front) return frontDoor(req, res);
     if (r.slug) {
-      const signin = host.endsWith('.localhost') ? `http://app.localhost${portOf(req) ? `:${portOf(req)}` : ''}/` : `https://app.${domain}/`;
+      const signin = host.endsWith('.localhost') ? `http://app.localhost${portOf(req) ? `:${portOf(req)}` : ''}/` : `https://app.${domainFor(host, domains())}/`;
       const b = businesses.row(r.slug);
       if (!b) return notice(res, 404, 'No shuttle here', 'There’s no business at this address. Check the spelling, or sign in and we’ll take you to yours.', signin);
       if (b.paused) return notice(res, 503, 'Paused', 'This business’s shuttle is paused right now. Contact Turas Lúbtha to turn it back on.', signin);
@@ -167,12 +181,18 @@ function createSite({ db, dataDir, domain, bus, openDb, createApp, homeOpts = {}
     businesses.loadAll(); // keep every business's background jobs running
     bus.on('businesses-changed', () => businesses.loadAll());
   }
-  const homeApp = createApp(db, { ...homeOpts, bus, businesses, businessDomain: domain, redeemHandoff: (t) => businesses.redeemHandoff('', t) });
   const urlOfHome = homeUrl || (() => {
     try { return (db.prepare("SELECT value FROM settings WHERE key = 'site_url'").get() || {}).value || process.env.PUBLIC_URL || ''; } catch { return ''; }
   });
-  const frontDoor = createFrontDoor({ businesses, homeDb: db, domain, homeUrl: urlOfHome });
-  return { handler: createRouter({ businesses, frontDoor, homeApp, domain }), businesses, homeApp, frontDoor };
+  // Businesses live under the Turas Lúbtha domain, and also under the home shuttle's own
+  // address (Settings → Web address), so they can be tried before that domain is set up.
+  const domains = () => {
+    const home = hostOfUrl(urlOfHome());
+    return home && home !== domain && !home.endsWith(`.${domain}`) && home !== 'localhost' && home.includes('.') ? [domain, home] : [domain];
+  };
+  const homeApp = createApp(db, { ...homeOpts, bus, businesses, businessDomain: domain, businessDomains: domains, redeemHandoff: (t) => businesses.redeemHandoff('', t) });
+  const frontDoor = createFrontDoor({ businesses, homeDb: db, domain, domains, homeUrl: urlOfHome });
+  return { handler: createRouter({ businesses, frontDoor, homeApp, domain, domains }), businesses, homeApp, frontDoor, domains };
 }
 
-module.exports = { createFrontDoor, createRouter, createSite, routeOf, FRONT_NAMES };
+module.exports = { createFrontDoor, createRouter, createSite, routeOf, domainFor, FRONT_NAMES };

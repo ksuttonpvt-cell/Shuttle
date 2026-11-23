@@ -1685,7 +1685,7 @@
       : b.setup_done ? `<span class="badge b-ok">Ready</span> <span class="small muted">${b.staff} staff</span>`
         : '<span class="badge b-warn">Waiting for setup</span>';
     return `<tr><td><b>${esc(b.name)}</b><div class="small muted">Added ${esc(new Date(b.created_at).toLocaleDateString())}</div></td>
-      <td><a href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.url.replace(/^https?:\/\//, ''))}</a></td>
+      <td><a href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.url.replace(/^https?:\/\//, ''))}</a>${b.also_url ? `<div class="small muted">Later also: ${esc(b.also_url.replace(/^https?:\/\//, ''))}</div>` : ''}</td>
       <td>${status}${b.setup_url ? `<div style="margin-top:.3rem">${copyBtn(b.setup_url, 'Copy setup link')}</div>` : ''}</td>
       <td style="text-align:right"><button type="button" class="btn-ghost btn-sm" data-biz-pause="${esc(b.slug)}" data-paused="${b.paused ? 1 : 0}">${b.paused ? 'Turn back on' : 'Pause'}</button></td></tr>`;
   }
