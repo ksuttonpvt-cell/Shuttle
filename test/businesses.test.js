@@ -212,3 +212,41 @@ test('while testing, businesses also work under the shuttle’s own address', as
   for (const h of ['shuttle.test', 'www.shuttle.test']) assert.equal((await call(h, '/login')).status, 200, h);
   assert.equal((await call('nobody.shuttle.test', '/')).status, 404);
 });
+
+test('with no Web address set, the shuttle’s address is learned when a super admin opens Businesses', async () => {
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-biz2-'));
+  const db2 = seedTestSite(openDb(path.join(dir2, 'shuttle.db')));
+  ensureAdmin(db2, { email: 'boss@home.test', password: 'home-pass-1', name: 'Home Boss' });
+  const site2 = createSite({ db: db2, dataDir: dir2, domain: 'turaslubtha.com', bus: createBus(), openDb, createApp,
+    homeOpts: { noTimers: true, superEmail: 'boss@home.test' }, businessOpts: () => ({ noTimers: true }), homeUrl: () => '' });
+  const srv = await new Promise((r) => { const s = http.createServer(site2.handler).listen(0, () => r(s)); });
+  const p2 = srv.address().port;
+  const ask = (host, p, o = {}) => new Promise((resolve, reject) => {
+    const data = o.body ? JSON.stringify(o.body) : null;
+    const req = http.request({ host: '127.0.0.1', port: p2, path: p, method: data ? 'POST' : 'GET',
+      headers: { Host: host, ...(data ? { 'Content-Type': 'application/json' } : {}), ...(o.cookie ? { Cookie: o.cookie } : {}) } }, (res) => {
+      let t = ''; res.on('data', (d) => { t += d; });
+      res.on('end', () => { let j = null; try { j = JSON.parse(t); } catch { /* page */ }
+        resolve({ status: res.statusCode, data: j, text: t, cookie: (res.headers['set-cookie'] || []).map((c) => c.split(';')[0]).find((c) => c.startsWith('sid=')) }); });
+    });
+    req.on('error', reject); if (data) req.write(data); req.end();
+  });
+  try {
+    assert.deepEqual(site2.domains(), ['turaslubtha.com']);
+    const boss = (await ask('myshuttle.test', '/api/login', { body: { email: 'boss@home.test', password: 'home-pass-1' } })).cookie;
+    // A visitor can't teach it an address; only a super admin opening Businesses does.
+    await ask('evil.test', '/login');
+    assert.deepEqual(site2.domains(), ['turaslubtha.com']);
+    const list = (await ask('www.myshuttle.test', '/api/server/businesses', { cookie: boss })).data;
+    assert.equal(list.domain, 'myshuttle.test');
+    assert.equal(list.signin_url, 'https://app.myshuttle.test/');
+    assert.deepEqual(site2.domains(), ['turaslubtha.com', 'myshuttle.test']);
+    const made = (await ask('myshuttle.test', '/api/server/businesses', { cookie: boss, body: { name: 'Demo Valley', slug: 'demovalley' } })).data.business;
+    assert.equal(made.url, 'https://demovalley.myshuttle.test');
+    assert.match(made.setup_url, /^https:\/\/demovalley\.myshuttle\.test\/setup\?code=/);
+    assert.equal((await ask('demovalley.myshuttle.test', '/setup')).status, 200, 'the business answers at its address under the shuttle');
+    assert.equal((await ask('nobody.myshuttle.test', '/')).status, 404);
+    assert.match((await ask('app.myshuttle.test', '/')).text, /api\/frontdoor\/signin/);
+    assert.equal((await ask('myshuttle.test', '/login')).status, 200, 'the shuttle itself is unchanged');
+  } finally { srv.close(); site2.businesses.close(); fs.rmSync(dir2, { recursive: true, force: true }); }
+});

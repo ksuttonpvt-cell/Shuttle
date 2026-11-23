@@ -50,6 +50,10 @@ function createBusinesses({ dataDir, openDb, makeApp, log = () => {} }) {
       created_by TEXT,
       paused     INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS meta (      -- small facts about this PC, like the shuttle's own address
+      key   TEXT PRIMARY KEY,
+      value TEXT
+    );
     CREATE TABLE IF NOT EXISTS handoffs (  -- one-time sign-ins from the shared sign-in page; last 60 seconds
       token_hash TEXT PRIMARY KEY,
       slug       TEXT NOT NULL,            -- '' is the home business
@@ -134,8 +138,11 @@ function createBusinesses({ dataDir, openDb, makeApp, log = () => {} }) {
     return r.user_id;
   }
 
+  const getMeta = (k) => (dir.prepare('SELECT value FROM meta WHERE key = ?').get(k) || {}).value || '';
+  const setMeta = (k, v) => dir.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
+
   return {
-    dirFile, list, row, load, create, setPaused, details, makeHandoff, redeemHandoff,
+    dirFile, list, getMeta, setMeta, row, load, create, setPaused, details, makeHandoff, redeemHandoff,
     loaded: () => [...loaded.values()],
     // The copy of the site that runs background jobs keeps every business loaded, so each
     // one's timers (ride offers, nightly clearing, backups, daily reports) keep running.
