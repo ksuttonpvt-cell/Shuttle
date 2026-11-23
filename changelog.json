@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.3.3",
+    "date": "2026-11-23",
+    "title": "Website sign-in sends you to your own shuttle",
+    "changes": [
+      "The Sign in page on the Turas Lúbtha website now asks for your shuttle's address and takes you straight to its login page. It can remember the address on that device, so next time it's one tap."
+    ]
+  },
+  {
     "version": "3.3.2",
     "date": "2026-11-23",
     "title": "Preview the website on your shuttle address",
