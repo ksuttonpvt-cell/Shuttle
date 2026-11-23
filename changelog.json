@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.2.3",
+    "date": "2026-11-23",
+    "title": "Coming soon: Turas Lúbtha",
+    "changes": [
+      "The sign-in page now says the shuttle site is becoming Turas Lúbtha, its new name."
+    ]
+  },
+  {
     "version": "3.2.2",
     "date": "2026-11-22",
     "title": "Updates now refresh Shuttle Control too",

@@ -865,3 +865,10 @@ body.drawer-open { overflow: hidden; }
 @media (max-width: 899px) { body:has(> .topbar) .ride-alert { top: 68px; } }
 /* An open menu under your name sits above alerts and ride offers. */
 .topbar:has(.acct-menu:not([hidden])) { z-index: 3100; }
+
+/* Sign-in page: the new name is on its way */
+.rename-note { display: inline-flex; align-items: center; gap: .5rem; flex-wrap: wrap; justify-content: center; margin-top: .8rem; padding: .4rem .5rem .4rem .45rem; border-radius: 99px; background: color-mix(in srgb, #6d28d9 9%, var(--card)); font-size: .85rem; color: var(--ink); }
+.rename-note b { color: #6d28d9; }
+.rename-pill { background: #6d28d9; color: #fff; font-size: .7rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; padding: .15rem .55rem; border-radius: 99px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .rename-note b { color: #b79bff; } }
+:root[data-theme="dark"] .rename-note b { color: #b79bff; }
