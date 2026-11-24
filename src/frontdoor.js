@@ -176,8 +176,8 @@ function createRouter({ businesses, frontDoor, homeApp, domain, domains: domains
 
 // Everything the PC serves, wired together: the home shuttle, every hosted business (each with
 // its own database and private messages) and the shared sign-in. server.js and the tests use this.
-function createSite({ db, dataDir, domain, bus, openDb, createApp, homeOpts = {}, businessOpts = () => ({}), homeUrl, log = () => {} }) {
-  const { createBusinesses, scopedBus } = require('./businesses');
+function createSite({ db, dataDir, domain, bus, openDb, createApp, homeOpts = {}, businessOpts = () => ({}), homeUrl, homeName = process.env.HOME_NAME || 'shuttle', log = () => {} }) {
+  const { createBusinesses, scopedBus, checkName } = require('./businesses');
   const businesses = createBusinesses({
     dataDir, openDb, log,
     makeApp: (slug, bdb, file) => createApp(bdb, {
@@ -186,6 +186,12 @@ function createSite({ db, dataDir, domain, bus, openDb, createApp, homeOpts = {}
       redeemHandoff: (t) => businesses.redeemHandoff(slug, t),
     }),
   });
+  // This PC's own shuttle always has a Turas Lúbtha name (shuttle.turaslubtha.com unless one
+  // was picked on Server → Businesses), so it can be reached there with no other address set up.
+  if (!businesses.getMeta('home_slug') && homeName) {
+    const c = checkName(homeName);
+    if (!c.error && !businesses.row(c.slug)) businesses.setMeta('home_slug', c.slug);
+  }
   if (bus.jobs) {
     businesses.loadAll(); // keep every business's background jobs running
     bus.on('businesses-changed', () => businesses.loadAll());

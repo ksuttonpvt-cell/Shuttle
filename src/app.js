@@ -308,6 +308,15 @@ function createApp(db, opts = {}) {
   const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
   function baseUrl(req) {
     let base = (opts.publicUrl || getSettings().site_url || process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get('host')}`).trim().replace(/\/+$/, '');
+    // Opened at a Turas Lúbtha address (shuttle.turaslubtha.com) while the saved address is
+    // somewhere else (an old one that may be switched off): links use the address that works.
+    if (opts.businessDomain) {
+      const d = opts.businessDomain;
+      const under = (h) => h === d || h.endsWith(`.${d}`);
+      const reqHost = String(req.get('host') || '').toLowerCase().replace(/:\d+$/, '');
+      let baseHost = ''; try { baseHost = new URL(base).hostname.toLowerCase(); } catch { /* not a full address */ }
+      if (under(reqHost) && !under(baseHost)) base = `${req.protocol}://${req.get('host')}`;
+    }
     // A web address set as http:// (e.g. in .env) becomes https:// for visitors who came over https.
     if (req.secure && /^http:\/\//i.test(base)) base = `https://${base.slice(7)}`;
     return base;
