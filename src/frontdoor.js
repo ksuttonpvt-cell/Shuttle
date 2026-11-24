@@ -60,8 +60,15 @@ function createFrontDoor({ businesses, homeDb, domain, domains: domainsOf, siteD
 
   // Where a business lives, as a full address the browser can go to.
   function baseFor(req, slug) {
-    if (!slug) return (homeUrl() || '').replace(/\/+$/, '');
     const host = hostOf(req);
+    if (!slug) {
+      // This PC's own shuttle: at its Turas Lúbtha name when signing in there, else its own address.
+      const hs = businesses.getMeta('home_slug');
+      const local = host === 'localhost' || host.endsWith('.localhost');
+      if (hs && !local && domainFor(host, domains()) === domains()[0]) return `https://${hs}.${domains()[0]}`;
+      const hh = businesses.getMeta('home_host');
+      return (homeUrl() || (hh ? `https://${hh}` : '') || (hs ? `https://${hs}.${domains()[0]}` : '')).replace(/\/+$/, '');
+    }
     if (host === 'localhost' || host.endsWith('.localhost')) return `http://${slug}.localhost${portOf(req) ? `:${portOf(req)}` : ''}`;
     return `https://${slug}.${domainFor(host, domains())}`;
   }
@@ -152,6 +159,8 @@ function createRouter({ businesses, frontDoor, homeApp, domain, domains: domains
     if (url.startsWith('/api/frontdoor/')) return frontDoor(req, res);
     const r = routeOf(host, domains());
     if (r.front) return frontDoor(req, res);
+    // This PC's own shuttle under its Turas Lúbtha name (Server → Businesses → This shuttle).
+    if (r.slug && r.slug === businesses.getMeta('home_slug')) return homeApp(req, res);
     if (r.slug) {
       const signin = host.endsWith('.localhost') ? `http://app.localhost${portOf(req) ? `:${portOf(req)}` : ''}/` : `https://app.${domainFor(host, domains())}/`;
       const b = businesses.row(r.slug);

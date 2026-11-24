@@ -250,3 +250,32 @@ test('with no Web address set, the shuttle’s address is learned when a super a
     assert.equal((await ask('myshuttle.test', '/login')).status, 200, 'the shuttle itself is unchanged');
   } finally { srv.close(); site2.businesses.close(); fs.rmSync(dir2, { recursive: true, force: true }); }
 });
+
+test('this shuttle gets a Turas Lúbtha name too; its old address keeps working', async () => {
+  const boss = await signIn(HOME, 'boss@home.test', 'home-pass-1');
+  for (const bad of ['pinevalley', 'app', 'x']) assert.equal((await call(HOME, '/api/server/businesses/home', { cookie: boss, body: { slug: bad } })).status, 400, bad);
+  const set = await call(HOME, '/api/server/businesses/home', { cookie: boss, body: { slug: 'Hometown' } });
+  assert.equal(set.status, 200, set.text);
+  assert.deepEqual([set.data.home.slug, set.data.home.url, set.data.home.links_use_it], ['hometown', 'https://hometown.turaslubtha.com', false]);
+  // Same shuttle, same people, at both addresses.
+  assert.ok(await signIn('hometown.turaslubtha.com', 'boss@home.test', 'home-pass-1'), 'signs in at the new name');
+  assert.ok(await signIn('hometown.shuttle.test', 'boss@home.test', 'home-pass-1'));
+  assert.equal((await call(HOME, '/login')).status, 200, 'old address still works');
+  // A business can't take that name.
+  assert.equal((await call(HOME, '/api/server/businesses', { cookie: boss, body: { name: 'Copycat', slug: 'hometown' } })).status, 400);
+  // The shared sign-in at turaslubtha.com sends this shuttle's people to the new name.
+  const r = await call('app.turaslubtha.com', '/api/frontdoor/signin', { body: { email: 'boss@home.test', password: 'home-pass-1' } });
+  assert.match(r.data.go, /^https:\/\/hometown\.turaslubtha\.com\/auth\/handoff\?t=/);
+  const landed = await call('hometown.turaslubtha.com', `/auth/handoff${new URL(r.data.go).search}`);
+  assert.equal(landed.location, '/');
+  // New links and QR codes: switch to the new name, and back.
+  const links = await call(HOME, '/api/server/businesses/home/links', { cookie: boss, body: { use: true } });
+  assert.equal(links.data.home.links_use_it, true);
+  assert.equal(homeDb.prepare("SELECT value FROM settings WHERE key = 'site_url'").get().value, 'https://hometown.turaslubtha.com');
+  const back = await call(HOME, '/api/server/businesses/home/links', { cookie: boss, body: { use: false } });
+  assert.equal(back.data.home.links_use_it, false);
+  assert.equal(homeDb.prepare("SELECT value FROM settings WHERE key = 'site_url'").get().value, 'https://shuttle.test');
+  // Only super admins.
+  const pat = await signIn('pinevalley.localhost', 'pat@pinevalley.test', 'pine-pass-1');
+  assert.equal((await call('pinevalley.localhost', '/api/server/businesses/home', { cookie: pat, body: { slug: 'mine' } })).status, 403);
+});
