@@ -56,6 +56,19 @@ function createBusinesses({ dataDir, openDb, makeApp, log = () => {} }) {
       key   TEXT PRIMARY KEY,
       value TEXT
     );
+    CREATE TABLE IF NOT EXISTS demo_requests ( -- "Book a demo" on the website; kept until deleted on Server → Demo requests
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at TEXT NOT NULL,
+      name       TEXT NOT NULL,
+      business   TEXT NOT NULL,
+      email      TEXT NOT NULL,
+      phone      TEXT,
+      kind       TEXT,
+      vans       TEXT,
+      best_time  TEXT,
+      message    TEXT,
+      status     TEXT NOT NULL DEFAULT 'new' -- new | contacted
+    );
     CREATE TABLE IF NOT EXISTS handoffs (  -- one-time sign-ins from the shared sign-in page; last 60 seconds
       token_hash TEXT PRIMARY KEY,
       slug       TEXT NOT NULL,            -- '' is the home business
@@ -143,8 +156,27 @@ function createBusinesses({ dataDir, openDb, makeApp, log = () => {} }) {
   const getMeta = (k) => (dir.prepare('SELECT value FROM meta WHERE key = ?').get(k) || {}).value || '';
   const setMeta = (k, v) => dir.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
 
+  // ---------- "Book a demo" requests ----------
+  const demoListeners = [];
+  function addDemo(d) {
+    const id = Number(dir.prepare(`INSERT INTO demo_requests (created_at, name, business, email, phone, kind, vans, best_time, message)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(now(), d.name, d.business, d.email, d.phone || null, d.kind || null, d.vans || null, d.best_time || null, d.message || null).lastInsertRowid);
+    const row = dir.prepare('SELECT * FROM demo_requests WHERE id = ?').get(id);
+    for (const fn of demoListeners) { try { fn(row); } catch (e) { log(`Demo request notice failed: ${e.message}`); } }
+    return row;
+  }
+  const demos = {
+    add: addDemo,
+    list: () => dir.prepare('SELECT * FROM demo_requests ORDER BY id DESC LIMIT 500').all(),
+    countNew: () => dir.prepare("SELECT COUNT(*) AS n FROM demo_requests WHERE status = 'new'").get().n,
+    countSince: (iso) => dir.prepare('SELECT COUNT(*) AS n FROM demo_requests WHERE created_at > ?').get(iso).n,
+    setStatus: (id, status) => dir.prepare('UPDATE demo_requests SET status = ? WHERE id = ?').run(status, id).changes > 0,
+    remove: (id) => dir.prepare('DELETE FROM demo_requests WHERE id = ?').run(id).changes > 0,
+    onNew: (fn) => { demoListeners.push(fn); },
+  };
+
   return {
-    dirFile, list, getMeta, setMeta, row, load, create, setPaused, details, makeHandoff, redeemHandoff,
+    dirFile, list, getMeta, setMeta, demos, row, load, create, setPaused, details, makeHandoff, redeemHandoff,
     loaded: () => [...loaded.values()],
     // The copy of the site that runs background jobs keeps every business loaded, so each
     // one's timers (ride offers, nightly clearing, backups, daily reports) keep running.

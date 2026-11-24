@@ -210,3 +210,33 @@ test('this shuttle is at turaslubtha.com/shuttle, and can be renamed', async () 
   const pat = await signIn(SITE, '/pinevalley', 'pat@pinevalley.test', 'pine-pass-1');
   assert.equal((await call(SITE, '/pinevalley/api/server/businesses/home', { cookie: pat, body: { slug: 'mine' } })).status, 403);
 });
+
+test('“Book a demo” on the website: saved for super admins, safe from robots', async () => {
+  const page = await call(SITE, '/demo');
+  assert.equal(page.status, 200);
+  assert.match(page.text, /api\/frontdoor\/demo/);
+  assert.match((await call(SITE, '/')).text, /href="demo\.html"/, 'the home page links to it');
+  const good = { name: 'Riley Buyer', business: 'Lakeview Motors', email: 'riley@lakeview.test', phone: '(555) 010-2000', kind: 'dealership', vans: '2-3', best_time: 'mornings', message: 'Two vans, busy Mondays.' };
+  assert.equal((await call(SITE, '/api/frontdoor/demo', { body: { ...good, email: 'nope' } })).status, 400);
+  assert.equal((await call(SITE, '/api/frontdoor/demo', { body: { ...good, business: '' } })).status, 400);
+  const ok = await call(SITE, '/api/frontdoor/demo', { body: { ...good, kind: 'spaceship', vans: '99' } });
+  assert.deepEqual([ok.status, ok.data], [200, { ok: true }]);
+  // A robot that fills the hidden field is told "thanks" but nothing is saved.
+  assert.equal((await call(SITE, '/api/frontdoor/demo', { body: { ...good, name: 'Bot', company_website: 'http://spam.test' } })).status, 200);
+  const boss = await signIn(HOME, '', 'boss@home.test', 'home-pass-1');
+  const list = (await call(HOME, '/api/server/demos', { cookie: boss })).data;
+  assert.equal(list.new, 1);
+  assert.equal(list.demos.length, 1);
+  const r = list.demos[0];
+  assert.deepEqual([r.name, r.business, r.email, r.kind, r.vans, r.status], ['Riley Buyer', 'Lakeview Motors', 'riley@lakeview.test', 'other', null, 'new'], 'unknown choices are cleaned up');
+  assert.equal((await call(HOME, `/api/server/demos/${r.id}`, { cookie: boss, body: { status: 'contacted' } })).status, 200);
+  assert.equal((await call(HOME, '/api/server/demos', { cookie: boss })).data.new, 0);
+  // Business owners never see them.
+  const pat = await signIn(SITE, '/pinevalley', 'pat@pinevalley.test', 'pine-pass-1');
+  assert.equal((await call(SITE, '/pinevalley/api/server/demos', { cookie: pat })).status, 403);
+  assert.equal((await call(HOME, `/api/server/demos/${r.id}`, { cookie: boss, method: 'DELETE' })).status, 200);
+  assert.equal((await call(HOME, '/api/server/demos', { cookie: boss })).data.demos.length, 0);
+  // Too many from one address.
+  for (let i = 0; i < 6; i++) await call(SITE, '/api/frontdoor/demo', { body: { ...good, name: `Again ${i}` } });
+  assert.equal((await call(SITE, '/api/frontdoor/demo', { body: good })).status, 429);
+});

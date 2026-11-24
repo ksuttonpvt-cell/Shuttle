@@ -82,6 +82,7 @@ Every business lives at its own path on the website's address: **turaslubtha.com
 | Address | What it is |
 |---|---|
 | turaslubtha.com | The website |
+| turaslubtha.com/demo | Book a demo. Requests show on Manager → Server → Demo requests (super admins get a notification) |
 | turaslubtha.com/signin | One sign-in for everyone: email + password, then straight into your own business |
 | turaslubtha.com/shuttle | This PC's own shuttle (rename it on Manager → Server → Businesses → This shuttle) |
 | turaslubtha.com/<name> | Each other business, its own separate section |

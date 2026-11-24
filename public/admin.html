@@ -518,6 +518,11 @@
   <section data-pane="server" class="grid hidden">
     <div class="stats" id="srvStats"></div>
     <div class="grid cols-2">
+      <div class="card" style="grid-column:1/-1" id="demoCard" hidden>
+        <div class="card-head"><h2>Demo requests <span class="badge b-warn" id="demoNew" hidden></span></h2><span class="small muted">From “Book a demo” on the website</span></div>
+        <div id="demoMsg"></div>
+        <div id="demoList"></div>
+      </div>
       <div class="card" style="grid-column:1/-1" id="bizCard" hidden>
         <div class="card-head"><h2>Businesses on this PC</h2><span class="small muted" id="bizSignin"></span></div>
         <p class="small muted" style="margin-top:0">Each business you add gets its own separate space: its own staff, rides, customers, settings and backups. Nothing is shared with this shuttle or any other business. Its people sign in at the shared sign-in page and land in their own business.</p>
@@ -1767,7 +1772,42 @@
     catch (err) { App.flash($('#bizMsg'), err.message); p.disabled = false; }
   });
 
-  loaders.server = () => { loadBiz().catch((err) => App.flash($('#bizMsg'), err.message)); loadDaily().catch(() => {}); loadPerf().catch((err) => { $('#perfOut').textContent = err.message; }); loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
+  // ---------- Demo requests ----------
+  const DEMO_KIND = { dealership: 'Car dealership', hotel: 'Hotel', parking: 'Airport parking', other: 'Other' };
+  async function loadDemos() {
+    const d = await api('/api/server/demos');
+    $('#demoCard').hidden = !d.available;
+    if (!d.available) return;
+    $('#demoNew').hidden = !d.new; $('#demoNew').textContent = `${d.new} new`;
+    $('#demoList').innerHTML = !d.demos.length ? '<p class="small muted">No requests yet. They show up here when someone fills in “Book a demo” on the website.</p>'
+      : d.demos.map((r) => `<div class="demo-row${r.status === 'new' ? ' is-new' : ''}" data-demo="${r.id}">
+          <div class="demo-main">
+            <div><b>${esc(r.name)}</b> · ${esc(r.business)} ${r.status === 'new' ? '<span class="badge b-warn">New</span>' : '<span class="badge b-ok">Contacted</span>'}</div>
+            <div class="small"><a href="mailto:${esc(r.email)}?subject=${encodeURIComponent('Your Turas Lúbtha demo')}">${esc(r.email)}</a>${r.phone ? ` · <a href="tel:${esc(r.phone.replace(/[^0-9+]/g, ''))}">${esc(r.phone)}</a>` : ''}</div>
+            <div class="small muted">${esc(DEMO_KIND[r.kind] || 'Other')}${r.vans ? ` · ${esc(r.vans)} vans` : ''}${r.best_time ? ` · Best time: ${esc(r.best_time)}` : ''} · ${esc(new Date(r.created_at).toLocaleString())}</div>
+            ${r.message ? `<div class="small demo-msg">${esc(r.message)}</div>` : ''}
+          </div>
+          <div class="demo-acts">
+            <button type="button" class="btn-ghost btn-sm" data-demo-status="${r.status === 'new' ? 'contacted' : 'new'}">${r.status === 'new' ? 'Mark contacted' : 'Mark new'}</button>
+            <button type="button" class="btn-ghost btn-sm btn-danger-text" data-demo-delete>Delete</button>
+          </div>
+        </div>`).join('');
+  }
+  $('#demoCard').addEventListener('click', async (e) => {
+    const row = e.target.closest('[data-demo]'); if (!row) return;
+    const id = row.dataset.demo;
+    const st = e.target.closest('[data-demo-status]');
+    const del = e.target.closest('[data-demo-delete]');
+    if (!st && !del) return;
+    if (del && !confirm('Delete this demo request? Their details are removed for good.')) return;
+    try {
+      if (st) await api(`/api/server/demos/${id}`, { body: { status: st.dataset.demoStatus } });
+      else await api(`/api/server/demos/${id}`, { method: 'DELETE' });
+      await loadDemos();
+    } catch (err) { App.flash($('#demoMsg'), err.message); }
+  });
+
+  loaders.server = () => { loadDemos().catch((err) => App.flash($('#demoMsg'), err.message)); loadBiz().catch((err) => App.flash($('#bizMsg'), err.message)); loadDaily().catch(() => {}); loadPerf().catch((err) => { $('#perfOut').textContent = err.message; }); loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
   setInterval(() => { if (serverVisible()) { loadServer().catch(() => {}); if ($('#srvLive').checked) loadLog().catch(() => {}); } }, 5000);
   setInterval(() => { if (serverVisible()) loadChecks(); }, 60000);
 

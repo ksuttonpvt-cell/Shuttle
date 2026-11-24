@@ -272,3 +272,20 @@ html.js .reveal.in { opacity: 1; transform: none; }
 .go-row input { padding-left: 16px; }
 .go-row input:disabled, .btn:disabled { opacity: .7; }
 [hidden] { display: none !important; }
+
+/* Book a demo */
+.demo-page .lede { font-size: 18px; color: var(--muted); margin-bottom: 28px; }
+.demo-form { display: grid; gap: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px; box-shadow: var(--shadow); }
+.demo-form .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.demo-form .pair > * { min-width: 0; }
+.demo-form label { display: block; font-weight: 600; font-size: 15px; margin-bottom: 6px; color: var(--ink); }
+.demo-form input, .demo-form select, .demo-form textarea { width: 100%; font: inherit; font-size: 16px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.demo-form textarea { resize: vertical; min-height: 110px; }
+.demo-form input:focus, .demo-form select:focus, .demo-form textarea:focus { outline: 2px solid var(--purple); outline-offset: 1px; border-color: transparent; }
+.demo-form .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.demo-form .fine { font-size: 14px; color: var(--muted); margin: 0; }
+.demo-err { color: #b42318; margin: 0; font-weight: 600; }
+html[data-theme="dark"] .demo-err { color: #ffb4a8; }
+.demo-done { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px; }
+.demo-done h2 { margin-top: 0; }
+@media (max-width: 620px) { .demo-form { padding: 20px; } .demo-form .pair { grid-template-columns: 1fr; } }

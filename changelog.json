@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.7.0",
+    "date": "2026-11-24",
+    "title": "Book a demo form",
+    "changes": [
+      "The website's “Book a demo” buttons open a short form (turaslubtha.com/demo): name, business, email, phone, kind of business, number of vans, best time and a note.",
+      "Requests are saved on this PC and listed on Server → Demo requests, with Mark contacted and Delete. Super admins get a notification (and an email, if email is set up).",
+      "Robots are kept out with a hidden field and limits per visitor."
+    ]
+  },
+  {
     "version": "3.6.0",
     "date": "2026-11-24",
     "title": "Every business at turaslubtha.com/<name>",
