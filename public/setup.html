@@ -77,7 +77,7 @@
 (async () => {
   const { $, api, esc } = App;
   const info = await api('/api/setup');
-  if (info.done) { location.href = '/'; return; }
+  if (info.done) { App.go('/'); return; }
   const f = $('#f');
   // Signed in already (the first manager came from the .env file): no account step.
   if (!info.need_admin) { const s = f.querySelector('[data-step="you"]'); s.remove(); }

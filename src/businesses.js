@@ -15,7 +15,9 @@ const { DatabaseSync } = require('node:sqlite');
 const NAME_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
 // Names that are other parts of the system (or easy to mistake for them).
 const RESERVED = new Set(['app', 'www', 'website', 'mail', 'email', 'smtp', 'api', 'admin', 'home', 'login', 'signin', 'sign-in',
-  'help', 'support', 'status', 'docs', 'blog', 'static', 'cdn', 'assets', 'ftp', 'ns1', 'ns2', 'turaslubtha', 'turas', 'demo', 'test']);
+  'help', 'support', 'status', 'docs', 'blog', 'static', 'cdn', 'assets', 'ftp', 'ns1', 'ns2', 'turaslubtha', 'turas', 'demo', 'test',
+  // pages and folders of the website itself (turaslubtha.com/<name> is a business)
+  'index', 'privacy', 'terms', '404', 'css', 'js', 'img', 'icons', 'brand', 'vendor', 'auth', 'setup', 'reset', 'logout', 'healthz', 'pricing', 'features', 'about', 'contact']);
 const HANDOFF_SECONDS = 60;
 const hash = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
 

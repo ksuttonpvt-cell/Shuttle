@@ -3,6 +3,9 @@ const App = (() => {
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+  // When a business runs under a path (turaslubtha.com/pinevalley), page addresses go under it.
+  const url = (u) => (window.__tlFix ? window.__tlFix(u) : u);
+  const go = (u) => { location.href = url(u); };
 
   // Talks to the server. Gives up after 20 s, and turns network trouble into plain words.
   // A banner appears while the server can't be reached and goes away when it's back.
@@ -41,7 +44,7 @@ const App = (() => {
     // 502/503/504/530 come from Cloudflare when the shuttle server itself is off or unreachable.
     if ([502, 503, 504, 520, 521, 522, 523, 524, 530].includes(res.status)) { connection(false); throw new Error("The shuttle server isn't responding right now. It may be restarting. Try again in a minute."); }
     connection(true);
-    if (res.status === 401 && !opts.allow401) { location.href = '/login?next=' + encodeURIComponent(location.pathname); throw new Error('Please sign in.'); }
+    if (res.status === 401 && !opts.allow401) { go('/login?next=' + encodeURIComponent(location.pathname)); throw new Error('Please sign in.'); }
     if (!res.ok) throw new Error(data.error || `Something went wrong (${res.status}). Please try again.`);
     return data;
   }
@@ -143,9 +146,9 @@ const App = (() => {
     const { user, settings, base_url, version } = await api('/api/me');
     App.baseUrl = base_url; App.version = version || null;
     // Leaving the page: wait here instead of failing, so nothing half-loads or reports an error.
-    if (!user) { location.href = '/login?next=' + encodeURIComponent(location.pathname); return new Promise(() => {}); }
+    if (!user) { go('/login?next=' + encodeURIComponent(location.pathname)); return new Promise(() => {}); }
     const can = user.can || [user.role]; // every role they have (several for some people)
-    if (roles.length && !roles.some((r) => can.includes(r))) { location.href = user.home || '/' + user.role; return new Promise(() => {}); }
+    if (roles.length && !roles.some((r) => can.includes(r))) { go(user.home || '/' + user.role); return new Promise(() => {}); }
     App.user = user; App.settings = settings;
     renderTopbar(user, settings);
     return user;
@@ -186,7 +189,7 @@ const App = (() => {
       if (roles.includes('bdc') && !roles.includes('advisor')) links.push(PAGE.advisor); // BDC can use the advisor desk too
       if (links.length < 2) links.length = 0;
     }
-    const link = ([href, label, ic]) => `<a href="${href}" class="${location.pathname === href ? 'active' : ''}"${location.pathname === href ? ' aria-current="page"' : ''}>${icon(ic)}<span>${label}</span></a>`;
+    const link = ([href, label, ic]) => `<a href="${url(href)}" class="${location.pathname === url(href) ? 'active' : ''}"${location.pathname === url(href) ? ' aria-current="page"' : ''}>${icon(ic)}<span>${label}</span></a>`;
     const nav = links.map(link).join('');
     const roleText = (user.roles || [user.role]).map((r) => ROLE_NAME[r] || r).join(' + ');
     const isNew = App.version && seenVersion() !== App.version;
@@ -218,7 +221,7 @@ const App = (() => {
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !menu.hidden) { setMenu(false); acct.focus(); } });
     const pick = (fn) => () => { setMenu(false); fn(); };
     if ($('#verBtn')) $('#verBtn').onclick = pick(() => whatsNew());
-    $('#logoutBtn').onclick = async () => { await api('/api/logout', { body: {} }); location.href = '/login'; };
+    $('#logoutBtn').onclick = async () => { await api('/api/logout', { body: {} }); go('/login'); };
     applyBrand(settings.dealer_name);
     $('#pwBtn').onclick = pick(changePassword);
     $('#helpBtn').onclick = pick(() => helpWindow(settings));
@@ -924,7 +927,7 @@ const App = (() => {
   }
 
   return {
-    whatsNew, esc, $, $$, api, requireUser, pageNav, icon, testMapKey, MAP_SERVICES, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
+    whatsNew, esc, $, $$, url, go, api, requireUser, pageNav, icon, testMapKey, MAP_SERVICES, modal, flash, fmtTime, relTime, statusBadge, typeBadge, toLocalInput,
     brandMark, applyBrand, place, Place, endOfToday, stepper, pickPhoto, waitMeter, tacoRain, live, liveState, directionsUrl, navUrl, navApp, setNavApp, NAV_APPS, telLink, cancelRide, cancelNote, makeMap, pinIcon, carIcon, dealerMarker, ridesLayer, addressPicker, share, rideMessage, poll, liveDrivers, routeUrl, glide, vanIcon, typeChips, milesFromDealer, distanceNote,
     STATUS_LABEL, TYPE_LABEL,
   };

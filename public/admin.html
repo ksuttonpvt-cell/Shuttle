@@ -523,10 +523,10 @@
         <p class="small muted" style="margin-top:0">Each business you add gets its own separate space: its own staff, rides, customers, settings and backups. Nothing is shared with this shuttle or any other business. Its people sign in at the shared sign-in page and land in their own business.</p>
         <div class="home-name" id="homeName">
           <h3 style="margin:0 0 .2rem">This shuttle</h3>
-          <p class="small muted" style="margin:0 0 .5rem">Give it a Turas Lúbtha address too. Its current address keeps working, so links and QR codes you already handed out don't break. Same staff and rides; nothing moves.</p>
+          <p class="small muted" style="margin:0 0 .5rem">Its Turas Lúbtha address. Its current address keeps working, so links and QR codes you already handed out don't break. Same staff and rides; nothing moves.</p>
           <form id="homeForm" class="linkbox" style="align-items:end;gap:.6rem;flex-wrap:wrap">
             <div style="flex:2;min-width:220px"><label for="homeSlug">Turas Lúbtha address</label>
-              <div class="addr-in"><input id="homeSlug" name="slug" required maxlength="32" placeholder="yourname" autocomplete="off" autocapitalize="off" spellcheck="false"><span class="addr-domain" data-main-domain>.turaslubtha.com</span></div></div>
+              <div class="addr-in"><span class="addr-domain" data-main-domain>turaslubtha.com/</span><input id="homeSlug" name="slug" required maxlength="32" placeholder="shuttle" autocomplete="off" autocapitalize="off" spellcheck="false"></div></div>
             <button class="btn-blue">Save</button>
           </form>
           <div id="homeMsg"></div>
@@ -536,7 +536,7 @@
         <form id="bizForm" class="linkbox" style="align-items:end;gap:.6rem;flex-wrap:wrap">
           <div style="flex:2;min-width:200px"><label for="bizName">Business name</label><input id="bizName" name="name" required maxlength="120" placeholder="Pine Valley Auto" autocomplete="off"></div>
           <div style="flex:2;min-width:220px"><label for="bizSlug">Web address</label>
-            <div class="addr-in"><input id="bizSlug" name="slug" required maxlength="32" placeholder="pinevalley" autocomplete="off" autocapitalize="off" spellcheck="false"><span class="addr-domain" id="bizDomain">.turaslubtha.com</span></div></div>
+            <div class="addr-in"><span class="addr-domain" id="bizDomain">turaslubtha.com/</span><input id="bizSlug" name="slug" required maxlength="32" placeholder="pinevalley" autocomplete="off" autocapitalize="off" spellcheck="false"></div></div>
           <button class="btn-blue">Add business</button>
         </form>
         <div id="bizMsg"></div>
@@ -1703,7 +1703,7 @@
   }
   const bare = (u) => String(u || '').replace(/^https?:\/\//, '');
   function showHome(h, mainDomain) {
-    document.querySelectorAll('[data-main-domain]').forEach((el) => { el.textContent = `.${mainDomain}`; });
+    document.querySelectorAll('[data-main-domain]').forEach((el) => { el.textContent = `${mainDomain}/`; });
     if (h.slug && document.activeElement !== $('#homeSlug')) $('#homeSlug').value = h.slug;
     if (!h.slug) { $('#homeInfo').innerHTML = ''; return; }
     const old = h.old_url ? ` · still at <a href="${esc(h.old_url)}" target="_blank" rel="noopener">${esc(bare(h.old_url))}</a>` : '';
@@ -1717,7 +1717,7 @@
     $('#bizCard').hidden = !d.available;
     if (!d.available) return;
     showHome(d.home || {}, d.main_domain || 'turaslubtha.com');
-    $('#bizDomain').textContent = `.${d.domain}`;
+    $('#bizDomain').textContent = `${bare(d.site || d.domain)}/`;
     $('#bizSignin').innerHTML = `Sign-in page: <a href="${esc(d.signin_url)}" target="_blank" rel="noopener">${esc(d.signin_url.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`;
     $('#bizList').innerHTML = d.businesses.length
       ? `<table><thead><tr><th>Business</th><th>Address</th><th>Status</th><th></th></tr></thead><tbody>${d.businesses.map(bizRow).join('')}</tbody></table>`

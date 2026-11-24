@@ -130,7 +130,7 @@ function createApp(db, opts = {}) {
   const website = express.static(siteDir, { maxAge: '10m', extensions: ['html'], index: 'index.html' });
   app.use((req, res, next) => {
     const host = String(req.get('host') || '').toLowerCase().replace(/:\d+$/, '');
-    if (!websiteHosts.has(host)) return next();
+    if (!websiteHosts.has(host) || req.tlBase) return next(); // a business under turaslubtha.com/<name> is not the website
     res.setHeader('X-Content-Type-Options', 'nosniff');
     if (!['GET', 'HEAD'].includes(req.method)) return res.status(405).type('text').send('Not allowed.');
     website(req, res, () => res.status(404).sendFile(path.join(siteDir, '404.html'), (err) => { if (err) res.end(); }));
@@ -307,6 +307,8 @@ function createApp(db, opts = {}) {
   }
   const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
   function baseUrl(req) {
+    // Running under a path (turaslubtha.com/pinevalley): links go there.
+    if (req.tlBase) return `${req.protocol}://${req.get('host')}${req.tlBase}`;
     let base = (opts.publicUrl || getSettings().site_url || process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get('host')}`).trim().replace(/\/+$/, '');
     // Opened at a Turas Lúbtha address (shuttle.turaslubtha.com) while the saved address is
     // somewhere else (an old one that may be switched off): links use the address that works.
@@ -2931,24 +2933,19 @@ function createApp(db, opts = {}) {
   // up with a one-time setup link. Super admins only (the /api/server gate above).
   const bizzes = opts.businesses || null;
   const bizDomain = opts.businessDomain || 'turaslubtha.com';
-  // Under whichever business domain this page was opened from (the Turas Lúbtha domain, or
-  // the shuttle's own address while testing).
-  const bizDomainFor = (req) => {
-    const host = String(req.get('host') || '').toLowerCase().replace(/:\d+$/, '').replace(/^www\./, '');
-    const list = opts.businessDomains ? opts.businessDomains() : [bizDomain];
-    return list.find((d) => host === d || host.endsWith(`.${d}`)) || list[0];
-  };
-  const bizUrl = (req, slug) => {
+  // Each business lives at turaslubtha.com/<name> (http://website.localhost:3000/<name> on this PC).
+  const siteBase = (req) => {
     const host = String(req.get('host') || '').toLowerCase();
-    return /(^|\.)localhost(:\d+)?$/.test(host) ? `http://${slug}.localhost${host.match(/:\d+$/) ? host.match(/:\d+$/)[0] : ''}` : `https://${slug}.${bizDomainFor(req)}`;
+    return /(^|\.)localhost(:\d+)?$/.test(host) ? `http://website.localhost${(host.match(/:\d+$/) || [''])[0]}` : `https://${bizDomain}`;
   };
-  const bizOut = (req, d) => ({ ...d, url: bizUrl(req, d.slug), also_url: !/localhost/.test(String(req.get('host'))) && bizDomainFor(req) !== bizDomain ? `https://${d.slug}.${bizDomain}` : '', setup_url: d.setup_code ? `${bizUrl(req, d.slug)}/setup?code=${encodeURIComponent(d.setup_code)}` : '' });
+  const bizUrl = (req, slug) => `${siteBase(req)}/${slug}`;
+  const bizOut = (req, d) => ({ ...d, url: bizUrl(req, d.slug), also_url: '', setup_url: d.setup_code ? `${bizUrl(req, d.slug)}/setup?code=${encodeURIComponent(d.setup_code)}` : '' });
   app.get('/api/server/businesses', requireRole('admin'), (req, res) => {
     if (!bizzes) return res.json({ available: false, businesses: [] });
     // Opened at the shuttle's own address: businesses can be tried under that address too.
     if (opts.rememberHome) opts.rememberHome(req.get('host'));
     const { suggestName } = require('./businesses');
-    res.json({ available: true, domain: bizDomainFor(req), signin_url: /(^|\.)localhost(:\d+)?$/.test(String(req.get('host') || '')) ? `http://app.localhost${(String(req.get('host')).match(/:\d+$/) || [''])[0]}/` : `https://app.${bizDomainFor(req)}/`,
+    res.json({ available: true, domain: bizDomain, site: siteBase(req), signin_url: `${siteBase(req)}/signin`,
       suggest: req.query.name ? suggestName(req.query.name) : undefined,
       home: homeInfo(), main_domain: bizDomain,
       businesses: bizzes.list().map((b) => bizzes.details(b.slug)).filter(Boolean).map((d) => bizOut(req, d)) });
@@ -2964,7 +2961,7 @@ function createApp(db, opts = {}) {
   // This shuttle's own Turas Lúbtha name (yourname.turaslubtha.com). Its old address keeps working.
   const homeInfo = () => {
     const slug = bizzes.getMeta('home_slug');
-    const url = slug ? `https://${slug}.${bizDomain}` : '';
+    const url = slug ? `https://${bizDomain}/${slug}` : '';
     const siteUrl = (getSettings().site_url || '').replace(/\/+$/, '');
     const oldHost = bizzes.getMeta('home_host');
     return { slug, url, links_use_it: !!url && siteUrl === url, old_url: oldHost ? `https://${oldHost}` : '' };
@@ -2978,8 +2975,8 @@ function createApp(db, opts = {}) {
     const before = homeInfo();
     bizzes.setMeta('home_slug', c.slug);
     // New links were using the old name: move them to the new one.
-    if (before.links_use_it) setSetting('site_url', `https://${c.slug}.${bizDomain}`);
-    console.log(new Date().toLocaleString(), `[businesses] This shuttle is now also ${c.slug}.${bizDomain} (set by ${req.user.email}).`);
+    if (before.links_use_it) setSetting('site_url', `https://${bizDomain}/${c.slug}`);
+    console.log(new Date().toLocaleString(), `[businesses] This shuttle is now also at ${bizDomain}/${c.slug} (set by ${req.user.email}).`);
     res.json({ home: homeInfo() });
   });
   app.post('/api/server/businesses/home/links', requireRole('admin'), (req, res) => {
