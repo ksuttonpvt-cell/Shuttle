@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "com.turaslubtha.driver"
-    compileSdk = flutter.compileSdkVersion
+    // The notifications package needs the newest Android APIs to build against (older phones still work: see minSdk).
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
