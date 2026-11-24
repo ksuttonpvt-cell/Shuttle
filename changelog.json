@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.8.0",
+    "date": "2026-11-24",
+    "title": "The driver app",
+    "changes": [
+      "turaslubtha.com/driver: a page for drivers to install the app on their phone (one tap on Android, step by step on iPhone, a QR code on computers). One app for every business: drivers sign in once and land on their own driver screen.",
+      "Turas Lúbtha Driver for Android: GitHub builds an installable app automatically; with an upload key it also makes the Google Play version."
+    ]
+  },
+  {
     "version": "3.7.1",
     "date": "2026-11-24",
     "title": "Website updates show right away",
