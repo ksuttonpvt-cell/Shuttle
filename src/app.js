@@ -2958,6 +2958,38 @@ function createApp(db, opts = {}) {
     bus.publish('businesses-changed');
     res.status(201).json({ business: bizOut(req, bizzes.details(made.business.slug)) });
   });
+  // ---------- "Book a demo" requests from the website (Server → Demo requests) ----------
+  if (bizzes && bizzes.demos && !hosted) {
+    const KIND = { dealership: 'car dealership', hotel: 'hotel', parking: 'airport parking', other: 'business' };
+    bizzes.demos.onNew((d) => {
+      const supers = q("SELECT * FROM users WHERE super_admin = 1 AND role = 'admin' AND active = 1").all();
+      quietly(push.notifyUsers(supers.map((u) => u.id), { title: '📅 New demo request', body: `${d.name} at ${d.business}${d.vans ? ` (${d.vans} vans)` : ''}`, tag: `demo-${d.id}`, url: '/admin#server' }));
+      if (mailer.configured) {
+        for (const u of supers) {
+          mailer.send({ to: u.email, subject: `Demo request: ${d.business}`,
+            text: `${d.name} at ${d.business} (${KIND[d.kind] || 'business'}${d.vans ? `, ${d.vans} vans` : ''}) asked for a demo.\n\nEmail: ${d.email}\n${d.phone ? `Phone: ${d.phone}\n` : ''}${d.best_time ? `Best time: ${d.best_time}\n` : ''}${d.message ? `\n${d.message}\n` : ''}\nSee all requests on the Server page.` })
+            .catch((e) => console.error(new Date().toLocaleString(), `[email] Demo request email failed: ${e.message}`));
+        }
+      }
+    });
+  }
+  const needDemos = (res) => { if (!bizzes || !bizzes.demos) { bad(res, 'Demo requests aren’t available on this site.'); return false; } return true; };
+  app.get('/api/server/demos', requireRole('admin'), (req, res) => {
+    if (!bizzes || !bizzes.demos) return res.json({ available: false, demos: [], new: 0 });
+    res.json({ available: true, demos: bizzes.demos.list(), new: bizzes.demos.countNew() });
+  });
+  app.post('/api/server/demos/:id', requireRole('admin'), (req, res) => {
+    if (!needDemos(res)) return;
+    const status = req.body && req.body.status === 'new' ? 'new' : 'contacted';
+    if (!bizzes.demos.setStatus(Number(req.params.id), status)) return bad(res, 'Request not found.', 404);
+    res.json({ ok: true });
+  });
+  app.delete('/api/server/demos/:id', requireRole('admin'), (req, res) => {
+    if (!needDemos(res)) return;
+    if (!bizzes.demos.remove(Number(req.params.id))) return bad(res, 'Request not found.', 404);
+    res.json({ ok: true });
+  });
+
   // This shuttle's own Turas Lúbtha name (yourname.turaslubtha.com). Its old address keeps working.
   const homeInfo = () => {
     const slug = bizzes.getMeta('home_slug');

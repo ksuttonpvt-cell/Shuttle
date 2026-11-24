@@ -120,6 +120,30 @@ function createFrontDoor({ businesses, homeDb, domain, domains: domainsOf, siteD
     res.json(choices.length === 1 ? { go: choices[0].url } : { choose: choices });
   });
 
+  // "Book a demo" on the website. Saved on this PC for the super admins (Server → Demo requests).
+  // A hidden field catches robots; 5 requests per 15 minutes from one address, 200 a day in all.
+  const DEMO_KINDS = new Set(['dealership', 'hotel', 'parking', 'other']);
+  const DEMO_VANS = new Set(['1', '2-3', '4-6', '7+']);
+  const field = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, max);
+  app.post('/api/frontdoor/demo', (req, res) => {
+    const b = req.body || {};
+    if (field(b.company_website, 200)) return res.json({ ok: true }); // a robot filled the hidden field
+    const ipKey = `demo|${clientIp(req)}`;
+    if (count(ipKey) >= 5) return res.status(429).json({ error: 'Thanks, we already have your request. We’ll be in touch soon.' });
+    const d = {
+      name: field(b.name, 100), business: field(b.business, 120), email: field(b.email, 200), phone: field(b.phone, 40),
+      kind: DEMO_KINDS.has(b.kind) ? b.kind : 'other', vans: DEMO_VANS.has(b.vans) ? b.vans : '', best_time: field(b.best_time, 100),
+      message: String(b.message == null ? '' : b.message).replace(/[\u0000-\u0008\u000b-\u001f\u007f]+/g, ' ').trim().slice(0, 1000),
+    };
+    if (!d.name || !d.business || !d.email) return res.status(400).json({ error: 'Please fill in your name, business and email.' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) return res.status(400).json({ error: 'That email doesn’t look right.' });
+    if (businesses.demos.countSince(new Date(Date.now() - 86400000).toISOString()) >= 200) return res.status(503).json({ error: 'We can’t take more requests right now. Please email hello@turaslubtha.com.' });
+    fail(ipKey);
+    businesses.demos.add(d);
+    console.log(new Date().toLocaleString(), `[demo] New demo request from ${d.business}.`);
+    res.json({ ok: true });
+  });
+
   // app.turaslubtha.com shows the website's Sign in page (and its styles and pictures).
   const site = express.static(siteDir, { maxAge: '10m', extensions: ['html'], index: false });
   // Its links to the rest of the website ("./#pricing") go to the website itself.

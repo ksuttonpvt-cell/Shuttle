@@ -894,3 +894,12 @@ body.drawer-open { overflow: hidden; }
 .notice.ok .linkbox input { flex: 1; }
 #bizList td { vertical-align: top; }
 .home-name { padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 12px; background: var(--gray-bg); margin-bottom: .4rem; }
+
+/* Server → Demo requests */
+.demo-row { display: flex; gap: .8rem; justify-content: space-between; align-items: flex-start; padding: .8rem 0; border-top: 1px solid var(--line); }
+.demo-row:first-child { border-top: 0; }
+.demo-row.is-new .demo-main > div:first-child b { color: var(--accent); }
+.demo-main { min-width: 0; display: grid; gap: .2rem; }
+.demo-msg { white-space: pre-wrap; background: var(--gray-bg); border-radius: 8px; padding: .5rem .7rem; margin-top: .2rem; }
+.demo-acts { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 600px) { .demo-row { flex-direction: column; } .demo-acts { justify-content: flex-start; } }
