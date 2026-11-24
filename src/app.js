@@ -127,10 +127,20 @@ function createApp(db, opts = {}) {
     const host = h.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
     if (host) { websiteHosts.add(host); websiteHosts.add(host.startsWith('www.') ? host.slice(4) : `www.${host}`); }
   }
-  const website = express.static(siteDir, { maxAge: '10m', extensions: ['html'], index: 'index.html' });
+  // Pages, styles and scripts are checked for a newer copy on every visit (a quick "not changed"
+  // answer when nothing did), so an update never shows a new page with an old style file.
+  // Pictures can be kept for 10 minutes.
+  const freshSite = (res, file) => { if (/\.(html|css|js)$/i.test(file)) res.setHeader('Cache-Control', 'no-cache'); };
+  const website = express.static(siteDir, { maxAge: '10m', extensions: ['html'], index: 'index.html', setHeaders: freshSite });
   app.use((req, res, next) => {
     const host = String(req.get('host') || '').toLowerCase().replace(/:\d+$/, '');
     if (!websiteHosts.has(host) || req.tlBase) return next(); // a business under turaslubtha.com/<name> is not the website
+    // Android checks this to let the Turas Lúbtha Driver app open turaslubtha.com full screen.
+    // site/app-links.json lists the app's signing key (from the Android build's summary).
+    if (req.path === '/.well-known/assetlinks.json') {
+      res.setHeader('Cache-Control', 'no-cache');
+      return res.type('application/json').sendFile(path.join(siteDir, 'app-links.json'), (err) => { if (err) res.status(404).json([]); });
+    }
     res.setHeader('X-Content-Type-Options', 'nosniff');
     if (!['GET', 'HEAD'].includes(req.method)) return res.status(405).type('text').send('Not allowed.');
     website(req, res, () => res.status(404).sendFile(path.join(siteDir, '404.html'), (err) => { if (err) res.end(); }));

@@ -97,6 +97,19 @@ Every business lives at its own path on the website's address: **turaslubtha.com
 
 **Or give a business its own install** on its own PC (as above). It has its own database, branding, staff and web address, and starts on Setup. Installs update themselves from the repository they were cloned from, so when you publish a new version to `main`, every install picks it up within minutes.
 
+## The driver app
+**Install page: turaslubtha.com/driver.** It shows a QR code on computers, one-tap install on Android (Chrome), and Add to Home Screen steps on iPhone. One app works for every business: it opens the shared sign-in, and each driver lands on their own business's driver screen.
+
+**Android app (Turas Lúbtha Driver, `android/`).** It opens turaslubtha.com full screen (a Trusted Web Activity), with ride notifications. GitHub builds it on every change to `android/` (Actions → *Android driver app* → **Run workflow** to build on demand):
+- **Test app:** `turas-driver-test.apk` in the run's *turas-driver-app* download. Install it on an Android phone (allow "install unknown apps"). Until the app's key is listed in `site/app-links.json`, it shows a small address bar at the top.
+- **Google Play:** make an upload key once (`keytool -genkeypair -v -keystore upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000`), then add the repository secrets `ANDROID_KEYSTORE_BASE64` (the .jks, base64), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. Each run then also makes `turas-driver.aab` for the Play Console and shows the key's SHA-256 fingerprint. Put that fingerprint, and the one Play Console shows under *App signing*, in `site/app-links.json`:
+  ```json
+  [{ "relation": ["delegate_permission/common.handle_all_urls"],
+     "target": { "namespace": "android_app", "package_name": "com.turaslubtha.driver",
+                 "sha256_cert_fingerprints": ["AA:BB:…"] } }]
+  ```
+  It's served at turaslubtha.com/.well-known/assetlinks.json, which removes the address bar.
+
 ## Settings file (`.env`)
 | Setting | Default | What it's for |
 |---|---|---|

@@ -35,11 +35,21 @@ test('the Turas Lúbtha website is served by its own name, and only the website'
   }
   let r = await get('/css/site.css', 'turaslubtha.com');
   assert.equal(r.status, 200); assert.match(r.headers.get('content-type'), /text\/css/);
+  assert.equal(r.headers.get('cache-control'), 'no-cache', 'styles are checked for a newer copy every visit');
+  assert.equal((await get('/demo', 'turaslubtha.com')).headers.get('cache-control'), 'no-cache');
+  assert.match((await get('/img/logo.svg', 'turaslubtha.com')).headers.get('cache-control'), /max-age=600/, 'pictures can be kept a while');
+  // The driver app: its install page, the app manifest, and the file Android checks.
+  const dp = await get('/driver', 'turaslubtha.com');
+  assert.equal(dp.status, 200); assert.match(await dp.text(), /The driver app/);
+  const mf = await get('/manifest.webmanifest', 'turaslubtha.com');
+  assert.equal(mf.status, 200); assert.equal(JSON.parse(await mf.text()).start_url, '/signin?app=driver');
+  const al = await get('/.well-known/assetlinks.json', 'turaslubtha.com');
+  assert.equal(al.status, 200); assert.ok(Array.isArray(JSON.parse(await al.text())));
   r = await get('/signin', 'turaslubtha.com'); // works without ".html" too
   assert.equal(r.status, 200);
   { const html = await r.text(); assert.match(html, /turaslubtha sign in/); assert.match(html, /autocomplete="current-password"/); assert.match(html, /\/api\/frontdoor\/signin/); }
   // Shuttle app pages and its API are not reachable by the website's name.
-  for (const path of ['/admin', '/api/me', '/login', '/driver']) {
+  for (const path of ['/admin', '/api/me', '/login', '/advisor']) { // (/driver is the website's driver-app page)
     r = await get(path, 'turaslubtha.com');
     assert.equal(r.status, 404, path);
     assert.match(await r.text(), /page not found/i, path);

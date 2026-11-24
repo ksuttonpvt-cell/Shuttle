@@ -145,7 +145,8 @@ function createFrontDoor({ businesses, homeDb, domain, domains: domainsOf, siteD
   });
 
   // app.turaslubtha.com shows the website's Sign in page (and its styles and pictures).
-  const site = express.static(siteDir, { maxAge: '10m', extensions: ['html'], index: false });
+  const site = express.static(siteDir, { maxAge: '10m', extensions: ['html'], index: false,
+    setHeaders: (res, file) => { if (/\.(html|css|js)$/i.test(file)) res.setHeader('Cache-Control', 'no-cache'); } }); // never an old style file with a new page
   // Its links to the rest of the website ("./#pricing") go to the website itself.
   const fs = require('node:fs');
   const signinPage = (req, res) => {
