@@ -82,6 +82,7 @@ A new install has no branding: plain colors, a plain icon, and “Your logo” p
 - Business owners are managers of their own business only. They can never open the Server page, because it runs the whole PC.
 - **One sign-in for everyone: app.turaslubtha.com** (also the website's Sign in page). People type their email and password and land straight in their own business. Someone at more than one business picks which one. It never says which emails or businesses exist.
 - **Pause** closes a business until you turn it back on. Nothing is deleted.
+- **This shuttle** (top of the card): give the PC's own shuttle a Turas Lúbtha address too (e.g. hometown.turaslubtha.com). Its old address keeps working. Once the new address opens, **Use it for new links & QR codes** switches new links over; **Switch back** undoes it.
 - `data/directory.db` only lists the businesses. Back it up with the rest of `data/`.
 
 One-time Cloudflare setup, so every business address reaches this PC:

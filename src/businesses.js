@@ -85,7 +85,7 @@ function createBusinesses({ dataDir, openDb, makeApp, log = () => {} }) {
     if (checked.error) return checked;
     const nm = String(name || '').trim().slice(0, 120);
     if (!nm) return { error: 'Enter the business name.' };
-    if (row(checked.slug)) return { error: `${checked.slug} is already taken. Choose another.` };
+    if (row(checked.slug) || getMeta('home_slug') === checked.slug) return { error: `${checked.slug} is already taken. Choose another.` };
     const file = fileOf(checked.slug);
     if (fs.existsSync(file)) return { error: `There is already a database for ${checked.slug} on this PC. Choose another name.` };
     dir.prepare('INSERT INTO businesses (slug, name, created_at, created_by) VALUES (?, ?, ?, ?)').run(checked.slug, nm, now(), by || null);

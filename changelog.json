@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.5.0",
+    "date": "2026-11-24",
+    "title": "Your shuttle gets a Turas Lúbtha address",
+    "changes": [
+      "Server → Businesses → This shuttle: give your shuttle an address like yourname.turaslubtha.com. Its current address keeps working, so links and QR codes already handed out don't break. Same staff and rides.",
+      "One tap switches new ride links, QR codes and texts to the new address (and back).",
+      "The shared sign-in at app.turaslubtha.com sends your shuttle's people to its new address."
+    ]
+  },
+  {
     "version": "3.4.2",
     "date": "2026-11-23",
     "title": "Businesses show your shuttle's address",

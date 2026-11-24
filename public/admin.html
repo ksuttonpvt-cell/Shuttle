@@ -521,6 +521,18 @@
       <div class="card" style="grid-column:1/-1" id="bizCard" hidden>
         <div class="card-head"><h2>Businesses on this PC</h2><span class="small muted" id="bizSignin"></span></div>
         <p class="small muted" style="margin-top:0">Each business you add gets its own separate space: its own staff, rides, customers, settings and backups. Nothing is shared with this shuttle or any other business. Its people sign in at the shared sign-in page and land in their own business.</p>
+        <div class="home-name" id="homeName">
+          <h3 style="margin:0 0 .2rem">This shuttle</h3>
+          <p class="small muted" style="margin:0 0 .5rem">Give it a Turas Lúbtha address too. Its current address keeps working, so links and QR codes you already handed out don't break. Same staff and rides; nothing moves.</p>
+          <form id="homeForm" class="linkbox" style="align-items:end;gap:.6rem;flex-wrap:wrap">
+            <div style="flex:2;min-width:220px"><label for="homeSlug">Turas Lúbtha address</label>
+              <div class="addr-in"><input id="homeSlug" name="slug" required maxlength="32" placeholder="yourname" autocomplete="off" autocapitalize="off" spellcheck="false"><span class="addr-domain" data-main-domain>.turaslubtha.com</span></div></div>
+            <button class="btn-blue">Save</button>
+          </form>
+          <div id="homeMsg"></div>
+          <div id="homeInfo" class="small" style="margin-top:.5rem"></div>
+        </div>
+        <h3 style="margin:1.2rem 0 .4rem">Other businesses</h3>
         <form id="bizForm" class="linkbox" style="align-items:end;gap:.6rem;flex-wrap:wrap">
           <div style="flex:2;min-width:200px"><label for="bizName">Business name</label><input id="bizName" name="name" required maxlength="120" placeholder="Pine Valley Auto" autocomplete="off"></div>
           <div style="flex:2;min-width:220px"><label for="bizSlug">Web address</label>
@@ -1689,10 +1701,22 @@
       <td>${status}${b.setup_url ? `<div style="margin-top:.3rem">${copyBtn(b.setup_url, 'Copy setup link')}</div>` : ''}</td>
       <td style="text-align:right"><button type="button" class="btn-ghost btn-sm" data-biz-pause="${esc(b.slug)}" data-paused="${b.paused ? 1 : 0}">${b.paused ? 'Turn back on' : 'Pause'}</button></td></tr>`;
   }
+  const bare = (u) => String(u || '').replace(/^https?:\/\//, '');
+  function showHome(h, mainDomain) {
+    document.querySelectorAll('[data-main-domain]').forEach((el) => { el.textContent = `.${mainDomain}`; });
+    if (h.slug && document.activeElement !== $('#homeSlug')) $('#homeSlug').value = h.slug;
+    if (!h.slug) { $('#homeInfo').innerHTML = ''; return; }
+    const old = h.old_url ? ` · still at <a href="${esc(h.old_url)}" target="_blank" rel="noopener">${esc(bare(h.old_url))}</a>` : '';
+    const links = h.links_use_it
+      ? `New links and QR codes use the Turas Lúbtha address ✓ <button type="button" class="linkish" data-home-links="0">Switch back${h.old_url ? ` to ${esc(bare(h.old_url))}` : ''}</button>`
+      : `<button type="button" class="btn-ghost btn-sm" data-home-links="1">Use it for new links &amp; QR codes</button> <span class="muted">Only once ${esc(bare(h.url))} opens on your phone.</span>`;
+    $('#homeInfo').innerHTML = `<div>✅ Also at <a href="${esc(h.url)}" target="_blank" rel="noopener"><b>${esc(bare(h.url))}</b></a>${old}</div><div style="margin-top:.4rem">${links}</div>`;
+  }
   async function loadBiz() {
     const d = await api('/api/server/businesses');
     $('#bizCard').hidden = !d.available;
     if (!d.available) return;
+    showHome(d.home || {}, d.main_domain || 'turaslubtha.com');
     $('#bizDomain').textContent = `.${d.domain}`;
     $('#bizSignin').innerHTML = `Sign-in page: <a href="${esc(d.signin_url)}" target="_blank" rel="noopener">${esc(d.signin_url.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`;
     $('#bizList').innerHTML = d.businesses.length
@@ -1715,7 +1739,23 @@
     } catch (err) { App.flash($('#bizMsg'), err.message); }
     btn.disabled = false;
   });
+  $('#homeForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button'); btn.disabled = true;
+    try { await api('/api/server/businesses/home', { body: { slug: $('#homeSlug').value } }); await loadBiz(); App.flash($('#homeMsg'), 'Saved.', true); }
+    catch (err) { App.flash($('#homeMsg'), err.message); }
+    btn.disabled = false;
+  });
+  $('#homeSlug').addEventListener('input', (e) => { e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''); });
   $('#bizCard').addEventListener('click', async (e) => {
+    const hl = e.target.closest('[data-home-links]');
+    if (hl) {
+      const use = hl.dataset.homeLinks === '1';
+      if (use && !confirm('New ride links, QR codes and texts will use the Turas Lúbtha address from now on. Old ones keep working. Make sure it opens on your phone first. Continue?')) return;
+      hl.disabled = true;
+      try { await api('/api/server/businesses/home/links', { body: { use } }); await loadBiz(); } catch (err) { App.flash($('#homeMsg'), err.message); hl.disabled = false; }
+      return;
+    }
     const c = e.target.closest('[data-copy]');
     if (c) { try { await navigator.clipboard.writeText(c.dataset.copy); const t = c.textContent; c.textContent = 'Copied ✓'; setTimeout(() => { c.textContent = t; }, 1500); } catch { prompt('Copy this link:', c.dataset.copy); } return; }
     const p = e.target.closest('[data-biz-pause]');

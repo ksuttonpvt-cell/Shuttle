@@ -2941,6 +2941,7 @@ function createApp(db, opts = {}) {
     const { suggestName } = require('./businesses');
     res.json({ available: true, domain: bizDomainFor(req), signin_url: /(^|\.)localhost(:\d+)?$/.test(String(req.get('host') || '')) ? `http://app.localhost${(String(req.get('host')).match(/:\d+$/) || [''])[0]}/` : `https://app.${bizDomainFor(req)}/`,
       suggest: req.query.name ? suggestName(req.query.name) : undefined,
+      home: homeInfo(), main_domain: bizDomain,
       businesses: bizzes.list().map((b) => bizzes.details(b.slug)).filter(Boolean).map((d) => bizOut(req, d)) });
   });
   app.post('/api/server/businesses', requireRole('admin'), (req, res) => {
@@ -2951,6 +2952,39 @@ function createApp(db, opts = {}) {
     bus.publish('businesses-changed');
     res.status(201).json({ business: bizOut(req, bizzes.details(made.business.slug)) });
   });
+  // This shuttle's own Turas Lúbtha name (yourname.turaslubtha.com). Its old address keeps working.
+  const homeInfo = () => {
+    const slug = bizzes.getMeta('home_slug');
+    const url = slug ? `https://${slug}.${bizDomain}` : '';
+    const siteUrl = (getSettings().site_url || '').replace(/\/+$/, '');
+    const oldHost = bizzes.getMeta('home_host');
+    return { slug, url, links_use_it: !!url && siteUrl === url, old_url: oldHost ? `https://${oldHost}` : '' };
+  };
+  app.post('/api/server/businesses/home', requireRole('admin'), (req, res) => {
+    if (!bizzes) return bad(res, 'Hosting other businesses isn’t turned on for this site.');
+    const { checkName } = require('./businesses');
+    const c = checkName(req.body && req.body.slug);
+    if (c.error) return bad(res, c.error);
+    if (bizzes.row(c.slug)) return bad(res, `${c.slug} is already a business on this PC. Choose another.`);
+    const before = homeInfo();
+    bizzes.setMeta('home_slug', c.slug);
+    // New links were using the old name: move them to the new one.
+    if (before.links_use_it) setSetting('site_url', `https://${c.slug}.${bizDomain}`);
+    console.log(new Date().toLocaleString(), `[businesses] This shuttle is now also ${c.slug}.${bizDomain} (set by ${req.user.email}).`);
+    res.json({ home: homeInfo() });
+  });
+  app.post('/api/server/businesses/home/links', requireRole('admin'), (req, res) => {
+    if (!bizzes) return bad(res, 'Hosting other businesses isn’t turned on for this site.');
+    const h = homeInfo();
+    if (req.body && req.body.use) {
+      if (!h.url) return bad(res, 'Choose this shuttle’s Turas Lúbtha name first.');
+      setSetting('site_url', h.url);
+    } else if (h.old_url) setSetting('site_url', h.old_url);
+    else q("DELETE FROM settings WHERE key = 'site_url'").run();
+    console.log(new Date().toLocaleString(), `[businesses] New links and QR codes now use ${getSettings().site_url || 'the address they are opened from'} (set by ${req.user.email}).`);
+    res.json({ home: homeInfo() });
+  });
+
   app.post('/api/server/businesses/:slug/pause', requireRole('admin'), (req, res) => {
     if (!bizzes) return bad(res, 'Hosting other businesses isn’t turned on for this site.');
     const paused = !!(req.body && req.body.paused);
