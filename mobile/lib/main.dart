@@ -2,22 +2,45 @@
 import 'package:flutter/material.dart';
 
 import 'alerts.dart';
+import 'api.dart';
+import 'demo.dart';
 import 'driver.dart';
 import 'tracker.dart';
 import 'ui/home.dart';
 import 'ui/sign_in.dart';
 import 'ui/theme.dart';
 
+/// A made-up shuttle for screenshots: flutter build web --dart-define=DEMO=true
+/// (?screen=signin, shift, offer, rides or me). Never part of the real app.
+const demo = bool.fromEnvironment('DEMO');
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  if (demo) return _demo();
   final driver = Driver(tracker: Tracker(), alerts: PhoneAlerts());
   runApp(TurasDriverApp(driver: driver));
   driver.start();
 }
 
+void _demo() {
+  final screen = Uri.base.queryParameters['screen'] ?? 'today';
+  final f = FakeShuttle(onDuty: screen != 'shift')..signedIn = screen != 'signin';
+  if (screen == 'offer') {
+    f.offer = {'id': 5, 'ride_id': 13, 'customer_name': 'Sam Ortiz', 'type': 'pickup', 'address': '410 Baseline Rd', 'passengers': 2, 'seconds_left': 42,
+      'scheduled_at': DateTime.now().add(const Duration(minutes: 20)).toUtc().toIso8601String()};
+  }
+  if (screen == 'here') f.rides.first..['status'] = 'en_route'..['arrived_at'] = DateTime.now().subtract(const Duration(minutes: 2, seconds: 14)).toUtc().toIso8601String();
+  final store = MemoryStore()..email = 'dana@drivers.test';
+  if (screen != 'signin') store.s = const Session(base: 'https://turaslubtha.com/pinevalley', sid: 'SECRET123');
+  final driver = Driver(api: Api(client: f.client), store: store);
+  runApp(TurasDriverApp(driver: driver, startTab: {'rides': 1, 'me': 2}[screen] ?? 0));
+  driver.start();
+}
+
 class TurasDriverApp extends StatelessWidget {
-  const TurasDriverApp({super.key, required this.driver});
+  const TurasDriverApp({super.key, required this.driver, this.startTab = 0});
   final Driver driver;
+  final int startTab;
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +60,7 @@ class TurasDriverApp extends StatelessWidget {
             case Phase.notDriver:
               return NotDriverScreen(driver: driver);
             case Phase.ready:
-              return HomeScreen(driver: driver);
+              return HomeScreen(driver: driver, startTab: startTab);
           }
         },
       ),

@@ -382,7 +382,6 @@ class _OfferCardState extends State<OfferCard> {
               ),
               const SizedBox(width: 10),
               Expanded(
-                flex: 2,
                 child: FilledButton(
                   style: FilledButton.styleFrom(backgroundColor: neon, foregroundColor: night),
                   onPressed: d.busy || left <= 0 ? null : () => tell(context, d.act(() => d.api.answerOffer(o.id, true)), ok: 'It’s yours.'),

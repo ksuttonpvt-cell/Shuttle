@@ -5,25 +5,8 @@ import 'package:turas_driver/driver.dart';
 import 'package:turas_driver/main.dart';
 import 'package:turas_driver/models.dart';
 import 'package:turas_driver/steps.dart';
-import 'package:turas_driver/store.dart';
 
 import 'fake_server.dart';
-
-/// Keeps the session in memory instead of the phone's secure storage.
-class MemoryStore implements SessionStore {
-  Session? s;
-  String? email;
-  @override
-  Future<Session?> load() async => s;
-  @override
-  Future<void> save(Session v) async => s = v;
-  @override
-  Future<void> clear() async => s = null;
-  @override
-  Future<String?> lastEmail() async => email;
-  @override
-  Future<void> saveEmail(String e) async => email = e;
-}
 
 class RecordAlerts implements Alerts {
   final List<String> shown = [];

@@ -98,17 +98,22 @@ Every business lives at its own path on the website's address: **turaslubtha.com
 **Or give a business its own install** on its own PC (as above). It has its own database, branding, staff and web address, and starts on Setup. Installs update themselves from the repository they were cloned from, so when you publish a new version to `main`, every install picks it up within minutes.
 
 ## The driver app
-**Install page: turaslubtha.com/driver.** It shows a QR code on computers, one-tap install on Android (Chrome), and Add to Home Screen steps on iPhone. One app works for every business: it opens the shared sign-in, and each driver lands on their own business's driver screen.
+**Turas Lúbtha Driver** (`mobile/`) is a native app for Android and iPhone, built with Flutter. Drivers sign in once (the shared sign-in finds their business) and get:
+- **Start shift** with their van, **End shift**.
+- **Next stop**: who, where, notes, and one big button for the next step: *On my way → I'm here → Customer is on board → Ride complete*. "Customer didn't come out" after the wait; *Not here yet*, *Give back*, *Cancel ride* (with a reason).
+- **Navigate** (Google Maps, to the customer or back to the business), **Call** and **Text** the customer (through the business's number when Settings → Phone & email says so).
+- **Rides**: my rides in order, and rides waiting for a driver (take one).
+- **Ride offers** with a countdown: Take it / No thanks.
+- **The van's location keeps sending while on shift**, also with the screen off or Maps in front (Android shows an "On shift" notice; iPhone the blue location indicator). It stops when the shift ends.
+- **Phone notifications** for new rides and ride offers while on shift.
 
-**Android app (Turas Lúbtha Driver, `android/`).** It opens turaslubtha.com full screen (a Trusted Web Activity), with ride notifications. GitHub builds it on every change to `android/` (Actions → *Android driver app* → **Run workflow** to build on demand):
-- **Test app:** `turas-driver-test.apk` in the run's *turas-driver-app* download. Install it on an Android phone (allow "install unknown apps"). Until the app's key is listed in `site/app-links.json`, it shows a small address bar at the top.
-- **Google Play:** make an upload key once (`keytool -genkeypair -v -keystore upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000`), then add the repository secrets `ANDROID_KEYSTORE_BASE64` (the .jks, base64), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. Each run then also makes `turas-driver.aab` for the Play Console and shows the key's SHA-256 fingerprint. Put that fingerprint, and the one Play Console shows under *App signing*, in `site/app-links.json`:
-  ```json
-  [{ "relation": ["delegate_permission/common.handle_all_urls"],
-     "target": { "namespace": "android_app", "package_name": "com.turaslubtha.driver",
-                 "sha256_cert_fingerprints": ["AA:BB:…"] } }]
-  ```
-  It's served at turaslubtha.com/.well-known/assetlinks.json, which removes the address bar.
+**Builds (GitHub → Actions → *Driver app*):** every change to `mobile/` checks and tests the app and builds it; **Run workflow** builds on demand.
+- **Android:** download *turas-driver-android* → `turas-driver.apk`, send it to the phone and open it (allow "install unknown apps"). For **Google Play**: a Play developer account ($25 once), an upload key (`keytool -genkeypair -v -keystore upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000`) and the repository secrets `ANDROID_KEYSTORE_BASE64` (the .jks, base64), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`; each build then also makes `turas-driver.aab` to upload.
+- **iPhone:** the build checks the app on a Mac. To put it on iPhones (TestFlight or the App Store) it needs an Apple Developer account ($99/year); signing is then added to the workflow.
+
+**Working on the app:** `cd mobile && flutter test` (Flutter 3.47). `dart run tool/e2e.dart http://website.localhost:3000 <driver email> <password>` runs a whole ride against a real shuttle server. Screenshots: `flutter build web --dart-define=DEMO=true` (made-up data; `?screen=signin|shift|today|here|offer|rides|me`).
+
+**No app store needed:** turaslubtha.com/driver still installs the web version on any phone's home screen.
 
 ## Settings file (`.env`)
 | Setting | Default | What it's for |

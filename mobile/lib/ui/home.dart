@@ -8,14 +8,15 @@ import 'ride.dart';
 import 'theme.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.driver});
+  const HomeScreen({super.key, required this.driver, this.startTab = 0});
   final Driver driver;
+  final int startTab;
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
-  int _tab = 0;
+  late int _tab = widget.startTab;
 
   @override
   void initState() {
