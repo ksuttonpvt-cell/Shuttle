@@ -279,3 +279,37 @@ test('this shuttle gets a Turas Lúbtha name too; its old address keeps working'
   const pat = await signIn('pinevalley.localhost', 'pat@pinevalley.test', 'pine-pass-1');
   assert.equal((await call('pinevalley.localhost', '/api/server/businesses/home', { cookie: pat, body: { slug: 'mine' } })).status, 403);
 });
+
+test('with no name picked, the shuttle answers at shuttle.turaslubtha.com and links use the address that works', async () => {
+  const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-biz3-'));
+  const db3 = seedTestSite(openDb(path.join(dir3, 'shuttle.db')), { site_url: 'https://old-address.test' }); // the old address, now switched off
+  ensureAdmin(db3, { email: 'boss@home.test', password: 'home-pass-1', name: 'Home Boss' });
+  const site3 = createSite({ db: db3, dataDir: dir3, domain: 'turaslubtha.com', bus: createBus(), openDb, createApp,
+    homeOpts: { noTimers: true, superEmail: 'boss@home.test' }, businessOpts: () => ({ noTimers: true }) });
+  const srv = await new Promise((r) => { const s = http.createServer(site3.handler).listen(0, () => r(s)); });
+  const ask = (host, p, body, cookie) => new Promise((resolve, reject) => {
+    const data = body ? JSON.stringify(body) : null;
+    const req = http.request({ host: '127.0.0.1', port: srv.address().port, path: p, method: data ? 'POST' : 'GET',
+      headers: { Host: host, 'CF-Visitor': '{"scheme":"https"}', ...(data ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) } }, (res) => {
+      let t = ''; res.on('data', (d) => { t += d; });
+      res.on('end', () => { let j = null; try { j = JSON.parse(t); } catch { /* page */ }
+        resolve({ status: res.statusCode, data: j, cookie: (res.headers['set-cookie'] || []).map((c) => c.split(';')[0]).find((c) => c.startsWith('sid=')) }); });
+    });
+    req.on('error', reject); if (data) req.write(data); req.end();
+  });
+  try {
+    assert.equal(site3.businesses.getMeta('home_slug'), 'shuttle');
+    assert.equal((await ask('shuttle.turaslubtha.com', '/login')).status, 200, 'the shuttle answers at its default name');
+    const boss = (await ask('shuttle.turaslubtha.com', '/api/login', { email: 'boss@home.test', password: 'home-pass-1' })).cookie;
+    assert.ok(boss);
+    // Links made there use the working address, not the switched-off one.
+    assert.equal((await ask('shuttle.turaslubtha.com', '/api/me', null, boss)).data.base_url, 'https://shuttle.turaslubtha.com');
+    // Opened at the old address, links still follow the saved Web address as before.
+    assert.equal((await ask('old-address.test', '/api/me', null, boss)).data.base_url, 'https://old-address.test');
+    // The shared sign-in sends this shuttle's people there.
+    const r = await ask('app.turaslubtha.com', '/api/frontdoor/signin', { email: 'boss@home.test', password: 'home-pass-1' });
+    assert.match(r.data.go, /^https:\/\/shuttle\.turaslubtha\.com\/auth\/handoff\?t=/);
+    // A business can't take the name.
+    assert.equal((await ask('shuttle.turaslubtha.com', '/api/server/businesses', { name: 'X', slug: 'shuttle' }, boss)).status, 400);
+  } finally { srv.close(); site3.businesses.close(); fs.rmSync(dir3, { recursive: true, force: true }); }
+});

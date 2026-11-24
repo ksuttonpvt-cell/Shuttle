@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.5.1",
+    "date": "2026-11-24",
+    "title": "Your shuttle is at shuttle.turaslubtha.com",
+    "changes": [
+      "Your shuttle now answers at shuttle.turaslubtha.com without any setting (change the name on Server → Businesses → This shuttle).",
+      "Links, QR codes and texts made there use that address, even if Settings → Web address still has an old one."
+    ]
+  },
+  {
     "version": "3.5.0",
     "date": "2026-11-24",
     "title": "Your shuttle gets a Turas Lúbtha address",
