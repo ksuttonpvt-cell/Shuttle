@@ -1,5 +1,16 @@
 [
   {
+    "version": "3.9.0",
+    "date": "2026-11-24",
+    "title": "The real driver app for Android and iPhone",
+    "changes": [
+      "Turas Lúbtha Driver is now a native app (not a web page in a frame): sign in once, start your shift with your van, and a Next stop screen with one big button for each step.",
+      "Navigate, call and text the customer; take, give back or cancel rides; ride offers with a countdown.",
+      "The van's location keeps sending while you're on shift, even with the screen off or Maps open, and the phone buzzes for new rides and offers.",
+      "GitHub builds the Android app on every change; the iPhone app builds too and needs an Apple Developer account to install."
+    ]
+  },
+  {
     "version": "3.8.0",
     "date": "2026-11-24",
     "title": "The driver app",
