@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.7.1",
+    "date": "2026-11-24",
+    "title": "Website updates show right away",
+    "changes": [
+      "The website's pages, styles and scripts are checked for a newer copy on every visit, so after an update a page never shows up with its old styles."
+    ]
+  },
+  {
     "version": "3.7.0",
     "date": "2026-11-24",
     "title": "Book a demo form",

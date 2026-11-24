@@ -35,6 +35,9 @@ test('the Turas Lúbtha website is served by its own name, and only the website'
   }
   let r = await get('/css/site.css', 'turaslubtha.com');
   assert.equal(r.status, 200); assert.match(r.headers.get('content-type'), /text\/css/);
+  assert.equal(r.headers.get('cache-control'), 'no-cache', 'styles are checked for a newer copy every visit');
+  assert.equal((await get('/demo', 'turaslubtha.com')).headers.get('cache-control'), 'no-cache');
+  assert.match((await get('/img/logo.svg', 'turaslubtha.com')).headers.get('cache-control'), /max-age=600/, 'pictures can be kept a while');
   r = await get('/signin', 'turaslubtha.com'); // works without ".html" too
   assert.equal(r.status, 200);
   { const html = await r.text(); assert.match(html, /turaslubtha sign in/); assert.match(html, /autocomplete="current-password"/); assert.match(html, /\/api\/frontdoor\/signin/); }
