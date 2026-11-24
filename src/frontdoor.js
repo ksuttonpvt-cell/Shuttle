@@ -58,19 +58,22 @@ function createFrontDoor({ businesses, homeDb, domain, domains: domainsOf, siteD
     return (local && req.get('cf-connecting-ip')) || req.ip || peer;
   };
 
+  // The website's address: https://turaslubtha.com (http://website.localhost:3000 on this PC).
+  const siteBase = (req) => {
+    const host = hostOf(req);
+    return host === 'localhost' || host.endsWith('.localhost') ? `http://website.localhost${portOf(req) ? `:${portOf(req)}` : ''}` : `https://${domains()[0]}`;
+  };
   // Where a business lives, as a full address the browser can go to.
   function baseFor(req, slug) {
     const host = hostOf(req);
     if (!slug) {
-      // This PC's own shuttle: at its Turas Lúbtha name when signing in there, else its own address.
+      // This PC's own shuttle: at turaslubtha.com/<its name>, or its own address if it has none.
       const hs = businesses.getMeta('home_slug');
-      const local = host === 'localhost' || host.endsWith('.localhost');
-      if (hs && !local && domainFor(host, domains()) === domains()[0]) return `https://${hs}.${domains()[0]}`;
+      if (hs) return `${siteBase(req)}/${hs}`;
       const hh = businesses.getMeta('home_host');
-      return (homeUrl() || (hh ? `https://${hh}` : '') || (hs ? `https://${hs}.${domains()[0]}` : '')).replace(/\/+$/, '');
+      return (homeUrl() || (hh ? `https://${hh}` : '')).replace(/\/+$/, '');
     }
-    if (host === 'localhost' || host.endsWith('.localhost')) return `http://${slug}.localhost${portOf(req) ? `:${portOf(req)}` : ''}`;
-    return `https://${slug}.${domainFor(host, domains())}`;
+    return `${siteBase(req)}/${slug}`;
   }
   const nameOf = (db, fallback) => {
     try { return (db.prepare("SELECT value FROM settings WHERE key = 'dealer_name'").get() || {}).value || fallback; } catch { return fallback; }
@@ -150,13 +153,53 @@ function notice(res, status, title, text, signin) {
 }
 
 // The one request handler for the whole PC: picks the shared sign-in, a business, or the home app.
+// The website's own addresses: turaslubtha.com, www.turaslubtha.com (and website.localhost on
+// this PC). There, the first part of the path picks a business: turaslubtha.com/pinevalley.
+function websiteHostsFor(domain) {
+  const set = new Set(['website.localhost', domain, `www.${domain}`]);
+  for (const h of String(process.env.WEBSITE_HOSTS || '').split(',')) {
+    const host = h.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    if (host) { set.add(host); set.add(host.startsWith('www.') ? host.slice(4) : `www.${host}`); }
+  }
+  return set;
+}
+
 function createRouter({ businesses, frontDoor, homeApp, domain, domains: domainsOf }) {
   const domains = domainsOf || (() => [domain]);
+  const { mountAt } = require('./pathmount');
+  const websiteHosts = websiteHostsFor(domain);
+  const mounts = new Map(); // "/name" + app → handler
+  const mounted = (base, app) => {
+    const m = mounts.get(base);
+    if (m && m.app === app) return m.handler;
+    const handler = mountAt(base, app);
+    mounts.set(base, { app, handler });
+    return handler;
+  };
   return (req, res) => {
     const host = hostOf(req);
     const url = String(req.url || '');
+    delete req.tlBase;
     // The shared sign-in's form works from any address (the website's Sign in page, its preview).
     if (url.startsWith('/api/frontdoor/')) return frontDoor(req, res);
+    // turaslubtha.com/<name>/…: a business, or this PC's own shuttle, under its own path.
+    if (websiteHosts.has(host)) {
+      const m = url.match(/^\/([a-z0-9-]{2,32})(?=\/|\?|$)/i);
+      const name = m && m[1].toLowerCase();
+      if (name && m[1] !== name && (businesses.row(name) || name === businesses.getMeta('home_slug'))) { // /PineValley → /pinevalley
+        res.statusCode = 301; res.setHeader('Location', `/${name}${url.slice(name.length + 1)}`); return res.end();
+      }
+      if (name && name === businesses.getMeta('home_slug')) return mounted(`/${name}`, homeApp)(req, res);
+      const b = name && businesses.row(name);
+      if (b) {
+        const signin = `/signin`;
+        if (b.paused) return notice(res, 503, 'Paused', 'This business’s shuttle is paused right now. Contact Turas Lúbtha to turn it back on.', signin);
+        let entry;
+        try { entry = businesses.load(name); } catch (e) { console.error(`Opening ${name} failed:`, e.message); return notice(res, 500, 'Something went wrong', 'This shuttle couldn’t be opened. Try again in a minute.', signin); }
+        return mounted(`/${name}`, entry.app)(req, res);
+      }
+      return homeApp(req, res); // the website itself
+    }
     const r = routeOf(host, domains());
     if (r.front) return frontDoor(req, res);
     // This PC's own shuttle under its Turas Lúbtha name (Server → Businesses → This shuttle).
@@ -219,4 +262,4 @@ function createSite({ db, dataDir, domain, bus, openDb, createApp, homeOpts = {}
   return { handler: createRouter({ businesses, frontDoor, homeApp, domain, domains }), businesses, homeApp, frontDoor, domains };
 }
 
-module.exports = { createFrontDoor, createRouter, createSite, routeOf, domainFor, FRONT_NAMES };
+module.exports = { createFrontDoor, createRouter, createSite, routeOf, domainFor, websiteHostsFor, FRONT_NAMES };

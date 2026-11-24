@@ -60,7 +60,7 @@
     try {
       const { user } = await App.api('/api/password-reset/' + encodeURIComponent(token), { body: { password: App.$('#pw').value } });
       App.flash(App.$('#msg'), 'Password saved. Signing you in…', true);
-      setTimeout(() => { location.href = user.home || '/' + user.role; }, 900);
+      setTimeout(() => { App.go(user.home || '/' + user.role); }, 900);
     } catch (err) { App.flash(App.$('#msg'), err.message); btn.disabled = false; }
   };
 })();

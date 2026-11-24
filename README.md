@@ -77,19 +77,22 @@ A new install has no branding: plain colors, a plain icon, and “Your logo” p
 - **Privacy:** customer names, phones, addresses and notes are cleared nightly from finished rides. Reports keep only counts, times and cities. Passwords are hashed; secrets (email password, Twilio token, tunnel token) stay on the server.
 
 ## Offering it to other businesses
-**Host them on this PC (Manager → Server → Businesses on this PC, super admins only).** Type the business name and pick its web address (`pinevalley` → **pinevalley.turaslubtha.com**), then send the owner the one-time setup link. They make their own manager account and fill in their business on the usual Setup page.
-- Each business gets **its own separate database** (`data/businesses/<name>/shuttle.db`) with its own staff, rides, customers, settings and nightly backups (`data/businesses/<name>/backups`). Nothing is shared with this shuttle or with any other business.
+Every business lives at its own path on the website's address: **turaslubtha.com/pinevalley**. Cloudflare only needs **one** route, `turaslubtha.com` → `http://localhost:3000` (plus `www` if you like). No wildcard DNS or wildcard tunnel routes are needed.
+
+| Address | What it is |
+|---|---|
+| turaslubtha.com | The website |
+| turaslubtha.com/signin | One sign-in for everyone: email + password, then straight into your own business |
+| turaslubtha.com/shuttle | This PC's own shuttle (rename it on Manager → Server → Businesses → This shuttle) |
+| turaslubtha.com/<name> | Each other business, its own separate section |
+
+**Add a business (Manager → Server → Businesses on this PC, super admins only):** type its name and web address name, then send the owner the one-time setup link. They make their own manager account and fill in their business.
+- Each business gets **its own separate database** (`data/businesses/<name>/shuttle.db`) with its own staff, rides, customers, settings and nightly backups. Sign-ins are kept per business too.
 - Business owners are managers of their own business only. They can never open the Server page, because it runs the whole PC.
-- **One sign-in for everyone: app.turaslubtha.com** (also the website's Sign in page). People type their email and password and land straight in their own business. Someone at more than one business picks which one. It never says which emails or businesses exist.
 - **Pause** closes a business until you turn it back on. Nothing is deleted.
-- **This shuttle** (top of the card): give the PC's own shuttle a Turas Lúbtha address too (e.g. hometown.turaslubtha.com). Its old address keeps working. Once the new address opens, **Use it for new links & QR codes** switches new links over; **Switch back** undoes it.
-- `data/directory.db` only lists the businesses. Back it up with the rest of `data/`.
-
-One-time Cloudflare setup, so every business address reaches this PC:
-1. **DNS** for turaslubtha.com: add a **CNAME** named `*` pointing to your tunnel (`<tunnel-id>.cfargotunnel.com`, proxied, orange cloud).
-2. **Zero Trust → Networks → Tunnels →** your tunnel **→ Public hostnames → Add**: subdomain `*`, domain **turaslubtha.com**, service **HTTP**, URL **localhost:3000**.
-
-This also covers app.turaslubtha.com. **Trying it before turaslubtha.com is set up:** businesses also work under the shuttle's own web address (Manager → Settings → Web address), e.g. pinevalley.corwinshuttleservice.com and app.corwinshuttleservice.com. Do the same two Cloudflare steps for that domain. On this PC you can try it without Cloudflare: http://app.localhost:3000 and http://<name>.localhost:3000.
+- The shuttle's old address keeps working; **Use it for new links & QR codes** switches new links to turaslubtha.com/<name>.
+- `data/directory.db` lists the businesses. Back it up with the rest of `data/`.
+- On this PC you can try it without Cloudflare: http://website.localhost:3000/shuttle and http://website.localhost:3000/signin.
 
 **Or give a business its own install** on its own PC (as above). It has its own database, branding, staff and web address, and starts on Setup. Installs update themselves from the repository they were cloned from, so when you publish a new version to `main`, every install picks it up within minutes.
 

@@ -146,7 +146,7 @@
     if (!body.lat) { body.lat = null; body.lng = null; }
     try {
       const { token } = await api('/api/public/rides', { body });
-      location.href = '/t/' + token;
+      App.go('/t/' + token);
     } catch (err) { App.flash($('#msg'), err.message); }
   };
 })();

@@ -14,11 +14,16 @@ const MAX_TILES = 600;
 const TILE_DAYS = 7; // the map server allows keeping its images about a week
 
 // Screens that can open from the device. Customer tracking links all share one screen.
+// Under a path (turaslubtha.com/pinevalley/), the business's pages are below it.
+const BASE = new URL(self.registration.scope).pathname.replace(/\/$/, '');
+const underBase = (u) => (typeof u === 'string' && u.startsWith('/') && !u.startsWith('//') && BASE && !u.startsWith(`${BASE}/`) ? BASE + u : u);
 function screenKey(url) {
-  const path = url.pathname.toLowerCase(); // QR codes use capitals (/T/K7M2Q9XA, /REQUEST)
-  if (['/admin', '/advisor', '/bdc', '/driver', '/login', '/request'].includes(path)) return url.origin + path;
-  if (/^\/t\/[^/]+$/.test(path)) return `${url.origin}/t/`;
-  if (/^\/s\/[^/]+$/.test(path)) return `${url.origin}/s/`;
+  let path = url.pathname.toLowerCase(); // QR codes use capitals (/T/K7M2Q9XA, /REQUEST)
+  if (BASE) { if (!path.startsWith(`${BASE.toLowerCase()}/`)) return null; path = path.slice(BASE.length); }
+  // Saved screens are kept apart per business (they share one web address).
+  if (['/admin', '/advisor', '/bdc', '/driver', '/login', '/request'].includes(path)) return url.origin + BASE + path;
+  if (/^\/t\/[^/]+$/.test(path)) return `${url.origin}${BASE}/t/`;
+  if (/^\/s\/[^/]+$/.test(path)) return `${url.origin}${BASE}/s/`;
   return null;
 }
 
@@ -120,7 +125,8 @@ self.addEventListener('fetch', (event) => {
       if (key) event.respondWith(screen(event, key).catch(() => fetch(req)));
       return;
     }
-    if (/^\/(js|css|vendor|icons)\//.test(url.pathname)) event.respondWith(file(req).catch(() => fetch(req)));
+    const own = BASE ? (url.pathname.startsWith(`${BASE}/`) ? url.pathname.slice(BASE.length) : '') : url.pathname;
+    if (/^\/(js|css|vendor|icons)\//.test(own)) event.respondWith(file(req).catch(() => fetch(req)));
     return; // everything else (rides, tracking, sign-in…) always goes to the server
   }
   if (url.hostname === 'tile.openstreetmap.org') event.respondWith(tile(req).catch(() => fetch(req)));
@@ -136,8 +142,8 @@ self.addEventListener('push', (event) => {
     body: data.body || 'You have a shuttle update.',
     tag: data.tag || 'shuttle',
     renotify: true,
-    icon: '/brand/icon-192.png',
-    badge: '/icons/badge-96.png',
+    icon: underBase('/brand/icon-192.png'),
+    badge: underBase('/icons/badge-96.png'),
     vibrate: data.offer_id ? [300, 150, 300, 150, 300] : [250, 120, 250],
     data: { url: data.url || '/driver', offer_id: data.offer_id || null },
     ...offer,
@@ -149,15 +155,15 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data || {};
-  const url = new URL(data.url || '/driver', self.location.origin).href;
+  const url = new URL(underBase(data.url || '/driver'), self.location.origin).href;
   event.waitUntil((async () => {
     if (data.offer_id && (event.action === 'accept' || event.action === 'decline')) {
-      await fetch(`/api/offers/${data.offer_id}/${event.action}`, { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+      await fetch(underBase(`/api/offers/${data.offer_id}/${event.action}`), { method: 'POST', credentials: 'same-origin' }).catch(() => {});
       if (event.action === 'decline') return;
     }
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const w of wins) {
-      if (w.url.startsWith(self.location.origin)) { await w.focus(); if ('navigate' in w) await w.navigate(url).catch(() => {}); return; }
+      if (w.url.startsWith(self.location.origin + BASE + '/')) { await w.focus(); if ('navigate' in w) await w.navigate(url).catch(() => {}); return; }
     }
     await self.clients.openWindow(url);
   })());

@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.6.0",
+    "date": "2026-11-24",
+    "title": "Every business at turaslubtha.com/<name>",
+    "changes": [
+      "Businesses now live at a path on one address: turaslubtha.com/pinevalley, and this shuttle at turaslubtha.com/shuttle. Cloudflare needs only the one turaslubtha.com route.",
+      "Each business's pages, links, QR codes, sign-ins and saved screens stay inside its own path, so businesses never mix.",
+      "One sign-in for everyone at turaslubtha.com/signin."
+    ]
+  },
+  {
     "version": "3.5.1",
     "date": "2026-11-24",
     "title": "Your shuttle is at shuttle.turaslubtha.com",
