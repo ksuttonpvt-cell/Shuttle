@@ -377,7 +377,8 @@ function createApp(db, opts = {}) {
     return { ...rr, extra_roles: extras.join(',') || null, start_page: start, list: ROLE_ORDER.filter((r) => set.includes(r)) };
   }
   // SQL: is this person a driver (main or extra role)?
-  const IS_DRIVER = (a = 'u') => `(${a}.role = 'driver' OR instr(',' || COALESCE(${a}.extra_roles, '') || ',', ',driver,') > 0)`;
+  // Drivers, and managers while they're on shift (a manager can drive the van too).
+  const IS_DRIVER = (a = 'u') => `(${a}.role = 'driver' OR instr(',' || COALESCE(${a}.extra_roles, '') || ',', ',driver,') > 0 OR (${a}.role = 'admin' AND ${a}.on_duty = 1))`;
   const IS_ADVISOR = (a = 'users') => `((${a}.role = 'advisor' AND COALESCE(${a}.team, '') <> 'bdc') OR instr(',' || COALESCE(${a}.extra_roles, '') || ',', ',advisor,') > 0)`;
   const str = (v, max = 500) => (v == null ? null : String(v).trim().slice(0, max) || null);
   const num = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Number(v));

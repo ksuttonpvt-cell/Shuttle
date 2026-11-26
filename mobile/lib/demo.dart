@@ -9,8 +9,9 @@ import 'api.dart';
 import 'store.dart';
 
 class FakeShuttle {
-  FakeShuttle({this.onDuty = false});
+  FakeShuttle({this.onDuty = false, this.role = 'driver'});
   bool onDuty;
+  String role; // driver | admin | advisor
   int? vehicleId;
   bool signedIn = false;
   final List<String> calls = [];
@@ -64,7 +65,12 @@ class FakeShuttle {
 
     if (api == '/api/me') {
       return json({
-        'user': {'id': 7, 'name': 'Dana Driver', 'role': 'driver', 'roles': ['driver'], 'on_duty': onDuty, 'vehicle_id': vehicleId},
+        'user': {
+          'id': 7, 'name': role == 'admin' ? 'Mia Manager' : role == 'advisor' ? 'Ava Advisor' : 'Dana Driver', 'role': role, 'roles': [role],
+          // A manager can do everything; an advisor books and assigns; a driver drives.
+          'can': role == 'admin' ? ['admin', 'advisor', 'driver'] : [role],
+          'home': '/$role', 'on_duty': onDuty, 'vehicle_id': vehicleId,
+        },
         'settings': {'dealer_name': 'Pine Valley Auto', 'place': 'dealership', 'dealer_lat': '40.02', 'dealer_lng': '-105.24', 'dealer_address': '2465 48th Ct', 'arrive_wait_min': '5', 'phone_calls': 'mine', 'phone_texts': 'mine'},
       });
     }
@@ -93,6 +99,12 @@ class FakeShuttle {
       return json({'rides': open, 'queue': open.map((r) => r['id']).toList()});
     }
     if (api == '/api/offers/mine') return json({'offer': offer});
+    if (api == '/api/drivers') {
+      return json({'drivers': [
+        {'id': 7, 'name': 'Dana Driver', 'on_duty': true, 'vehicle_name': 'Shuttle 1', 'open_rides': 2, 'phone': '5550101', 'last_loc_at': DateTime.now().toUtc().toIso8601String()},
+        {'id': 8, 'name': 'Sam Wheels', 'on_duty': false, 'open_rides': 0},
+      ]});
+    }
     final m = RegExp(r'^/api/rides/(\d+)(/arrived)?$').firstMatch(api);
     if (m != null) {
       final r = rides.firstWhere((x) => x['id'] == int.parse(m.group(1)!));
@@ -102,6 +114,7 @@ class FakeShuttle {
       } else {
         if (b.containsKey('driver_id')) {
           r['driver_id'] = b['driver_id'];
+          r['driver_name'] = {7: 'Dana Driver', 8: 'Sam Wheels'}[b['driver_id']];
           r['status'] = b['driver_id'] == null ? 'requested' : 'assigned';
         }
         if (b['status'] != null) r['status'] = b['status'];

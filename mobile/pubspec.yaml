@@ -40,6 +40,7 @@ dependencies:
   flutter_local_notifications: ^23.0.4
   url_launcher: ^6.3.3
   battery_plus: ^7.1.2
+  webview_flutter: ^4.14.1
 
 dev_dependencies:
   flutter_test:

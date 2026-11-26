@@ -11,7 +11,7 @@ import 'ui/sign_in.dart';
 import 'ui/theme.dart';
 
 /// A made-up shuttle for screenshots: flutter build web --dart-define=DEMO=true
-/// (?screen=signin, shift, offer, rides or me). Never part of the real app.
+/// (?screen=signin, shift, offer, rides, desk or me; &role=admin or advisor). Never part of the real app.
 const demo = bool.fromEnvironment('DEMO');
 
 void main() {
@@ -24,7 +24,7 @@ void main() {
 
 void _demo() {
   final screen = Uri.base.queryParameters['screen'] ?? 'today';
-  final f = FakeShuttle(onDuty: screen != 'shift')..signedIn = screen != 'signin';
+  final f = FakeShuttle(onDuty: screen != 'shift', role: Uri.base.queryParameters['role'] ?? 'driver')..signedIn = screen != 'signin';
   if (screen == 'offer') {
     f.offer = {'id': 5, 'ride_id': 13, 'customer_name': 'Sam Ortiz', 'type': 'pickup', 'address': '410 Baseline Rd', 'passengers': 2, 'seconds_left': 42,
       'scheduled_at': DateTime.now().add(const Duration(minutes: 20)).toUtc().toIso8601String()};
@@ -33,7 +33,7 @@ void _demo() {
   final store = MemoryStore()..email = 'dana@drivers.test';
   if (screen != 'signin') store.s = const Session(base: 'https://turaslubtha.com/pinevalley', sid: 'SECRET123');
   final driver = Driver(api: Api(client: f.client), store: store);
-  runApp(TurasDriverApp(driver: driver, startTab: {'rides': 1, 'me': 2}[screen] ?? 0));
+  runApp(TurasDriverApp(driver: driver, startTab: {'rides': 1, 'desk': 2, 'me': 3}[screen] ?? 0));
   driver.start();
 }
 

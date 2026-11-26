@@ -104,3 +104,36 @@ test('first and last name: adding, editing and asking for an account', async () 
   assert.ok((await a('/api/users')).data.users.some((u) => u.name === 'New Hire'));
   assert.equal((await client()('/api/signup', { body: { first_name: 'Solo', email: 'solo@roles.test', role: 'driver', password: 'mypassword1' } })).status, 400);
 });
+
+test('a manager on shift drives like a driver: takes rides, shows up for the desk, can be given rides', async () => {
+  const a = client(); await a('/api/login', { body: { email: 'boss@roles.test', password: 'adminpass1' } });
+  await a('/api/users', { body: { name: 'Mo Manager', email: 'mo@roles.test', roles: ['admin'], password: 'password123' } });
+  await a('/api/users', { body: { name: 'Ada Advisor', email: 'ada@roles.test', roles: ['advisor'], password: 'password123' } });
+  const van = (await a('/api/vehicles', { body: { name: 'Manager Van', seats: 7 } })).data.vehicle;
+  const mo = client(); const me = (await mo('/api/login', { body: { email: 'mo@roles.test', password: 'password123' } })).data.user;
+  const ada = client(); await ada('/api/login', { body: { email: 'ada@roles.test', password: 'password123' } });
+  const book = async (name) => (await ada('/api/rides', { body: { type: 'pickup', customer_name: name, address: '1 Main', scheduled_at: new Date(Date.now() + 30 * 60000).toISOString(), lat: 40.01, lng: -105.27 } })).data.ride;
+
+  // Off shift, a manager isn't one of the drivers.
+  let drivers = (await ada('/api/drivers')).data.drivers;
+  assert.ok(!drivers.some((d) => d.id === me.id));
+  assert.equal((await mo('/api/driver/shift', { body: { on_duty: true, vehicle_id: van.id } })).status, 200);
+  drivers = (await ada('/api/drivers')).data.drivers;
+  assert.ok(drivers.some((d) => d.id === me.id && d.on_duty), 'on shift: listed as a driver');
+
+  // Takes a ride and runs it, like the driver app does.
+  const r1 = await book('Riley Rider');
+  let r = await mo(`/api/rides/${r1.id}`, { method: 'PATCH', body: { driver_id: me.id } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.ride.driver_id, me.id);
+  for (const status of ['en_route', 'onboard', 'completed']) assert.equal((await mo(`/api/rides/${r1.id}`, { method: 'PATCH', body: { status } })).status, 200, status);
+  // The desk can give the manager a ride.
+  const r2 = await book('Morgan Lee');
+  r = await ada(`/api/rides/${r2.id}`, { method: 'PATCH', body: { driver_id: me.id } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  // Off shift again: no longer a driver to give rides to.
+  await mo(`/api/rides/${r2.id}`, { method: 'PATCH', body: { status: 'cancelled', cancel_reason: 'Duplicate ride' } });
+  await mo('/api/driver/shift', { body: { on_duty: false } });
+  const r3 = await book('Sam Ortiz');
+  assert.equal((await ada(`/api/rides/${r3.id}`, { method: 'PATCH', body: { driver_id: me.id } })).status, 400);
+});
