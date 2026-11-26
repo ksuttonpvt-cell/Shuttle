@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.12.0",
+    "date": "2026-11-26",
+    "title": "Book rides in the app",
+    "changes": [
+      "Managers, service advisors and BDC can book rides right in the Turas Driver app (Desk → Book a ride): pick up or drop off, the customer, address search, when (now, in 15/30/60 minutes or a set time), passengers, RO number, their car, notes, urgent with a reason, and the service advisor.",
+      "After booking: text the customer their tracking link, or copy it. The same checks as the website apply (service area, drop-off wait time)."
+    ]
+  },
+  {
     "version": "3.11.0",
     "date": "2026-11-26",
     "title": "Managers in the driver app",

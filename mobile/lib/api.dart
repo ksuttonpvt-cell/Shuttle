@@ -121,6 +121,22 @@ class Api {
 
   Future<void> take(Ride r, int myId) => patch('/api/rides/${r.id}', {'driver_id': myId});
   Future<void> giveBack(Ride r) => patch('/api/rides/${r.id}', {'driver_id': null});
+  /// Booking: find an address (the shuttle asks the map service, with its own limits).
+  Future<(List<FoundPlace>, String?)> findAddress(String text) async {
+    final d = await get('/api/geocode?q=${Uri.encodeQueryComponent(text)}');
+    final list = (d['results'] as List? ?? const [])
+        .map((x) => x as Map<String, dynamic>)
+        .map((x) => FoundPlace(x['label'].toString(), (x['lat'] as num).toDouble(), (x['lng'] as num).toDouble()))
+        .toList();
+    return (list, d['error'] as String?);
+  }
+
+  Future<List<Person>> advisors() async =>
+      ((await get('/api/advisors'))['advisors'] as List).map((x) => Person((x as Map)['id'] as int, x['name'].toString())).toList();
+
+  /// Book a ride (same checks as the website: service area, the drop-off wait, urgent needs a reason).
+  Future<Booked> book(Map<String, dynamic> ride) async => Booked.fromJson(await post('/api/rides', ride));
+
   /// Desk: give a ride to a driver (or take it off them with null).
   Future<void> assign(Ride r, int? driverId) => patch('/api/rides/${r.id}', {'driver_id': driverId});
   Future<List<DriverInfo>> drivers() async =>

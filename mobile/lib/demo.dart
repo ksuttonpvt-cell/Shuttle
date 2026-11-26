@@ -94,11 +94,25 @@ class FakeShuttle {
       locations.add(body());
       return json({'ok': true});
     }
-    if (api == '/api/rides') {
+    if (api == '/api/rides' && req.method == 'GET') {
       final open = rides.where((r) => ['requested', 'assigned', 'en_route', 'onboard'].contains(r['status'])).toList();
       return json({'rides': open, 'queue': open.map((r) => r['id']).toList()});
     }
     if (api == '/api/offers/mine') return json({'offer': offer});
+    if (api == '/api/geocode') {
+      final q = req.url.queryParameters['q'] ?? '';
+      return json({'results': q.toLowerCase().contains('pearl')
+          ? [{'label': '1520 Pearl Street, Boulder, CO 80302', 'lat': 40.019, 'lng': -105.274}, {'label': '1520 Pearl Court, Lafayette, CO 80026', 'lat': 39.99, 'lng': -105.09}]
+          : []});
+    }
+    if (api == '/api/advisors') return json({'advisors': [{'id': 7, 'name': 'Mia Manager'}, {'id': 9, 'name': 'Ava Advisor'}]});
+    if (api == '/api/rides' && req.method == 'POST') {
+      final b = body();
+      if ((b['customer_name'] ?? '').toString().isEmpty) return json({'error': 'Customer name is required.'}, 400);
+      final r = {...b, 'id': 20 + rides.length, 'status': 'requested', 'driver_id': null, 'track_url': 'https://turaslubtha.com/pinevalley/t/AB12CD34'};
+      rides.add(r);
+      return json({'ride': r, 'adjusted_to': null, 'wait_min': 0}, 201);
+    }
     if (api == '/api/drivers') {
       return json({'drivers': [
         {'id': 7, 'name': 'Dana Driver', 'on_duty': true, 'vehicle_name': 'Shuttle 1', 'open_rides': 2, 'phone': '5550101', 'last_loc_at': DateTime.now().toUtc().toIso8601String()},
