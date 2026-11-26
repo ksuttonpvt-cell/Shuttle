@@ -106,6 +106,7 @@ Every business lives at its own path on the website's address: **turaslubtha.com
 - **Ride offers** with a countdown: Take it / No thanks.
 - **The van's location keeps sending while on shift**, also with the screen off or Maps in front (Android shows an "On shift" notice; iPhone the blue location indicator). It stops when the shift ends.
 - **Phone notifications** for new rides and ride offers while on shift.
+- **Managers, advisors and BDC** sign in too. Managers can drive (start a shift, run rides). Managers and advisors get a **Desk** tab: every open ride, assign or move drivers, cancel, call or text, drivers on shift, and **Full manager site** (the whole website inside the app, already signed in).
 
 **Builds (GitHub → Actions → *Driver app*):** every change to `mobile/` checks and tests the app and builds it; **Run workflow** builds on demand.
 - **Android:** download *turas-driver-android* → `turas-driver.apk`, send it to the phone and open it (allow "install unknown apps"). For **Google Play**: a Play developer account ($25 once), an upload key (`keytool -genkeypair -v -keystore upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000`) and the repository secrets `ANDROID_KEYSTORE_BASE64` (the .jks, base64), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`; each build then also makes `turas-driver.aab` to upload.

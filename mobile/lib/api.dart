@@ -121,6 +121,13 @@ class Api {
 
   Future<void> take(Ride r, int myId) => patch('/api/rides/${r.id}', {'driver_id': myId});
   Future<void> giveBack(Ride r) => patch('/api/rides/${r.id}', {'driver_id': null});
+  /// Desk: give a ride to a driver (or take it off them with null).
+  Future<void> assign(Ride r, int? driverId) => patch('/api/rides/${r.id}', {'driver_id': driverId});
+  Future<List<DriverInfo>> drivers() async =>
+      ((await get('/api/drivers'))['drivers'] as List).map((d) => DriverInfo.fromJson(d as Map<String, dynamic>)).toList();
+
+  /// The full website at this business, as this signed-in person (for the in-app manager site).
+  String pageUrl(String path) => '${session!.base}$path';
   Future<void> setStatus(Ride r, String status) => patch('/api/rides/${r.id}', {'status': status});
   Future<void> arrived(Ride r, {bool undo = false}) => post('/api/rides/${r.id}/arrived', undo ? {'undo': true} : {});
   Future<void> cancel(Ride r, String reason) => patch('/api/rides/${r.id}', {'status': 'cancelled', 'cancel_reason': reason});

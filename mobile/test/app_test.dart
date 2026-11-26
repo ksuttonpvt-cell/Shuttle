@@ -161,4 +161,57 @@ void main() {
       d.dispose();
     });
   });
+
+  group('managers and advisors', () {
+    Future<(FakeShuttle, Driver)> signedIn(WidgetTester tester, String role) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.6;
+      addTearDown(tester.view.reset);
+      final f = FakeShuttle(role: role)..signedIn = true;
+      final store = MemoryStore()..s = const Session(base: 'https://turaslubtha.com/pinevalley', sid: 'SECRET123');
+      final d = Driver(api: Api(client: f.client), store: store);
+      await tester.pumpWidget(TurasDriverApp(driver: d));
+      await tester.runAsync(d.start);
+      await tester.pumpAndSettle();
+      return (f, d);
+    }
+
+    testWidgets('a manager signs in: can drive, and has the Desk', (tester) async {
+      final (f, d) = await signedIn(tester, 'admin');
+      expect(find.text('This app is for drivers'), findsNothing);
+      for (final tab in ['Today', 'Rides', 'Desk', 'Me']) {
+        expect(find.text(tab), findsWidgets, reason: tab);
+      }
+      expect(find.text('Start your shift'), findsOneWidget, reason: 'managers can drive too');
+
+      await tester.tap(find.text('Desk'));
+      await tester.pumpAndSettle();
+      expect(find.text('Full manager site'), findsOneWidget);
+      expect(find.text('WAITING FOR A DRIVER (1)'), findsOneWidget);
+      expect(find.text('Sam Ortiz'), findsOneWidget);
+
+      // Give the waiting ride to a driver.
+      await tester.tap(find.widgetWithText(FilledButton, 'Assign'));
+      await tester.pumpAndSettle();
+      expect(find.text('Who drives Sam Ortiz?'), findsOneWidget);
+      await tester.runAsync(() async {
+        await tester.tap(find.text('Sam Wheels'));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pumpAndSettle();
+      expect(f.rides.firstWhere((r) => r['id'] == 13)['driver_id'], 8);
+      expect(f.calls, contains('PATCH /pinevalley/api/rides/13'));
+      expect(find.text('WAITING FOR A DRIVER (0)'), findsOneWidget);
+      d.dispose();
+    });
+
+    testWidgets('a service advisor gets the Desk, not the driving screens', (tester) async {
+      final (_, d) = await signedIn(tester, 'advisor');
+      expect(find.text('Today'), findsNothing);
+      expect(find.text('Desk'), findsWidgets);
+      expect(find.text('Full advisor desk'), findsOneWidget);
+      expect(find.text('Start your shift'), findsNothing);
+      d.dispose();
+    });
+  });
 }

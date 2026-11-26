@@ -1,5 +1,16 @@
 [
   {
+    "version": "3.11.0",
+    "date": "2026-11-26",
+    "title": "Managers in the driver app",
+    "changes": [
+      "Managers, service advisors and BDC can sign in to the Turas Driver app (no more \"This app is for drivers\").",
+      "Managers can drive: start a shift and run rides like a driver. While on shift they count as a driver everywhere (ride offers, the live map, the desk can give them rides). This also fixes \"Driver not found\" when a manager took a ride on the website's driver page.",
+      "New Desk tab for managers and advisors: every open ride, Assign or move a driver, take a ride off a driver, cancel, call or text the customer, and the drivers on shift.",
+      "\"Full manager site\" opens the whole website inside the app, already signed in: booking, people, reports and settings."
+    ]
+  },
+  {
     "version": "3.10.0",
     "date": "2026-11-26",
     "title": "Owner, and a super admin for every business",

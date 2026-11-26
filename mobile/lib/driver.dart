@@ -26,6 +26,7 @@ class Driver extends ChangeNotifier {
   Me? me;
   RideList rides = RideList(const []);
   Offer? offer;
+  List<DriverInfo> drivers = const []; // for the Desk
   String? problem; // shown as a banner when the server can't be reached
   bool busy = false;
   DateTime? lastUpdate;
@@ -90,14 +91,15 @@ class Driver extends ChangeNotifier {
     try {
       final m = await api.me();
       me = m;
-      if (!m.isDriver) {
+      if (!m.isStaff) {
         _set(Phase.notDriver);
         return;
       }
       final list = await api.rides();
       _noticeNew(list, m);
       rides = list;
-      final o = m.onDuty ? await api.offer() : null;
+      final o = m.canDrive && m.onDuty ? await api.offer() : null;
+      if (m.canDesk) drivers = await api.drivers();
       if (o != null && o.id != _lastOfferId) {
         _lastOfferId = o.id;
         alerts?.offer(o);

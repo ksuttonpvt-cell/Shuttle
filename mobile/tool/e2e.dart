@@ -36,7 +36,7 @@ Future<void> main(List<String> args) async {
   ok('signed in at ${session.base}');
   final me = await api.me();
   ok('${me.name} · roles ${me.roles} · ${me.settings.businessName} (${me.settings.place})');
-  if (!me.isDriver) throw 'not a driver';
+  if (!me.canDrive) throw 'not a driver';
 
   final vans = (await api.vehicles()).where((v) => v.usable).toList();
   await api.startShift(vans.first.id);

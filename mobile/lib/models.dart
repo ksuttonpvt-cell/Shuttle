@@ -6,16 +6,25 @@ String? _s(Object? v) => v?.toString();
 DateTime? _t(Object? v) => v == null ? null : DateTime.tryParse(v.toString())?.toLocal();
 
 class Me {
-  Me({required this.id, required this.name, required this.roles, required this.onDuty, this.vehicleId, required this.settings});
+  Me({required this.id, required this.name, required this.roles, this.can = const [], this.role = '', this.home = '', required this.onDuty, this.vehicleId, required this.settings});
   final int id;
   final String name;
   final List<String> roles;
+  final List<String> can; // what this person may do (a manager can do everything)
+  final String role; // strongest role: admin | advisor | driver
+  final String home; // their main web page, e.g. /admin
   final bool onDuty;
   final int? vehicleId;
   final Settings settings;
 
-  bool get isDriver => roles.contains('driver');
+  bool get isManager => role == 'admin';
+  /// Drivers, and managers (who can drive too).
+  bool get canDrive => can.contains('driver') || roles.contains('driver');
+  /// Managers, service advisors and BDC: the Desk (all rides, assigning drivers).
+  bool get canDesk => isManager || can.contains('advisor') || roles.contains('advisor') || roles.contains('bdc');
+  bool get isStaff => canDrive || canDesk;
   String get firstName => name.split(' ').first;
+  String get roleName => isManager ? 'Manager' : (roles.contains('bdc') ? 'BDC' : canDesk ? 'Service advisor' : 'Driver');
 
   factory Me.fromJson(Map<String, dynamic> j) {
     final u = j['user'] as Map<String, dynamic>;
@@ -24,6 +33,9 @@ class Me {
       id: _i(u['id'])!,
       name: _s(u['name']) ?? '',
       roles: roles,
+      can: (u['can'] as List?)?.map((e) => e.toString()).toList() ?? roles,
+      role: _s(u['role']) ?? '',
+      home: _s(u['home']) ?? '',
       onDuty: u['on_duty'] == true,
       vehicleId: _i(u['vehicle_id']),
       settings: Settings.fromJson((j['settings'] as Map?)?.cast<String, dynamic>() ?? const {}),
@@ -171,5 +183,26 @@ class Offer {
         urgent: j['priority'] == 'urgent',
         secondsLeft: _i(j['seconds_left']) ?? 0,
         receivedAt: DateTime.now(),
+      );
+}
+
+/// A driver, for the Desk (on shift or not).
+class DriverInfo {
+  DriverInfo({required this.id, required this.name, required this.onDuty, this.vehicleName, this.openRides = 0, this.lastSeen, this.phone});
+  final int id;
+  final String name;
+  final bool onDuty;
+  final String? vehicleName;
+  final int openRides;
+  final DateTime? lastSeen;
+  final String? phone;
+  factory DriverInfo.fromJson(Map<String, dynamic> j) => DriverInfo(
+        id: _i(j['id'])!,
+        name: _s(j['name']) ?? 'Driver',
+        onDuty: j['on_duty'] == true,
+        vehicleName: _s(j['vehicle_name']),
+        openRides: _i(j['open_rides']) ?? 0,
+        lastSeen: _t(j['last_loc_at']),
+        phone: _s(j['phone']),
       );
 }

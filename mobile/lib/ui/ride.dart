@@ -395,3 +395,11 @@ class _OfferCardState extends State<OfferCard> {
     );
   }
 }
+
+Future<void> callNumber(String phone) async {
+  await launchUrl(Uri(scheme: 'tel', path: digits(phone)));
+}
+
+Future<void> openOutside(Uri u) async {
+  await launchUrl(u, mode: LaunchMode.externalApplication);
+}

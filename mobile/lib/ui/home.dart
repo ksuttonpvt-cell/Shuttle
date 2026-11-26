@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import '../driver.dart';
 import '../models.dart';
 import '../steps.dart';
+import 'desk.dart';
 import 'ride.dart';
 import 'theme.dart';
 
@@ -42,13 +43,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final me = d.me;
     if (me == null) return _CantReach(driver: d);
     final mineCount = d.rides.mine(me.id).length;
-    final pages = [TodayTab(driver: d), RidesTab(driver: d), MeTab(driver: d)];
+    final waitingCount = d.rides.waiting().length;
+    // Drivers (and managers, who can drive): Today and Rides. Managers and advisors: the Desk.
+    final tabs = <(Widget, NavigationDestination)>[
+      if (me.canDrive) (TodayTab(driver: d), const NavigationDestination(icon: Icon(Icons.today_outlined), selectedIcon: Icon(Icons.today), label: 'Today')),
+      if (me.canDrive)
+        (RidesTab(driver: d), NavigationDestination(icon: Badge(isLabelVisible: mineCount > 0, label: Text('$mineCount'), child: const Icon(Icons.list_alt_outlined)), selectedIcon: const Icon(Icons.list_alt), label: 'Rides')),
+      if (me.canDesk)
+        (DeskTab(driver: d), NavigationDestination(icon: Badge(isLabelVisible: waitingCount > 0, label: Text('$waitingCount'), child: const Icon(Icons.dashboard_outlined)), selectedIcon: const Icon(Icons.dashboard), label: 'Desk')),
+      (MeTab(driver: d), const NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Me')),
+    ];
+    final tab = _tab.clamp(0, tabs.length - 1);
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 16,
         title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(me.settings.businessName, style: const TextStyle(fontWeight: FontWeight.w800)),
-          Text(me.onDuty ? 'On shift' : 'Off shift', style: TextStyle(fontSize: 13, color: me.onDuty ? teal : Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600)),
+          Text(me.canDrive ? (me.onDuty ? 'On shift' : 'Off shift') : me.roleName, style: TextStyle(fontSize: 13, color: me.onDuty ? teal : Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600)),
         ]),
         actions: [IconButton(tooltip: 'Refresh', onPressed: () => d.refresh(quiet: true), icon: const Icon(Icons.refresh_rounded))],
       ),
@@ -59,16 +70,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             leading: const Icon(Icons.wifi_off_rounded),
             actions: [TextButton(onPressed: () => d.refresh(quiet: true), child: const Text('Try again'))],
           ),
-        Expanded(child: pages[_tab]),
+        Expanded(child: tabs[tab].$1),
       ]),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
+        selectedIndex: tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: [
-          const NavigationDestination(icon: Icon(Icons.today_outlined), selectedIcon: Icon(Icons.today), label: 'Today'),
-          NavigationDestination(icon: Badge(isLabelVisible: mineCount > 0, label: Text('$mineCount'), child: const Icon(Icons.list_alt_outlined)), selectedIcon: const Icon(Icons.list_alt), label: 'Rides'),
-          const NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Me'),
-        ],
+        destinations: [for (final t in tabs) t.$2],
       ),
     );
   }
@@ -281,7 +288,7 @@ class MeTab extends StatelessWidget {
           padding: const EdgeInsets.all(18),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(me.name, style: t.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-            Text(me.settings.businessName),
+            Text('${me.roleName} · ${me.settings.businessName}'),
             const SizedBox(height: 12),
             Row(children: [
               Icon(me.onDuty ? Icons.circle : Icons.circle_outlined, size: 12, color: me.onDuty ? teal : null),
