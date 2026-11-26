@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.10.0",
+    "date": "2026-11-26",
+    "title": "Owner, and a super admin for every business",
+    "changes": [
+      "New 👑 Owner: owns Turas Lúbtha on this PC. Only owners see the Server page (updates, backups, logs, restart), the businesses, demo requests and the Web address setting. Your existing super admins become owners, so nobody loses access.",
+      "Every business now has its own ⭐ Super admin (whoever set it up): the top of that business. They can change everything in it, including other managers, and managers can't change them. They never see the server side.",
+      "Server → Businesses shows how many people each business has (managers, desk, drivers), vans, rides in the last 30 days and when it was last active."
+    ]
+  },
+  {
     "version": "3.9.0",
     "date": "2026-11-24",
     "title": "The real driver app for Android and iPhone",

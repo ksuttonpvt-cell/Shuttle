@@ -112,7 +112,8 @@ function openDb(file) {
     CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS users_role_duty ON users(role, on_duty);
   `);
-  addColumn('users', 'super_admin', 'INTEGER NOT NULL DEFAULT 0'); // can use the Server page
+  addColumn('users', 'super_admin', 'INTEGER NOT NULL DEFAULT 0'); // the business's top manager: can change everything in it
+  addColumn('users', 'owner', 'INTEGER NOT NULL DEFAULT 0'); // owns the whole Turas Lúbtha PC: Server page, businesses, web address
   addColumn('users', 'last_heading', 'REAL');  // direction of travel, degrees (from the phone's GPS)
   addColumn('users', 'last_speed', 'REAL');    // metres per second
   addColumn('users', 'route_json', 'TEXT');    // the driver's planned route (stops in order + path)

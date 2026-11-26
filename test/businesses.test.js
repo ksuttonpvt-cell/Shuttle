@@ -106,11 +106,16 @@ test('a super admin adds a business: it gets its own empty space at turaslubtha.
   assert.equal(done.status, 200, done.text);
   assert.match(done.rawCookie, /; Path=\/pinevalley(;|$)/, 'its sign-in stays with its own path');
   const me = (await call(SITE, '/pinevalley/api/me', { cookie: done.cookie })).data;
-  assert.deepEqual([me.user.email, me.user.role, me.user.super_admin], ['pat@pinevalley.test', 'admin', false], 'a business owner is never a super admin');
+  assert.deepEqual([me.user.email, me.user.role, me.user.super_admin, me.user.owner], ['pat@pinevalley.test', 'admin', true, false], 'the person who sets up a business is its super admin, never the PC owner');
   assert.equal(me.base_url, 'https://turaslubtha.com/pinevalley', 'its links and QR codes use its path');
   assert.equal((await call(SITE, '/pinevalley/api/server/status', { cookie: done.cookie })).status, 403, 'no Server page');
+  assert.equal((await call(SITE, '/pinevalley/api/site-url', { cookie: done.cookie })).status, 403, 'no web address setting');
   // Redirects stay inside the path: signed out, its front page goes to its own sign-in.
   assert.equal((await call(SITE, '/pinevalley/')).location, '/pinevalley/login');
+  // The owner sees how many people the business has (counts only).
+  const people = (await call(HOME, '/api/server/businesses', { cookie: boss })).data.businesses[0].people;
+  assert.deepEqual([people.active, people.managers, people.drivers, people.rides_30d], [1, 1, 0, 0]);
+  assert.equal((await call(HOME, '/api/server/businesses', { cookie: boss })).data.home.people.managers, 1, 'and for this shuttle');
   const manifest = await call(SITE, '/pinevalley/manifest.webmanifest');
   assert.match(manifest.text, /"start_url"\s*:\s*"\/pinevalley\//);
 });

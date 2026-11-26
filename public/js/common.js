@@ -191,7 +191,7 @@ const App = (() => {
     }
     const link = ([href, label, ic]) => `<a href="${url(href)}" class="${location.pathname === url(href) ? 'active' : ''}"${location.pathname === url(href) ? ' aria-current="page"' : ''}>${icon(ic)}<span>${label}</span></a>`;
     const nav = links.map(link).join('');
-    const roleText = (user.roles || [user.role]).map((r) => ROLE_NAME[r] || r).join(' + ');
+    const roleText = (user.owner ? 'Owner · ' : user.super_admin ? 'Super admin · ' : '') + (user.roles || [user.role]).map((r) => ROLE_NAME[r] || r).join(' + ');
     const isNew = App.version && seenVersion() !== App.version;
     el.className = 'topbar';
     el.innerHTML = `

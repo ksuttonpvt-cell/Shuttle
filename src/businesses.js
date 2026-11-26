@@ -37,6 +37,26 @@ function checkName(slug) {
   return { slug: s };
 }
 
+// How many people a business has, and how busy it is (for the owner's Businesses list).
+// Counts only: no names, emails or customer details.
+function peopleIn(db) {
+  const one = (sql, ...a) => db.prepare(sql).get(...a).n;
+  const has = (role) => `(role = '${role}' OR (',' || COALESCE(extra_roles, '') || ',') LIKE '%,${role},%')`;
+  const since = new Date(Date.now() - 30 * 86400000).toISOString();
+  const last = db.prepare("SELECT MAX(x) AS t FROM (SELECT MAX(updated_at) AS x FROM rides UNION ALL SELECT MAX(last_loc_at) FROM users)").get().t;
+  return {
+    active: one('SELECT COUNT(*) AS n FROM users WHERE active = 1'),
+    managers: one(`SELECT COUNT(*) AS n FROM users WHERE active = 1 AND ${has('admin')}`),
+    desk: one(`SELECT COUNT(*) AS n FROM users WHERE active = 1 AND (${has('advisor')} OR ${has('bdc')})`),
+    drivers: one(`SELECT COUNT(*) AS n FROM users WHERE active = 1 AND ${has('driver')}`),
+    on_shift: one('SELECT COUNT(*) AS n FROM users WHERE active = 1 AND on_duty = 1'),
+    waiting_approval: one('SELECT COUNT(*) AS n FROM users WHERE active = 0 AND signup_at IS NOT NULL AND removed_at IS NULL'),
+    vans: one("SELECT COUNT(*) AS n FROM vehicles WHERE status <> 'retired'"),
+    rides_30d: one('SELECT COUNT(*) AS n FROM rides WHERE created_at >= ?', since),
+    last_activity: last || null,
+  };
+}
+
 // openDb: opens (and brings up to date) a business database.
 // makeApp(slug, db, file): builds that business's copy of the shuttle app.
 function createBusinesses({ dataDir, openDb, makeApp, log = () => {} }) {
@@ -125,14 +145,15 @@ function createBusinesses({ dataDir, openDb, makeApp, log = () => {} }) {
   // Details for Admin → Server → Businesses, read from each business's own settings.
   function details(slug) {
     const b = row(slug); if (!b) return null;
-    let setupDone = false, staff = 0, displayName = b.name, setupCode = '';
+    let setupDone = false, staff = 0, displayName = b.name, setupCode = '', people = null;
     try {
       const { db } = load(slug);
       const s = Object.fromEntries(db.prepare("SELECT key, value FROM settings WHERE key IN ('setup_done','dealer_name','setup_code')").all().map((x) => [x.key, x.value]));
       setupDone = s.setup_done === '1'; displayName = s.dealer_name || b.name; setupCode = setupDone ? '' : (s.setup_code || '');
       staff = db.prepare('SELECT COUNT(*) AS n FROM users WHERE active = 1').get().n;
+      people = peopleIn(db);
     } catch (e) { log(`Reading ${slug} failed: ${e.message}`); }
-    return { slug: b.slug, name: displayName, created_at: b.created_at, paused: !!b.paused, setup_done: setupDone, setup_code: setupCode, staff };
+    return { slug: b.slug, name: displayName, created_at: b.created_at, paused: !!b.paused, setup_done: setupDone, setup_code: setupCode, staff, people };
   }
 
   // ---------- one-time hand-offs from the shared sign-in page ----------
@@ -202,4 +223,4 @@ function scopedBus(bus, slug) {
   };
 }
 
-module.exports = { createBusinesses, scopedBus, checkName, suggestName, NAME_RE, RESERVED, HANDOFF_SECONDS };
+module.exports = { createBusinesses, scopedBus, checkName, suggestName, peopleIn, NAME_RE, RESERVED, HANDOFF_SECONDS };

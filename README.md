@@ -89,7 +89,7 @@ Every business lives at its own path on the website's address: **turaslubtha.com
 
 **Add a business (Manager → Server → Businesses on this PC, super admins only):** type its name and web address name, then send the owner the one-time setup link. They make their own manager account and fill in their business.
 - Each business gets **its own separate database** (`data/businesses/<name>/shuttle.db`) with its own staff, rides, customers, settings and nightly backups. Sign-ins are kept per business too.
-- Business owners are managers of their own business only. They can never open the Server page, because it runs the whole PC.
+- **Who's on top:** 👑 **Owner** (you: the PC's own shuttle, set by `ADMIN_EMAIL`, share it under People → Edit) sees the server side: Server page, businesses, demo requests, web address. Each business has its own ⭐ **Super admin** (whoever set it up): the top of that business, can change everything in it including other managers, and never sees the server side. Managers can't change super admins.
 - **Pause** closes a business until you turn it back on. Nothing is deleted.
 - The shuttle's old address keeps working; **Use it for new links & QR codes** switches new links to turaslubtha.com/<name>.
 - `data/directory.db` lists the businesses. Back it up with the rest of `data/`.

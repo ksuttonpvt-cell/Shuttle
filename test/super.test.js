@@ -49,13 +49,24 @@ test('only super admins can use the Server page, and they manage who else can', 
   assert.equal((await a(`/api/users/${me.id}`, { method: 'PATCH', body: { password: 'hijacked123' } })).status, 403);
   assert.equal((await a(`/api/users/${me.id}`, { method: 'PATCH', body: { email: 'evil@test.local' } })).status, 403);
   assert.equal((await a(`/api/users/${me.id}`, { method: 'PATCH', body: { role: 'driver' } })).status, 403);
-  // ...but can still fix a super admin's name or phone (the form sends the same email back).
-  assert.equal((await a(`/api/users/${me.id}`, { method: 'PATCH', body: { name: 'Ken S', email: 'KEN@test.local', phone: '303' } })).status, 200);
+  // A manager can't change a super admin at all, not even their name.
+  assert.equal((await a(`/api/users/${me.id}`, { method: 'PATCH', body: { name: 'Ken S', email: 'KEN@test.local', phone: '303' } })).status, 403);
+  assert.equal(me.owner, true, 'the .env admin owns the PC');
 
-  // A super admin can grant it; then Andrea can open the Server page.
+  // A super admin can make another super admin: the top of the business, but not the server side.
   let r = await ken(`/api/users/${andrea.id}`, { method: 'PATCH', body: { super_admin: true } });
-  assert.equal(r.data.user.super_admin, true);
+  assert.deepEqual([r.data.user.super_admin, r.data.user.owner], [true, false]);
+  assert.equal((await a('/api/server/status')).status, 403, 'super admins never see the server side');
+  assert.equal((await a('/api/site-url')).status, 403, 'nor the web address');
+  assert.equal((await a(`/api/users/${me.id}`, { method: 'PATCH', body: { phone: '303' } })).status, 403, 'only the owner changes the owner');
+  assert.equal((await a(`/api/users/${andrea.id}`, { method: 'PATCH', body: { owner: true } })).status, 403, 'only the owner makes owners');
+  // The owner can share ownership; then Andrea sees the Server page.
+  r = await ken(`/api/users/${andrea.id}`, { method: 'PATCH', body: { owner: true } });
+  assert.equal(r.data.user.owner, true);
   assert.equal((await a('/api/server/status')).status, 200);
+  assert.equal((await ken(`/api/users/${me.id}`, { method: 'PATCH', body: { owner: false } })).status, 400, 'no locking yourself out');
+  r = await ken(`/api/users/${andrea.id}`, { method: 'PATCH', body: { owner: false } });
+  assert.equal(r.data.user.owner, false);
   // Nobody can remove their own super admin (no lock-out); changing role away from admin removes it.
   assert.equal((await ken(`/api/users/${me.id}`, { method: 'PATCH', body: { super_admin: false } })).status, 400);
   r = await ken(`/api/users/${andrea.id}`, { method: 'PATCH', body: { role: 'advisor' } });
