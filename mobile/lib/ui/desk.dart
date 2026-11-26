@@ -7,6 +7,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../driver.dart';
 import '../models.dart';
 import '../steps.dart';
+import 'book.dart';
 import 'ride.dart';
 import 'theme.dart';
 
@@ -33,13 +34,15 @@ class DeskTab extends StatelessWidget {
           _Count(label: 'On shift', value: onShift.length, color: teal),
         ]),
         const SizedBox(height: 12),
+        FilledButton.icon(onPressed: () => openBooking(context, d), icon: const Icon(Icons.add_rounded), label: const Text('Book a ride')),
+        const SizedBox(height: 8),
         FilledButton.tonalIcon(
           onPressed: () => openFullSite(context, d, me.home.isEmpty ? (me.isManager ? '/admin' : '/advisor') : me.home),
           icon: const Icon(Icons.open_in_new_rounded),
           label: Text(me.isManager ? 'Full manager site' : 'Full advisor desk'),
         ),
         const SizedBox(height: 4),
-        Text('Book rides, people, reports and settings, already signed in.', textAlign: TextAlign.center, style: t.bodySmall),
+        Text('People, reports and settings, already signed in.', textAlign: TextAlign.center, style: t.bodySmall),
         const SizedBox(height: 18),
         _Heading('WAITING FOR A DRIVER (${waiting.length})'),
         if (waiting.isEmpty) const _Empty('Every ride has a driver.'),

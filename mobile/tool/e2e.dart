@@ -44,6 +44,20 @@ Future<void> main(List<String> args) async {
   await api.sendLocation(lat: 40.02, lng: -105.24, heading: 90, speed: 0, battery: 80, charging: true);
   ok('location sent');
 
+  // Managers and advisors book rides from the app.
+  if (me.canDesk) {
+    final (found, note) = await api.findAddress('1520 Pearl St Boulder');
+    ok('address search: ${found.length} result(s)${note != null ? ' ($note)' : ''}');
+    final b = await api.book({
+      'type': 'pickup', 'customer_name': 'App Booking', 'customer_phone': '555 010 4000', 'address': found.isNotEmpty ? found.first.label : '1520 Pearl St',
+      'lat': found.isNotEmpty ? found.first.lat : 40.019, 'lng': found.isNotEmpty ? found.first.lng : -105.274,
+      'scheduled_at': DateTime.now().add(const Duration(minutes: 20)).toUtc().toIso8601String(), 'passengers': 2, 'notes': 'Booked from the app',
+    });
+    ok('booked ${b.ride.customerName} (ride ${b.ride.id}), tracking link ${b.ride.trackUrl}');
+    final drivers = await api.drivers();
+    ok('desk sees ${drivers.length} driver(s), ${drivers.where((x) => x.onDuty).length} on shift');
+  }
+
   var list = await api.rides();
   final waiting = list.waiting();
   if (waiting.isEmpty) throw 'no waiting ride';

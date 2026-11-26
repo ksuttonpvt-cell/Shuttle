@@ -5,6 +5,7 @@ import 'package:turas_driver/driver.dart';
 import 'package:turas_driver/main.dart';
 import 'package:turas_driver/models.dart';
 import 'package:turas_driver/steps.dart';
+import 'package:turas_driver/ui/book.dart';
 
 import 'fake_server.dart';
 
@@ -213,5 +214,59 @@ void main() {
       expect(find.text('Start your shift'), findsNothing);
       d.dispose();
     });
+  });
+
+  testWidgets('booking a ride from the Desk', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.6;
+    addTearDown(tester.view.reset);
+    final f = FakeShuttle(role: 'admin')..signedIn = true;
+    final store = MemoryStore()..s = const Session(base: 'https://turaslubtha.com/pinevalley', sid: 'SECRET123');
+    final d = Driver(api: Api(client: f.client), store: store);
+    await tester.pumpWidget(TurasDriverApp(driver: d, startTab: 2));
+    await tester.runAsync(d.start);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Book a ride'));
+    await tester.pumpAndSettle();
+    expect(find.text('Bring the customer to the dealership.'), findsOneWidget);
+    final form = find.descendant(of: find.byType(BookScreen), matching: find.byType(Scrollable)).first;
+
+    // Nothing filled in: it says what's missing.
+    await tester.scrollUntilVisible(find.widgetWithText(FilledButton, 'Book the ride'), 300, scrollable: form);
+    await tester.tap(find.widgetWithText(FilledButton, 'Book the ride'));
+    await tester.pumpAndSettle();
+    expect(find.text('Enter the customer’s name.'), findsOneWidget);
+
+    await tester.scrollUntilVisible(find.widgetWithText(TextField, 'Name *'), -300, scrollable: form);
+    await tester.enterText(find.widgetWithText(TextField, 'Name *'), 'Jo Newman');
+    await tester.enterText(find.widgetWithText(TextField, 'Mobile phone'), '555 010 3000');
+    await tester.runAsync(() async {
+      await tester.enterText(find.widgetWithText(TextField, 'Address *'), '1520 Pearl');
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+    });
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('1520 Pearl Street, Boulder, CO 80302'));
+    await tester.pumpAndSettle();
+    expect(find.text('Found on the map ✓'), findsOneWidget);
+    await tester.tap(find.text('In 30 min'));
+    await tester.scrollUntilVisible(find.byIcon(Icons.add_rounded).last, 200, scrollable: form);
+    await tester.tap(find.byIcon(Icons.add_rounded).last);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.widgetWithText(FilledButton, 'Book the ride'), 300, scrollable: form);
+    await tester.runAsync(() async {
+      await tester.tap(find.widgetWithText(FilledButton, 'Book the ride'));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await tester.pumpAndSettle();
+    final booked = f.rides.last;
+    expect(booked['customer_name'], 'Jo Newman');
+    expect(booked['customer_phone'], '555 010 3000');
+    expect(booked['address'], '1520 Pearl Street, Boulder, CO 80302');
+    expect([booked['lat'], booked['lng'], booked['passengers'], booked['type']], [40.019, -105.274, 2, 'pickup']);
+    final when = DateTime.parse(booked['scheduled_at'] as String).difference(DateTime.now()).inMinutes;
+    expect(when, inInclusiveRange(28, 30));
+    expect(find.text('Booked'), findsOneWidget);
+    expect(find.text('Text them the tracking link'), findsOneWidget);
+    d.dispose();
   });
 }

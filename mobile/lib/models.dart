@@ -46,7 +46,7 @@ class Me {
 /// The business: its name, where it is, and how calls and texts to customers go.
 class Settings {
   Settings({required this.businessName, required this.place, this.lat, this.lng, this.address = '', this.arriveWaitMin = 5,
-      this.callsThroughBusiness = false, this.textsThroughBusiness = false, this.brandColor});
+      this.callsThroughBusiness = false, this.textsThroughBusiness = false, this.brandColor, this.dropoffWaitMin = 0});
   final String businessName;
   final String place; // "dealership", "hotel", "office"…
   final double? lat;
@@ -56,6 +56,7 @@ class Settings {
   final bool callsThroughBusiness;
   final bool textsThroughBusiness;
   final String? brandColor;
+  final int dropoffWaitMin; // drop offs leave at least this long after booking (0 = no wait)
 
   factory Settings.fromJson(Map<String, dynamic> s) => Settings(
         businessName: _s(s['dealer_name']) ?? 'Your shuttle',
@@ -67,13 +68,14 @@ class Settings {
         callsThroughBusiness: s['phone_calls'] == 'dealership',
         textsThroughBusiness: s['phone_texts'] == 'dealership',
         brandColor: _s(s['brand_color']),
+        dropoffWaitMin: _i(s['dropoff_wait_min']) ?? 0,
       );
 }
 
 class Ride {
   Ride({required this.id, required this.customerName, required this.type, required this.status, required this.address,
       this.lat, this.lng, this.scheduledAt, this.passengers = 1, this.urgent = false, this.urgentReason, this.notes,
-      this.driverId, this.driverName, this.arrivedAt, this.customerReply, this.customerPhone, this.distanceMi, this.rank});
+      this.driverId, this.driverName, this.arrivedAt, this.customerReply, this.customerPhone, this.distanceMi, this.rank, this.trackUrl});
   final int id;
   final String customerName;
   final String type; // pickup | dropoff
@@ -93,6 +95,7 @@ class Ride {
   final String? customerPhone;
   final double? distanceMi;
   final int? rank;
+  final String? trackUrl; // the customer's tracking link
 
   bool get isPickup => type == 'pickup';
   String get firstName => customerName.split(' ').first;
@@ -117,6 +120,7 @@ class Ride {
         customerPhone: _s(j['customer_phone']),
         distanceMi: _d(j['distance_mi']),
         rank: _i(j['rank']),
+        trackUrl: _s(j['track_url']),
       );
 }
 
@@ -204,5 +208,32 @@ class DriverInfo {
         openRides: _i(j['open_rides']) ?? 0,
         lastSeen: _t(j['last_loc_at']),
         phone: _s(j['phone']),
+      );
+}
+
+/// An address search result.
+class FoundPlace {
+  const FoundPlace(this.label, this.lat, this.lng);
+  final String label;
+  final double lat;
+  final double lng;
+}
+
+class Person {
+  const Person(this.id, this.name);
+  final int id;
+  final String name;
+}
+
+/// What the shuttle said after booking.
+class Booked {
+  Booked({required this.ride, this.adjustedTo, this.waitMin = 0});
+  final Ride ride;
+  final DateTime? adjustedTo; // a drop off moved later to respect the wait time
+  final int waitMin;
+  factory Booked.fromJson(Map<String, dynamic> j) => Booked(
+        ride: Ride.fromJson(j['ride'] as Map<String, dynamic>),
+        adjustedTo: _t(j['adjusted_to']),
+        waitMin: _i(j['wait_min']) ?? 0,
       );
 }

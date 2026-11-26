@@ -6,6 +6,7 @@ import 'api.dart';
 import 'demo.dart';
 import 'driver.dart';
 import 'tracker.dart';
+import 'ui/book.dart';
 import 'ui/home.dart';
 import 'ui/sign_in.dart';
 import 'ui/theme.dart';
@@ -13,6 +14,7 @@ import 'ui/theme.dart';
 /// A made-up shuttle for screenshots: flutter build web --dart-define=DEMO=true
 /// (?screen=signin, shift, offer, rides, desk or me; &role=admin or advisor). Never part of the real app.
 const demo = bool.fromEnvironment('DEMO');
+final navigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,7 +35,13 @@ void _demo() {
   final store = MemoryStore()..email = 'dana@drivers.test';
   if (screen != 'signin') store.s = const Session(base: 'https://turaslubtha.com/pinevalley', sid: 'SECRET123');
   final driver = Driver(api: Api(client: f.client), store: store);
-  runApp(TurasDriverApp(driver: driver, startTab: {'rides': 1, 'desk': 2, 'me': 3}[screen] ?? 0));
+  runApp(TurasDriverApp(driver: driver, startTab: {'rides': 1, 'desk': 2, 'book': 2, 'me': 3}[screen] ?? 0));
+  if (screen == 'book') {
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      final nav = navigatorKey.currentState;
+      if (nav != null) nav.push(MaterialPageRoute<void>(builder: (_) => BookScreen(driver: driver), fullscreenDialog: true));
+    });
+  }
   driver.start();
 }
 
@@ -45,6 +53,7 @@ class TurasDriverApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'Turas Driver',
       debugShowCheckedModeBanner: false,
       theme: turasTheme(Brightness.light),
