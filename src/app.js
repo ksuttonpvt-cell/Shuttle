@@ -341,6 +341,7 @@ function createApp(db, opts = {}) {
     team: u.team || null, home: homeOf(u), roles: rolesOf(u), can: canList(u), start_page: u.start_page || null,
     photo_url: u.photo ? `/api/users/${u.id}/photo?v=${u.photo_v || 1}` : null,
     super_admin: u.role === 'admin' && !!u.super_admin,
+    owner: !opts.business && u.role === 'admin' && !!u.owner,
   });
   // BDC team members are advisors (same access) with their own page.
   const STAFF_ROLES = ['admin', 'advisor', 'driver', 'bdc'];
@@ -532,24 +533,36 @@ function createApp(db, opts = {}) {
   // ---------- super admins ----------
   // The Server page (health, logs, updates, restart, backups) is for super admins only.
   // The admin named in .env (ADMIN_EMAIL) is always one; if there are none, the first admin is.
-  // A business hosted on this PC (opts.business) never has super admins: the Server page runs
-  // the whole PC, so only the PC's own shuttle can open it.
+  // Who's on top:
+  //  - Owner: owns the whole Turas Lúbtha PC (only on the PC's own shuttle). Only owners see the
+  //    server side: the Server page (updates, backups, logs, restart), businesses, demo
+  //    requests and the web address.
+  //  - Super admin: the top manager of one business (every business has at least one). They can
+  //    change everything in their business, including other managers, and managers can't change
+  //    them. They never see the server side.
+  // A business hosted on this PC (opts.business) never has owners.
   const hosted = !!opts.business;
-  (function ensureSuperAdmin() {
-    if (hosted) { q('UPDATE users SET super_admin = 0 WHERE super_admin = 1').run(); return; }
-    const email = opts.superEmail !== undefined ? opts.superEmail : process.env.ADMIN_EMAIL;
-    if (email) q("UPDATE users SET super_admin = 1 WHERE email = ? AND role = 'admin'").run(email);
+  (function ensureTop() {
+    const email = hosted ? null : (opts.superEmail !== undefined ? opts.superEmail : process.env.ADMIN_EMAIL);
+    if (email) q("UPDATE users SET super_admin = 1, owner = 1 WHERE email = ? AND role = 'admin'").run(email);
     if (!q("SELECT 1 FROM users WHERE super_admin = 1 AND role = 'admin' AND active = 1").get()) {
       const first = q("SELECT id FROM users WHERE role = 'admin' AND active = 1 ORDER BY id LIMIT 1").get();
       if (first) q('UPDATE users SET super_admin = 1 WHERE id = ?').run(first.id);
     }
+    if (hosted) { q('UPDATE users SET owner = 0 WHERE owner = 1').run(); return; }
+    // The PC's own shuttle always has an owner: at first, its super admins (so nobody loses access).
+    if (!q("SELECT 1 FROM users WHERE owner = 1 AND role = 'admin' AND active = 1").get()) {
+      q("UPDATE users SET owner = 1 WHERE super_admin = 1 AND role = 'admin' AND active = 1").run();
+    }
   })();
-  const isSuper = (u) => !hosted && !!u && u.role === 'admin' && !!u.super_admin;
-  app.use(['/api/server', '/api/version', '/api/updates'], (req, res, next) => {
+  const isSuper = (u) => !!u && u.role === 'admin' && !!u.super_admin;
+  const isOwner = (u) => !hosted && !!u && u.role === 'admin' && !!u.owner;
+  const ownerOnly = (req, res, next) => {
     if (!req.user) return bad(res, 'Please sign in.', 401);
-    if (!isSuper(req.user)) return bad(res, 'Only a super admin can use the Server page.', 403);
+    if (!isOwner(req.user)) return bad(res, 'Only the Turas Lúbtha owner can do that.', 403);
     next();
-  });
+  };
+  app.use(['/api/server', '/api/version', '/api/updates', '/api/site-url'], ownerOnly);
 
   // Sign-in throttle: 10 wrong passwords per 15 min from one address for one email, and
   // 30 per 15 min for one email from anywhere (stops guessing spread over many addresses).
@@ -901,13 +914,15 @@ function createApp(db, opts = {}) {
     if (b.first_name !== undefined || b.last_name !== undefined) { const n = fullName(b); if (!n) return bad(res, 'Enter their first and last name.'); user.name = n; }
     else if (b.name != null) user.name = str(b.name, 100) || user.name;
     if (b.phone !== undefined) user.phone = str(b.phone, 40);
+    if (user.id !== req.user.id && user.super_admin && user.role === 'admin' && !isSuper(req.user)) return bad(res, 'Only a super admin can change a super admin.', 403);
+    if (user.id !== req.user.id && user.owner && !isOwner(req.user)) return bad(res, 'Only the owner can change the owner.', 403);
     const rr = rolesFrom(b);
     if (rr) {
       if (rr.error) return bad(res, rr.error);
       if (user.id === req.user.id && rr.role !== 'admin') return bad(res, "You can't remove your own manager access.");
       if (rr.role !== 'admin' && user.super_admin && !isSuper(req.user)) return bad(res, 'Only a super admin can change a super admin.', 403);
       user.role = rr.role; user.team = rr.team; user.extra_roles = rr.extra_roles; user.start_page = rr.start_page;
-      if (user.role !== 'admin') user.super_admin = 0;
+      if (user.role !== 'admin') { user.super_admin = 0; user.owner = 0; }
     } else if (b.start_page !== undefined) { // only the page they open to
       user.start_page = b.start_page && rolesOf(user).includes(b.start_page) ? b.start_page : null;
     }
@@ -916,6 +931,14 @@ function createApp(db, opts = {}) {
       if (user.id === req.user.id && !b.super_admin) return bad(res, "You can't remove your own super admin access.");
       if (b.super_admin && user.role !== 'admin') return bad(res, 'Only managers can be super admins.');
       user.super_admin = b.super_admin ? 1 : 0;
+      if (!user.super_admin) user.owner = 0;
+    }
+    if (b.owner != null) {
+      if (!isOwner(req.user)) return bad(res, 'Only the owner can give or remove owner access.', 403);
+      if (user.id === req.user.id && !b.owner) return bad(res, "You can't remove your own owner access.");
+      if (b.owner && user.role !== 'admin') return bad(res, 'Only managers can be owners.');
+      user.owner = b.owner ? 1 : 0;
+      if (user.owner) user.super_admin = 1;
     }
     const emailChanged = b.email != null && String(b.email).trim().toLowerCase() !== origEmail;
     if ((b.active != null || b.password || emailChanged) && user.super_admin && user.id !== req.user.id && !isSuper(req.user)) {
@@ -925,8 +948,8 @@ function createApp(db, opts = {}) {
       if (user.id === req.user.id && !b.active) return bad(res, "You can't deactivate yourself.");
       user.active = b.active ? 1 : 0;
     }
-    q('UPDATE users SET name=?, email=?, phone=?, role=?, team=?, extra_roles=?, start_page=?, active=?, super_admin=? WHERE id=?')
-      .run(user.name, user.email, user.phone, user.role, user.team || null, user.extra_roles || null, user.start_page || null, user.active, user.super_admin ? 1 : 0, user.id);
+    q('UPDATE users SET name=?, email=?, phone=?, role=?, team=?, extra_roles=?, start_page=?, active=?, super_admin=?, owner=? WHERE id=?')
+      .run(user.name, user.email, user.phone, user.role, user.team || null, user.extra_roles || null, user.start_page || null, user.active, user.super_admin ? 1 : 0, !hosted && user.owner ? 1 : 0, user.id);
     if (user.active) q('UPDATE users SET signup_at = NULL, signup_note = NULL WHERE id = ?').run(user.id); // turned on = approved
     if (b.password) {
       const err = validatePassword(b.password);
@@ -2972,7 +2995,7 @@ function createApp(db, opts = {}) {
   if (bizzes && bizzes.demos && !hosted) {
     const KIND = { dealership: 'car dealership', hotel: 'hotel', parking: 'airport parking', other: 'business' };
     bizzes.demos.onNew((d) => {
-      const supers = q("SELECT * FROM users WHERE super_admin = 1 AND role = 'admin' AND active = 1").all();
+      const supers = q("SELECT * FROM users WHERE owner = 1 AND role = 'admin' AND active = 1").all();
       quietly(push.notifyUsers(supers.map((u) => u.id), { title: '📅 New demo request', body: `${d.name} at ${d.business}${d.vans ? ` (${d.vans} vans)` : ''}`, tag: `demo-${d.id}`, url: '/admin#server' }));
       if (mailer.configured) {
         for (const u of supers) {
@@ -3006,7 +3029,8 @@ function createApp(db, opts = {}) {
     const url = slug ? `https://${bizDomain}/${slug}` : '';
     const siteUrl = (getSettings().site_url || '').replace(/\/+$/, '');
     const oldHost = bizzes.getMeta('home_host');
-    return { slug, url, links_use_it: !!url && siteUrl === url, old_url: oldHost ? `https://${oldHost}` : '' };
+    const { peopleIn } = require('./businesses');
+    return { slug, url, links_use_it: !!url && siteUrl === url, old_url: oldHost ? `https://${oldHost}` : '', people: peopleIn(db) };
   };
   app.post('/api/server/businesses/home', requireRole('admin'), (req, res) => {
     if (!bizzes) return bad(res, 'Hosting other businesses isn’t turned on for this site.');
@@ -3232,7 +3256,7 @@ function createApp(db, opts = {}) {
   // its name stays on past rides, shifts and reports.
   function retireUser(id, at = now()) {
     q(`UPDATE users SET active = 0, removed_at = ?, email = ?, password_hash = '!', phone = NULL, photo = NULL, photo_v = NULL, on_duty = 0,
-       vehicle_id = NULL, route_json = NULL, reset_requested_at = NULL, signup_at = NULL, signup_note = NULL, start_page = NULL, super_admin = 0 WHERE id = ?`)
+       vehicle_id = NULL, route_json = NULL, reset_requested_at = NULL, signup_at = NULL, signup_note = NULL, start_page = NULL, super_admin = 0, owner = 0 WHERE id = ?`)
       .run(at, `removed-${id}@removed.invalid`, id);
     for (const sql of ['DELETE FROM sessions WHERE user_id = ?', 'DELETE FROM push_subscriptions WHERE user_id = ?', 'DELETE FROM password_resets WHERE user_id = ?']) q(sql).run(id);
     q("UPDATE ride_offers SET status = 'expired', responded_at = ? WHERE driver_id = ? AND status = 'pending'").run(at, id);
@@ -3275,6 +3299,7 @@ function createApp(db, opts = {}) {
     if (!u) return bad(res, 'That person was not found.', 404);
     if (u.id === req.user.id) return bad(res, 'You can\'t delete your own account.');
     if (u.super_admin && u.role === 'admin' && !isSuper(req.user)) return bad(res, 'Only a super admin can delete a super admin.', 403);
+    if (u.owner && !isOwner(req.user)) return bad(res, 'Only the owner can delete the owner.', 403);
     db.exec('BEGIN IMMEDIATE');
     try {
       if (u.signup_at && !u.active) q('DELETE FROM users WHERE id = ?').run(u.id); else retireUser(u.id);
@@ -3611,7 +3636,7 @@ function createApp(db, opts = {}) {
     try {
       if (admin) {
         if (!noUsers()) throw Object.assign(new Error('Someone just set this site up. Sign in instead.'), { code: 409 });
-        const id = Number(q("INSERT INTO users (name, email, role, password_hash, super_admin) VALUES (?, ?, 'admin', ?, ?)").run(admin.aname, admin.email, admin.hash, hosted ? 0 : 1).lastInsertRowid);
+        const id = Number(q("INSERT INTO users (name, email, role, password_hash, super_admin, owner) VALUES (?, ?, 'admin', ?, 1, ?)").run(admin.aname, admin.email, admin.hash, hosted ? 0 : 1).lastInsertRowid);
         admin.id = id;
       }
       for (const [k, v] of Object.entries({ dealer_name: name, business_type: b.business_type, place_word: word, dealer_phone: str(b.dealer_phone, 40) || '',

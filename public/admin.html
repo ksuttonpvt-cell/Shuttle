@@ -694,7 +694,7 @@
   // has short pages by topic (#settings/branding); Phone & email is one of them.
   const loaders = {};
   const SETTINGS = [['business', 'Business'], ['rides', 'Rides & customers'], ['drivers', 'Drivers'], ['privacy', 'Privacy & sign-in'],
-    ['branding', 'Branding'], ['maps', 'Map'], ['phone', 'Phone & email'], ['address', 'Web address'], ['help', 'Help & extras']];
+    ['branding', 'Branding'], ['maps', 'Map'], ['phone', 'Phone & email'], ...(me.owner ? [['address', 'Web address']] : []), ['help', 'Help & extras']];
   const commsPane = $('[data-pane="comms"]');
   commsPane.classList.remove('hidden'); commsPane.dataset.sub = 'phone';
   $('.settings-pane').appendChild(commsPane);
@@ -799,7 +799,7 @@
     const shown = staff.filter((u) => !q || [u.name, u.email, roleNames(u), u.phone].some((v) => String(v || '').toLowerCase().includes(q)));
     $('#userCount').textContent = `${staff.filter((u) => u.active).length} active · ${staff.length} total`;
     $('#users').innerHTML = shown.length ? `<table><tr><th>Name</th><th>Role</th><th>Status</th><th></th></tr>
-      ${shown.map((u) => `<tr data-id="${u.id}"><td><b>${esc(u.name)}</b>${u.id === me.id ? ' <span class="small muted">(you)</span>' : ''}</td><td>${esc(roleNames(u))}${u.super_admin ? ' <span class="badge b-super">⭐ Super</span>' : ''}</td>
+      ${shown.map((u) => `<tr data-id="${u.id}"><td><b>${esc(u.name)}</b>${u.id === me.id ? ' <span class="small muted">(you)</span>' : ''}</td><td>${esc(roleNames(u))}${u.owner ? ' <span class="badge b-owner">👑 Owner</span>' : u.super_admin ? ' <span class="badge b-super">⭐ Super admin</span>' : ''}</td>
         <td>${u.active ? '<span class="badge s-completed">Active</span>' : '<span class="badge s-cancelled">Disabled</span>'}${u.reset_requested_at ? ' <span class="badge s-en_route">🔑 Forgot password</span>' : ''}</td>
         <td style="text-align:right"><button class="btn-ghost btn-sm" data-edit>Edit</button></td></tr>`).join('')}</table>`
       : '<div class="empty">No one matches.</div>';
@@ -824,7 +824,9 @@
           <div class="small muted">${u.photo_url ? 'Drivers can change their own photo on the driver page.' : 'No photo yet.'}</div>
           <div class="actions" style="margin:0"><button type="button" class="btn-ghost btn-sm" data-photo>${u.photo_url ? 'Change' : 'Add photo'}</button>${u.photo_url ? '<button type="button" class="btn-ghost btn-sm" data-photo-del>Remove</button>' : ''}</div>
         </div>
-        ${me.super_admin && u.role === 'admin' ? `<label class="check" style="margin-top:.6rem"><input type="checkbox" name="super_admin" ${u.super_admin ? 'checked' : ''} ${u.id === me.id ? 'disabled' : ''}> ⭐ Super admin: can open the Server page (updates, restart, backups, logs)</label>` : ''}
+        ${me.super_admin && u.role === 'admin' ? `<label class="check" style="margin-top:.6rem"><input type="checkbox" name="super_admin" ${u.super_admin ? 'checked' : ''} ${u.id === me.id || u.owner ? 'disabled' : ''}> ⭐ Super admin: the top of this business. Can change everything here, including other managers; managers can’t change them.</label>` : ''}
+        ${me.owner && u.role === 'admin' ? `<label class="check" style="margin-top:.4rem"><input type="checkbox" name="owner" ${u.owner ? 'checked' : ''} ${u.id === me.id ? 'disabled' : ''}> 👑 Owner: owns Turas Lúbtha on this PC. Sees the Server page, businesses, demo requests and the web address.</label>` : ''}
+        ${(u.super_admin && !me.super_admin && u.id !== me.id) || (u.owner && !me.owner) ? '<p class="small muted" style="margin:.6rem 0 0">Only a super admin can change this person.</p>' : ''}
         <div class="msg"></div>
         <div class="actions"><button>Save</button><button type="button" class="btn-ghost" data-close>Close</button></div>
       </form>
@@ -835,7 +837,7 @@
         ${u.active ? '<button type="button" class="btn-blue btn-sm" data-act="link">Send reset link</button>' : ''}
         <button type="button" class="btn-ghost btn-sm" data-act="pw">Set password</button>
         ${u.id !== me.id ? `<button type="button" class="btn-ghost btn-sm" data-act="toggle">${u.active ? 'Disable account' : 'Enable account'}</button>` : ''}
-        ${u.id !== me.id && (!u.super_admin || me.super_admin) ? '<button type="button" class="btn-ghost btn-sm btn-danger-text" data-act="delete">Delete account</button>' : ''}
+        ${u.id !== me.id && (!u.super_admin || me.super_admin) && (!u.owner || me.owner) ? '<button type="button" class="btn-ghost btn-sm btn-danger-text" data-act="delete">Delete account</button>' : ''}
       </div>
       <p class="small muted" style="margin:.4rem 0 0">${u.active ? 'Disabling signs them out everywhere and stops them signing in. Their past rides stay in reports.' : 'This account is disabled and can’t sign in.'}</p>`);
     const f = $('[data-details]', m);
@@ -853,6 +855,7 @@
       body.roles = readRoles(f);
       if (!body.roles.length) { App.flash($('.msg', m), 'Pick at least one role.'); return; }
       if (f.elements.super_admin && !f.elements.super_admin.disabled) body.super_admin = f.elements.super_admin.checked; else delete body.super_admin;
+      if (f.elements.owner && !f.elements.owner.disabled) body.owner = f.elements.owner.checked; else delete body.owner;
       try { await api(`/api/users/${u.id}`, { method: 'PATCH', body }); m.close(); loadUsers(); }
       catch (err) { App.flash($('.msg', m), err.message); }
     };
@@ -1699,23 +1702,34 @@
   const copyBtn = (text, label = 'Copy') => `<button type="button" class="btn-ghost btn-sm" data-copy="${esc(text)}">${label}</button>`;
   function bizRow(b) {
     const status = b.paused ? '<span class="badge">Paused</span>'
-      : b.setup_done ? `<span class="badge b-ok">Ready</span> <span class="small muted">${b.staff} staff</span>`
+      : b.setup_done ? '<span class="badge b-ok">Ready</span>'
         : '<span class="badge b-warn">Waiting for setup</span>';
     return `<tr><td><b>${esc(b.name)}</b><div class="small muted">Added ${esc(new Date(b.created_at).toLocaleDateString())}</div></td>
       <td><a href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.url.replace(/^https?:\/\//, ''))}</a>${b.also_url ? `<div class="small muted">Later also: ${esc(b.also_url.replace(/^https?:\/\//, ''))}</div>` : ''}</td>
-      <td>${status}${b.setup_url ? `<div style="margin-top:.3rem">${copyBtn(b.setup_url, 'Copy setup link')}</div>` : ''}</td>
+      <td>${status}${b.setup_url ? `<div style="margin-top:.3rem">${copyBtn(b.setup_url, 'Copy setup link')}</div>` : ''}${b.setup_done ? `<div style="margin-top:.3rem">${peopleLine(b.people)}</div>` : ''}</td>
       <td style="text-align:right"><button type="button" class="btn-ghost btn-sm" data-biz-pause="${esc(b.slug)}" data-paused="${b.paused ? 1 : 0}">${b.paused ? 'Turn back on' : 'Pause'}</button></td></tr>`;
   }
   const bare = (u) => String(u || '').replace(/^https?:\/\//, '');
+  // How many people a business has, and how busy it is (counts only).
+  const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+  function peopleLine(p) {
+    if (!p) return '';
+    const bits = [plural(p.managers, 'manager'), `${p.desk} desk`, plural(p.drivers, 'driver'), plural(p.vans, 'van')];
+    const busy = [`${plural(p.rides_30d, 'ride')} in 30 days`];
+    if (p.on_shift) busy.push(`${p.on_shift} on shift now`);
+    if (p.waiting_approval) busy.push(`${p.waiting_approval} waiting for approval`);
+    if (p.last_activity) busy.push(`last active ${App.relTime ? App.relTime(p.last_activity) : new Date(p.last_activity).toLocaleString()}`);
+    return `<div class="small"><b>${plural(p.active, 'person', 'people')}</b>: ${bits.join(' · ')}</div><div class="small muted">${busy.join(' · ')}</div>`;
+  }
   function showHome(h, mainDomain) {
     document.querySelectorAll('[data-main-domain]').forEach((el) => { el.textContent = `${mainDomain}/`; });
     if (h.slug && document.activeElement !== $('#homeSlug')) $('#homeSlug').value = h.slug;
-    if (!h.slug) { $('#homeInfo').innerHTML = ''; return; }
+    if (!h.slug) { $('#homeInfo').innerHTML = peopleLine(h.people); return; }
     const old = h.old_url ? ` · still at <a href="${esc(h.old_url)}" target="_blank" rel="noopener">${esc(bare(h.old_url))}</a>` : '';
     const links = h.links_use_it
       ? `New links and QR codes use the Turas Lúbtha address ✓ <button type="button" class="linkish" data-home-links="0">Switch back${h.old_url ? ` to ${esc(bare(h.old_url))}` : ''}</button>`
       : `<button type="button" class="btn-ghost btn-sm" data-home-links="1">Use it for new links &amp; QR codes</button> <span class="muted">Only once ${esc(bare(h.url))} opens on your phone.</span>`;
-    $('#homeInfo').innerHTML = `<div>✅ Also at <a href="${esc(h.url)}" target="_blank" rel="noopener"><b>${esc(bare(h.url))}</b></a>${old}</div><div style="margin-top:.4rem">${links}</div>`;
+    $('#homeInfo').innerHTML = `${peopleLine(h.people)}<div style="margin-top:.4rem">✅ Also at <a href="${esc(h.url)}" target="_blank" rel="noopener"><b>${esc(bare(h.url))}</b></a>${old}</div><div style="margin-top:.4rem">${links}</div>`;
   }
   async function loadBiz() {
     const d = await api('/api/server/businesses');
@@ -1827,7 +1841,7 @@
     lf.elements.brand_dark.value = settings.brand_dark || '#1e293b';
     lf.elements.brand_name.value = settings.brand_name || '';
     lf.elements.brand_name.placeholder = settings.dealer_name || '';
-    paintLogo(settings); paintImages(settings); loadUrl().catch(() => {});
+    paintLogo(settings); paintImages(settings); if (me.owner) loadUrl().catch(() => {});
   }
   // Show color changes right away on this page.
   lf.elements.brand_name.oninput = (e) => { document.documentElement.dataset.brandName = e.target.value.trim(); paintLogo({ dealer_name: e.target.placeholder, logo_v: document.documentElement.dataset.logo }); App.applyBrand(e.target.placeholder); };
@@ -2174,14 +2188,14 @@
       : `${m.name} didn't send a map picture with this key. Check you copied all of it, and that ${location.origin} is allowed in its restrictions.`, ok);
   };
 
-  // Server tab: super admins only.
-  if (!me.super_admin) delete loaders.server;
+  // Server tab: the owner only (the server side of Turas Lúbtha).
+  if (!me.owner) delete loaders.server;
   App.pageNav('Manager', [
     { id: 'dash', label: 'Overview', icon: 'manager' }, { id: 'history', label: 'Rides', icon: 'list' },
     { id: 'reports', label: 'Reports', icon: 'chart' }, { id: 'users', label: 'People', icon: 'people' },
     { id: 'vehicles', label: 'Vehicles', icon: 'driver' }, { id: 'links', label: 'QR codes & links', icon: 'qr' },
     { id: 'settings', label: 'Settings', icon: 'gear' },
-    ...(me.super_admin ? [{ id: 'server', label: 'Server', icon: 'server' }] : []),
+    ...(me.owner ? [{ id: 'server', label: 'Server', icon: 'server' }] : []),
   ], show);
   checkResets();
   setInterval(() => { if (!$('[data-pane="dash"]').classList.contains('hidden') && !document.hidden) loadDash().catch(() => {}); }, 15000);

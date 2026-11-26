@@ -903,3 +903,5 @@ body.drawer-open { overflow: hidden; }
 .demo-msg { white-space: pre-wrap; background: var(--gray-bg); border-radius: 8px; padding: .5rem .7rem; margin-top: .2rem; }
 .demo-acts { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: flex-end; }
 @media (max-width: 600px) { .demo-row { flex-direction: column; } .demo-acts { justify-content: flex-start; } }
+.b-owner { background: #ede9fe; color: #5b21b6; }
+[data-theme="dark"] .b-owner { background: #2e1065; color: #ddd6fe; }
