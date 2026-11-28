@@ -166,6 +166,58 @@ class Api {
 
   Uri _url(String path) => Uri.parse('${session!.base}$path');
 
+  /// Live updates from the shuttle (server-sent events): yields the name of each change
+  /// ('rides', 'drivers', 'moved', 'hello'…). Ends or errors when the connection drops.
+  Stream<String> events() {
+    StreamSubscription<String>? sub;
+    var gone = false;
+    late final StreamController<String> out;
+    void fail(Object e, [StackTrace? st]) {
+      if (gone) return; // nobody listening any more (signed out, app closed)
+      gone = true;
+      out.addError(e, st);
+      out.close();
+    }
+
+    out = StreamController<String>(
+      onListen: () async {
+        try {
+          final req = http.Request('GET', _url('/api/events'));
+          req.headers.addAll({..._headers, 'Accept': 'text/event-stream', 'Cache-Control': 'no-cache'});
+          final res = await _http.send(req).timeout(_timeout);
+          if (gone) return;
+          if (res.statusCode == 401) return fail(ApiError('Please sign in.', status: 401));
+          if (res.statusCode != 200) return fail(ApiError('No live updates.', status: res.statusCode));
+          var name = 'message';
+          var hasData = false;
+          // The shuttle sends a ping every 25 seconds; over a minute of silence means the line is dead.
+          sub = res.stream.transform(utf8.decoder).transform(const LineSplitter()).timeout(const Duration(seconds: 70)).listen((line) {
+            if (line.isEmpty) {
+              if (hasData && !gone) out.add(name);
+              name = 'message';
+              hasData = false;
+            } else if (line.startsWith('event:')) {
+              name = line.substring(6).trim();
+            } else if (line.startsWith('data:')) {
+              hasData = true;
+            }
+          }, onError: fail, onDone: () {
+            if (gone) return;
+            gone = true;
+            out.close();
+          }, cancelOnError: true);
+        } catch (e, st) {
+          fail(e, st);
+        }
+      },
+      onCancel: () {
+        gone = true;
+        return sub?.cancel();
+      },
+    );
+    return out.stream;
+  }
+
   Future<Map<String, dynamic>> get(String path) async => _check(await _send(() => _http.get(_url(path), headers: _headers)));
   Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) async =>
       _check(await _send(() => _http.post(_url(path), headers: _headers, body: jsonEncode(body))));

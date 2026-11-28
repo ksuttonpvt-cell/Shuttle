@@ -1,6 +1,8 @@
 // The driver's live state: who's signed in, the rides, any ride offer, and the shift.
-// Screens listen to this; it keeps itself fresh by asking the shuttle every few seconds.
+// Screens listen to this. It hears changes the moment the shuttle sends them (live updates),
+// and also asks now and then in case a change was missed: every 30 s while live, every 6 s if not.
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
@@ -32,6 +34,12 @@ class Driver extends ChangeNotifier {
   DateTime? lastUpdate;
 
   Timer? _poll;
+  StreamSubscription<String>? _live;
+  Timer? _liveRetry;
+  Timer? _soon;
+  int _liveFails = 0;
+  /// True while the shuttle's live updates are coming in.
+  bool liveOn = false;
   final Set<String> _seen = {};
   bool _firstLoad = true;
   int? _lastOfferId;
@@ -44,6 +52,7 @@ class Driver extends ChangeNotifier {
     api.session = s;
     await refresh(quiet: true);
     _schedule();
+    _listen();
   }
 
   Future<SignInResult> signIn(String email, String password) async {
@@ -61,6 +70,7 @@ class Driver extends ChangeNotifier {
     _seen.clear();
     await refresh(quiet: true);
     _schedule();
+    _listen();
   }
 
   Future<void> signOut() async {
@@ -72,7 +82,7 @@ class Driver extends ChangeNotifier {
     await tracker.stop();
     await api.signOut();
     await store.clear();
-    _poll?.cancel();
+    _stopAll();
     me = null;
     rides = RideList(const []);
     offer = null;
@@ -83,7 +93,50 @@ class Driver extends ChangeNotifier {
 
   void _schedule() {
     _poll?.cancel();
-    _poll = Timer.periodic(const Duration(seconds: 6), (_) => refresh(quiet: true));
+    _poll = Timer.periodic(Duration(seconds: liveOn ? 30 : 6), (_) => refresh(quiet: true));
+  }
+
+  void _listen() {
+    _live?.cancel();
+    _liveRetry?.cancel();
+    if (api.session == null) return;
+    _live = api.events().listen((event) {
+      if (!liveOn) {
+        liveOn = true;
+        _liveFails = 0;
+        _schedule();
+      }
+      if (event == 'moved') return; // vans moving: the regular check is enough for the app
+      // Changes come in bursts: wait a moment, then fetch once.
+      _soon?.cancel();
+      _soon = Timer(const Duration(milliseconds: 250), () => refresh(quiet: true));
+    }, onError: (Object e) => _lost(e), onDone: () => _lost(null), cancelOnError: true);
+  }
+
+  void _lost(Object? e) {
+    _live = null;
+    if (liveOn) {
+      liveOn = false;
+      _schedule(); // ask more often until live updates are back
+    }
+    if (api.session == null) return;
+    if (e is ApiError && e.signedOut) {
+      refresh(quiet: true);
+      return;
+    }
+    if (e is ApiError && e.status == 404) return; // an older shuttle without live updates: keep asking
+    _liveFails++;
+    _liveRetry?.cancel();
+    _liveRetry = Timer(Duration(seconds: min(60, 2 << min(_liveFails, 5))), _listen); // 4 s, 8 s… up to a minute
+  }
+
+  void _stopAll() {
+    _poll?.cancel();
+    _live?.cancel();
+    _live = null;
+    _liveRetry?.cancel();
+    _soon?.cancel();
+    liveOn = false;
   }
 
   Future<void> refresh({bool quiet = false}) async {
@@ -115,7 +168,7 @@ class Driver extends ChangeNotifier {
         await tracker.stop();
         await store.clear();
         api.session = null;
-        _poll?.cancel();
+        _stopAll();
         return _set(Phase.signedOut);
       }
       problem = e.message;
@@ -188,7 +241,7 @@ class Driver extends ChangeNotifier {
 
   @override
   void dispose() {
-    _poll?.cancel();
+    _stopAll();
     super.dispose();
   }
 }
