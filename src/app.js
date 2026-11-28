@@ -20,6 +20,7 @@ const { createMailer, ADDR_RE } = require('./mailer');
 const { createBus, coresAvailable, coresWanted } = require('./cluster');
 const { createThrottle } = require('./throttle');
 const { mergeSnapshots, TRAFFIC_TYPES, percentile, BUCKETS } = require('./serverstats');
+const { createOffsite, cleanConfig } = require('./offsite');
 
 // The site's version (package.json) and the "What's new" list (changelog.json).
 // Both change only with an update, which restarts the site, so they're read once.
@@ -2632,7 +2633,10 @@ function createApp(db, opts = {}) {
       try { autoSignOut(); } catch (e) { console.error('Auto sign-out failed:', e.message); }
       if (!rest) try { dailyReport.tick(); } catch (e) { console.error('Building the daily report failed:', e.message); } // before the clear and the backup
       try { customerWipe.tick(); } catch (e) { console.error('Clearing customer info failed:', e.message); }
-      if (!rest) try { nightlyBackup.tick(); } catch (e) { console.error('Nightly backup failed:', e.message); }
+      let backedUp = null;
+      if (!rest) try { backedUp = nightlyBackup.tick(); } catch (e) { console.error('Nightly backup failed:', e.message); }
+      // Then a copy of every database leaves the PC (when the owner set it up).
+      if (backedUp && offsite && offsiteConfig()) offsite.run().catch((e) => console.error('Off-PC backup failed:', e.message));
     }, 60000).unref();
   }
 
@@ -3028,6 +3032,50 @@ function createApp(db, opts = {}) {
     return /(^|\.)localhost(:\d+)?$/.test(host) ? `http://website.localhost${(host.match(/:\d+$/) || [''])[0]}` : `https://${bizDomain}`;
   };
   const bizUrl = (req, slug) => `${siteBase(req)}/${slug}`;
+
+  // ---------- off-PC backups (owner only) ----------
+  // Settings are kept in the businesses directory (not any business's settings), and the secret
+  // key never leaves the server.
+  const OFFSITE = 'offsite_config'; const OFFSITE_STATUS = 'offsite_status';
+  const readMeta = (k) => { try { return JSON.parse(bizzes.getMeta(k) || 'null'); } catch { return null; } };
+  const offsiteConfig = () => (bizzes ? readMeta(OFFSITE) : null);
+  const offsite = bizzes ? createOffsite({
+    getConfig: offsiteConfig,
+    sources: () => {
+      const dir = path.dirname(bizzes.dirFile);
+      return [{ name: 'shuttle', file: opts.dbFile && opts.dbFile !== ':memory:' ? opts.dbFile : path.join(dir, 'shuttle.db') },
+        { name: 'directory', file: bizzes.dirFile },
+        ...bizzes.list().map((b) => ({ name: `businesses/${b.slug}`, file: bizzes.fileOf(b.slug) }))];
+    },
+    tmpDir: path.join(path.dirname(bizzes.dirFile), 'backups'),
+    saveStatus: (st) => bizzes.setMeta(OFFSITE_STATUS, JSON.stringify(st)),
+    log: (m, level) => (level === 'error' ? console.error : console.log)(new Date().toLocaleString(), '[backups]', m),
+  }) : null;
+  const offsiteOut = () => {
+    const c = offsiteConfig();
+    return { available: !!offsite, set_up: !!c, busy: !!(offsite && offsite.busy), status: bizzes ? readMeta(OFFSITE_STATUS) : null,
+      config: c ? { endpoint: c.endpoint, bucket: c.bucket, region: c.region, prefix: c.prefix, access_key_id: c.access_key_id, has_secret: !!c.secret_access_key } : null };
+  };
+  app.get('/api/server/offsite', requireRole('admin'), (req, res) => res.json(offsiteOut()));
+  app.put('/api/server/offsite', requireRole('admin'), async (req, res) => {
+    if (!offsite) return bad(res, 'Off-PC backups are not available here.');
+    const b = req.body || {}; const old = offsiteConfig() || {};
+    let cfg;
+    try { cfg = cleanConfig({ ...b, secret_access_key: b.secret_access_key || old.secret_access_key }); } catch (e) { return bad(res, e.message); } // blank secret keeps the saved one
+    try { await offsite.test(cfg); } catch (e) { return bad(res, `Not saved: the test upload didn't work. ${e.message}`); }
+    bizzes.setMeta(OFFSITE, JSON.stringify(cfg));
+    console.log(new Date().toLocaleString(), `[backups] ${req.user.name} set up off-PC backups to ${cfg.bucket} at ${new URL(cfg.endpoint).host}.`);
+    res.json(offsiteOut());
+  });
+  app.delete('/api/server/offsite', requireRole('admin'), (req, res) => {
+    if (!offsite) return bad(res, 'Off-PC backups are not available here.');
+    bizzes.setMeta(OFFSITE, ''); bizzes.setMeta(OFFSITE_STATUS, '');
+    res.json(offsiteOut());
+  });
+  app.post('/api/server/offsite/run', requireRole('admin'), async (req, res) => {
+    if (!offsite || !offsiteConfig()) return bad(res, 'Set up off-PC backups first.');
+    try { const status = await offsite.run(); res.json({ ...offsiteOut(), status }); } catch (e) { bad(res, e.message, 500); }
+  });
   const bizOut = (req, d) => ({ ...d, url: bizUrl(req, d.slug), also_url: '', setup_url: d.setup_code ? `${bizUrl(req, d.slug)}/setup?code=${encodeURIComponent(d.setup_code)}` : '' });
   app.get('/api/server/businesses', requireRole('admin'), (req, res) => {
     if (!bizzes) return res.json({ available: false, businesses: [] });

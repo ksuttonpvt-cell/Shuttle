@@ -312,3 +312,37 @@ test('the owner opens any business as hidden Turas Lúbtha support', async () =>
   await call(HOME, '/api/server/businesses', { cookie: boss, body: { name: 'Not Ready', slug: 'notready' } });
   assert.equal((await call(HOME, '/api/server/businesses/notready/visit', { cookie: boss, body: {} })).status, 400);
 });
+
+test('off-PC backups: only the owner sets them up, the secret stays on the server, every database is sent', async () => {
+  const got = new Map();
+  const store = http.createServer((req, res) => { const c = []; req.on('data', (d) => c.push(d)); req.on('end', () => { got.set(decodeURIComponent(req.url), Buffer.concat(c)); res.end(); }); });
+  await new Promise((r) => store.listen(0, r));
+  const endpoint = `http://127.0.0.1:${store.address().port}`;
+  const boss = await signIn(HOME, '', 'boss@home.test', 'home-pass-1');
+  assert.equal((await call(HOME, '/api/server/offsite', { cookie: boss })).data.set_up, false);
+  const cfg = { endpoint, bucket: 'turas-backups', access_key_id: 'AKIDEXAMPLE12345', secret_access_key: 'made-up-secret-key-0123456789' };
+  assert.equal((await call(HOME, '/api/server/offsite', { cookie: boss, method: 'PUT', body: { ...cfg, bucket: 'Bad Name' } })).status, 400);
+  const saved = await call(HOME, '/api/server/offsite', { cookie: boss, method: 'PUT', body: cfg });
+  assert.equal(saved.status, 200, saved.text);
+  assert.ok(got.has('/turas-backups/connection-test.txt'), 'checked with a test upload before saving');
+  assert.equal(saved.data.config.has_secret, true);
+  assert.ok(!saved.text.includes(cfg.secret_access_key), 'the secret is never sent back');
+  // Saving again with the secret left blank keeps it.
+  assert.equal((await call(HOME, '/api/server/offsite', { cookie: boss, method: 'PUT', body: { ...cfg, secret_access_key: '' } })).status, 200);
+
+  const run = await call(HOME, '/api/server/offsite/run', { cookie: boss, body: {} });
+  assert.equal(run.status, 200, run.text);
+  assert.equal(run.data.status.ok, true);
+  const names = run.data.status.sent.map((x) => x.name);
+  assert.ok(names.includes('shuttle') && names.includes('directory') && names.includes('businesses/pinevalley'), names.join(','));
+  const day = run.data.status.at.slice(0, 10);
+  assert.equal(got.get(`/turas-backups/${day}/businesses/pinevalley.db`).subarray(0, 15).toString(), 'SQLite format 3');
+
+  // A business's own people never see it.
+  const v = await call(HOME, '/api/server/businesses/harbor/visit', { cookie: boss, body: {} });
+  const u = new URL(v.data.url);
+  const support = (await call(SITE, `/harbor/auth/handoff${u.search}`)).cookie;
+  assert.equal((await call(SITE, '/harbor/api/server/offsite', { cookie: support })).status, 403);
+  assert.equal((await call(HOME, '/api/server/offsite', { cookie: boss, method: 'DELETE' })).data.set_up, false);
+  store.close();
+});

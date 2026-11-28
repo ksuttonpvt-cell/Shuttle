@@ -257,7 +257,7 @@ function createBusinesses({ dataDir, openDb, makeApp, log = () => {} }) {
   };
 
   return {
-    dirFile, list, getMeta, setMeta, demos, getPlan, setPlan, visit, row, load, create, setPaused, details, makeHandoff, redeemHandoff,
+    dirFile, fileOf, list, getMeta, setMeta, demos, getPlan, setPlan, visit, row, load, create, setPaused, details, makeHandoff, redeemHandoff,
     loaded: () => [...loaded.values()],
     // The copy of the site that runs background jobs keeps every business loaded, so each
     // one's timers (ride offers, nightly clearing, backups, daily reports) keep running.

@@ -646,6 +646,24 @@
         <div id="srvBackupMsg"></div>
         <div class="table-wrap" id="srvBackups"></div>
       </div>
+      <div class="card" id="offCard" hidden>
+        <div class="card-head"><h2>Off-PC copy</h2><button type="button" class="btn-blue btn-sm" id="offRun" hidden>Send a copy now</button></div>
+        <div id="offStatus" class="small" style="margin:-.3rem 0 .6rem"></div>
+        <details id="offMore">
+          <summary class="small"><b id="offSummary">Set up: send every night's backup to Cloudflare R2</b></summary>
+          <p class="small muted">After the nightly backup, a copy of every database (this shuttle, the businesses list and each business) goes to your own storage bucket, so a dead PC or disk doesn't lose anything. In Cloudflare: <b>R2 → Create bucket</b>, then <b>Manage API tokens → Create API token</b> with <i>Object Read &amp; Write</i> for that bucket. Paste what it shows below. To keep 30 days, add a lifecycle rule in the bucket's settings that deletes objects after 30 days. Amazon S3 and Backblaze B2 work too.</p>
+          <form id="offForm" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:.6rem">
+            <div style="grid-column:1/-1"><label for="offEndpoint">Endpoint</label><input id="offEndpoint" name="endpoint" placeholder="https://<account id>.r2.cloudflarestorage.com" autocomplete="off" spellcheck="false"></div>
+            <div><label for="offBucket">Bucket</label><input id="offBucket" name="bucket" placeholder="turas-backups" autocomplete="off" spellcheck="false"></div>
+            <div><label for="offPrefix">Folder <span class="muted">(optional)</span></label><input id="offPrefix" name="prefix" placeholder="shuttle-pc" autocomplete="off" spellcheck="false"></div>
+            <div><label for="offKey">Access key ID</label><input id="offKey" name="access_key_id" autocomplete="off" spellcheck="false"></div>
+            <div><label for="offSecret">Secret access key</label><input id="offSecret" name="secret_access_key" type="password" autocomplete="new-password"></div>
+            <div><label for="offRegion">Region <span class="muted">(R2: auto)</span></label><input id="offRegion" name="region" placeholder="auto" autocomplete="off"></div>
+            <div style="grid-column:1/-1" id="offMsg"></div>
+            <div class="actions" style="grid-column:1/-1"><button>Test &amp; save</button><button type="button" class="btn-ghost" id="offClear" hidden>Turn off</button></div>
+          </form>
+        </details>
+      </div>
     </div>
     <div class="card danger-card">
       <div class="card-head"><h2>Remove all staff</h2><button type="button" class="btn-sm btn-dark" id="wipeBtn">Remove all staff…</button></div>
@@ -1599,6 +1617,40 @@
           <button class="btn-ghost btn-sm" data-restore>Restore</button> <button class="btn-ghost btn-sm" data-delete aria-label="Delete backup">✕</button></td></tr>`).join('')}</table>`
       : '<div class="empty">No backups yet. Tap “Back up now”, or wait for tonight\'s.</div>';
   }
+  // ---------- off-PC copy (owner only) ----------
+  const kb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`);
+  function showOffsite(d) {
+    $('#offCard').hidden = !d.available;
+    if (!d.available) return;
+    const c = d.config; const st = d.status; const f = $('#offForm');
+    $('#offRun').hidden = !d.set_up; $('#offClear').hidden = !d.set_up;
+    $('#offSummary').textContent = d.set_up ? `Sending to ${c.bucket} at ${new URL(c.endpoint).host} · change` : 'Set up: send every night\'s backup to Cloudflare R2';
+    if (c) { for (const k of ['endpoint', 'bucket', 'prefix', 'access_key_id', 'region']) f.elements[k].value = c[k] || ''; f.elements.secret_access_key.placeholder = c.has_secret ? 'Saved (leave blank to keep)' : ''; }
+    $('#offStatus').innerHTML = !d.set_up ? '<span class="muted">Not set up. Backups are only on this PC.</span>'
+      : !st ? '<span class="muted">Set up. The first copy goes after tonight\'s backup (or tap “Send a copy now”).</span>'
+      : st.ok ? `✅ Last copy ${esc(fmtTime(st.at))}: ${st.sent.length} database${st.sent.length === 1 ? '' : 's'}, ${kb(st.bytes)}.`
+      : `<div class="alert alert-err">Last copy ${esc(fmtTime(st.at))} had a problem: ${esc((st.failed[0] || {}).error || 'nothing was sent')}${st.failed.length > 1 ? ` (and ${st.failed.length - 1} more)` : ''}</div>`;
+  }
+  const loadOffsite = () => api('/api/server/offsite').then(showOffsite).catch(() => {});
+  $('#offForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target; const btn = f.querySelector('button'); btn.disabled = true; btn.textContent = 'Testing…';
+    const body = {}; for (const k of ['endpoint', 'bucket', 'prefix', 'access_key_id', 'secret_access_key', 'region']) body[k] = f.elements[k].value;
+    try { showOffsite(await api('/api/server/offsite', { method: 'PUT', body })); f.elements.secret_access_key.value = ''; App.flash($('#offMsg'), 'It works. Saved: a copy goes after every nightly backup.', true); }
+    catch (err) { App.flash($('#offMsg'), err.message); }
+    btn.disabled = false; btn.textContent = 'Test & save';
+  };
+  $('#offRun').onclick = async (e) => {
+    e.target.disabled = true; e.target.textContent = 'Sending…';
+    try { showOffsite(await api('/api/server/offsite/run', { body: {} })); } catch (err) { App.flash($('#offMsg'), err.message); $('#offMore').open = true; }
+    e.target.disabled = false; e.target.textContent = 'Send a copy now';
+  };
+  $('#offClear').onclick = async () => {
+    if (!confirm('Stop sending copies off this PC? Copies already in the bucket stay there.')) return;
+    showOffsite(await api('/api/server/offsite', { method: 'DELETE' }));
+    $('#offForm').reset();
+  };
+
   $('#srvBackupNow').onclick = async (e) => {
     e.target.disabled = true;
     try { const { backup } = await api('/api/server/backups', { body: {} }); App.flash($('#srvBackupMsg'), `Backup made: ${backup.name}`, true); loadBackups(); }
@@ -1904,7 +1956,7 @@
     } catch (err) { App.flash($('#demoMsg'), err.message); }
   });
 
-  loaders.server = () => { loadDemos().catch((err) => App.flash($('#demoMsg'), err.message)); loadBiz().catch((err) => App.flash($('#bizMsg'), err.message)); loadDaily().catch(() => {}); loadPerf().catch((err) => { $('#perfOut').textContent = err.message; }); loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
+  loaders.server = () => { loadDemos().catch((err) => App.flash($('#demoMsg'), err.message)); loadBiz().catch((err) => App.flash($('#bizMsg'), err.message)); loadDaily().catch(() => {}); loadPerf().catch((err) => { $('#perfOut').textContent = err.message; }); loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadOffsite(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
   setInterval(() => { if (serverVisible()) { loadServer().catch(() => {}); if ($('#srvLive').checked) loadLog().catch(() => {}); } }, 5000);
   setInterval(() => { if (serverVisible()) loadChecks(); }, 60000);
 
