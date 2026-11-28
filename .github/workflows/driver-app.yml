@@ -58,10 +58,23 @@ jobs:
           SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
         run: |
           if [ -n "$SIGNING_KEY" ]; then
-            # One secret: "<password>|<keystore in base64>", alias "upload".
-            pass="${SIGNING_KEY%%|*}"
+            # One secret: "<password>|<keystore in base64>", alias "upload". Spaces and line
+            # breaks picked up while copying are ignored.
+            key=$(printf '%s' "$SIGNING_KEY" | tr -d ' \t\r\n')
+            case "$key" in
+              *"|"*) ;;
+              *) echo "::error::ANDROID_SIGNING_KEY doesn't look right: it should be the whole line from ANDROID_SIGNING_KEY.txt (letters and numbers, a | sign, then a long block of text). Save it again, then run this again."; exit 1 ;;
+            esac
+            pass="${key%%|*}"
             echo "::add-mask::$pass"
-            echo "${SIGNING_KEY#*|}" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            if ! printf '%s' "${key#*|}" | base64 -d > "$RUNNER_TEMP/upload.jks" 2>/dev/null || [ ! -s "$RUNNER_TEMP/upload.jks" ]; then
+              echo "::error::ANDROID_SIGNING_KEY is cut short or changed: the part after the | sign isn't readable. Copy the whole line from ANDROID_SIGNING_KEY.txt again (Ctrl+A, Ctrl+C in Notepad), save the secret again, then run this again."
+              exit 1
+            fi
+            if ! keytool -list -keystore "$RUNNER_TEMP/upload.jks" -storetype PKCS12 -storepass "$pass" -alias upload >/dev/null 2>&1; then
+              echo "::error::ANDROID_SIGNING_KEY was read, but the password in front of the | sign doesn't open it. Copy the whole line from ANDROID_SIGNING_KEY.txt again and save the secret again."
+              exit 1
+            fi
             { echo "file=$RUNNER_TEMP/upload.jks"; echo "alias=upload"; } >> "$GITHUB_OUTPUT"
             echo "ANDROID_KEYSTORE_PASSWORD=$pass" >> "$GITHUB_ENV"
             echo "ANDROID_KEY_PASSWORD=$pass" >> "$GITHUB_ENV"
