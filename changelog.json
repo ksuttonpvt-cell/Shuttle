@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.15.0",
+    "date": "2026-11-28",
+    "title": "The driver app updates itself from your PC",
+    "changes": [
+      "Each new Android app GitHub builds is sent to your PC (Server → Driver app updates makes the key GitHub uses). Drivers' phones see “A new version is ready” and update with one tap. The banner only shows off shift.",
+      "turaslubtha.com/driver now offers the real Android app as a download once your PC has one.",
+      "The app's booking screen no longer asks for the RO number or the customer's car."
+    ]
+  },
+  {
     "version": "3.14.0",
     "date": "2026-11-28",
     "title": "Safer and quicker behind the scenes",

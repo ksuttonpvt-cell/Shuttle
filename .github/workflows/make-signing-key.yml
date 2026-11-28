@@ -1,0 +1,38 @@
+# Run once (Actions → "Make app signing key" → Run workflow) to make the key every Android build
+# is signed with. Phones only accept updates signed with the same key, so this is needed before
+# drivers' phones can update from the shuttle PC. It's also the key Google Play would use.
+#
+# The run attaches one file, ANDROID_SIGNING_KEY.txt. Copy its whole contents into a new repository
+# secret named ANDROID_SIGNING_KEY (Settings → Secrets and variables → Actions), then delete the
+# run (or let the file expire after a day). Keep a copy of the file somewhere safe: if the key is
+# lost, every phone has to uninstall and reinstall the app once.
+name: Make app signing key
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - name: Make the key
+        run: |
+          pass=$(openssl rand -hex 24)
+          echo "::add-mask::$pass"
+          keytool -genkeypair -noprompt -keystore upload.jks -storetype PKCS12 -alias upload \
+            -keyalg RSA -keysize 2048 -validity 10000 -storepass "$pass" -keypass "$pass" \
+            -dname "CN=Turas Driver, O=Turas Lubtha"
+          mkdir out
+          printf '%s|%s' "$pass" "$(base64 -w0 upload.jks)" > out/ANDROID_SIGNING_KEY.txt
+          rm upload.jks
+          echo "Done. Download **android-signing-key** below, and save its contents as the ANDROID_SIGNING_KEY secret." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-signing-key
+          path: out/ANDROID_SIGNING_KEY.txt
+          retention-days: 1

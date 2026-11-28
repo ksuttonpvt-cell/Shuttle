@@ -3056,6 +3056,17 @@ function createApp(db, opts = {}) {
     return { available: !!offsite, set_up: !!c, busy: !!(offsite && offsite.busy), status: bizzes ? readMeta(OFFSITE_STATUS) : null,
       config: c ? { endpoint: c.endpoint, bucket: c.bucket, region: c.region, prefix: c.prefix, access_key_id: c.access_key_id, has_secret: !!c.secret_access_key } : null };
   };
+  // ---------- driver app updates (owner only) ----------
+  // GitHub uploads each new Android app with this key; phones then update from this PC.
+  const releases = opts.appReleases || null;
+  const appOut = () => ({ available: !!releases, has_key: !!(releases && releases.hasKey()), latest: releases ? releases.latest() : null, download: releases ? releases.DOWNLOAD_PATH : null });
+  app.get('/api/server/app-updates', requireRole('admin'), (req, res) => res.json(appOut()));
+  app.post('/api/server/app-updates/key', requireRole('admin'), (req, res) => {
+    if (!releases) return bad(res, 'App updates are not available here.');
+    const key = releases.newKey();
+    console.log(new Date().toLocaleString(), `[app] ${req.user.name} made a new app upload key (the old one no longer works).`);
+    res.json({ ...appOut(), key });
+  });
   app.get('/api/server/offsite', requireRole('admin'), (req, res) => res.json(offsiteOut()));
   app.put('/api/server/offsite', requireRole('admin'), async (req, res) => {
     if (!offsite) return bad(res, 'Off-PC backups are not available here.');

@@ -83,6 +83,7 @@ html[data-theme="dark"] .for-light { display: none !important; }
 .btn:hover { transform: translateY(-1px); }
 .btn-main { background: var(--purple); color: #fff; }
 .btn-main:hover { background: var(--purple-dark); }
+.page a.btn-main { color: #fff; }
 .btn-line { background: transparent; color: var(--ink); border-color: var(--btn-line); }
 .btn-line:hover { border-color: var(--ink); }
 .btn-light { background: #fff; color: var(--purple); }

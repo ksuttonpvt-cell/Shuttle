@@ -1,4 +1,5 @@
 // Turas Lúbtha Driver: the shuttle driver's app for Android and iPhone.
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'alerts.dart';
@@ -19,7 +20,8 @@ final navigatorKey = GlobalKey<NavigatorState>();
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   if (demo) return _demo();
-  final driver = Driver(tracker: Tracker(), alerts: PhoneAlerts());
+  // Android phones update from the shuttle PC; iPhones update through Apple.
+  final driver = Driver(tracker: Tracker(), alerts: PhoneAlerts(), canUpdate: !kIsWeb && defaultTargetPlatform == TargetPlatform.android);
   runApp(TurasDriverApp(driver: driver));
   driver.start();
 }

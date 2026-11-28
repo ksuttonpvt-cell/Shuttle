@@ -14,7 +14,7 @@ import 'tracker.dart';
 enum Phase { starting, signedOut, notDriver, ready }
 
 class Driver extends ChangeNotifier {
-  Driver({Api? api, SessionStore? store, Tracker? tracker, this.alerts})
+  Driver({Api? api, SessionStore? store, Tracker? tracker, this.alerts, this.canUpdate = false, this.build = appBuild})
       : api = api ?? Api(),
         store = store ?? SessionStore(),
         tracker = tracker ?? Tracker.disabled();
@@ -23,6 +23,12 @@ class Driver extends ChangeNotifier {
   final SessionStore store;
   final Tracker tracker;
   final Alerts? alerts;
+  /// This phone can install updates from the shuttle PC (Android builds made by GitHub).
+  final bool canUpdate;
+  final int build;
+  /// A newer app is waiting on the shuttle PC.
+  AppRelease? update;
+  DateTime? _updateChecked;
 
   Phase phase = Phase.starting;
   Me? me;
@@ -160,6 +166,7 @@ class Driver extends ChangeNotifier {
       offer = o;
       problem = null;
       lastUpdate = DateTime.now();
+      unawaited(checkForUpdate());
       await _keepTracking(m);
       phase = Phase.ready;
       notifyListeners();
@@ -176,6 +183,21 @@ class Driver extends ChangeNotifier {
       notifyListeners();
       if (!quiet) rethrow;
     }
+  }
+
+  /// Asks the shuttle PC for a newer app (at most every few hours, unless [now]).
+  Future<void> checkForUpdate({bool now = false}) async {
+    if (!canUpdate || build <= 0) return;
+    if (!now && _updateChecked != null && DateTime.now().difference(_updateChecked!) < const Duration(hours: 3)) return;
+    _updateChecked = DateTime.now();
+    try {
+      final r = await api.latestApp();
+      final newer = r != null && r.build > build ? r : null;
+      if (newer?.build != update?.build) {
+        update = newer;
+        notifyListeners();
+      }
+    } catch (_) {/* try again later */}
   }
 
   // A ride given to me, or a new ride waiting for a driver while I'm on shift: tell the driver.

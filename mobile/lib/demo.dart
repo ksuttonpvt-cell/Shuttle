@@ -17,6 +17,7 @@ class FakeShuttle {
   final List<String> calls = [];
   final List<Map<String, dynamic>> locations = [];
   Map<String, dynamic>? offer;
+  Map<String, dynamic> latestApp = {'build': 0}; // what /api/app/latest says
   final now = DateTime.now();
 
   late final List<Map<String, dynamic>> rides = [
@@ -42,6 +43,7 @@ class FakeShuttle {
     http.Response json(Object o, [int status = 200, Map<String, String> headers = const {}]) =>
         http.Response(jsonEncode(o), status, headers: {'content-type': 'application/json', ...headers});
 
+    if (path == '/api/app/latest') return json(latestApp);
     if (path == '/api/frontdoor/signin') {
       final b = body();
       if (b['email'] == 'dana@drivers.test' && b['password'] == 'drive-pass-1') {
