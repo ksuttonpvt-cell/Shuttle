@@ -6,7 +6,7 @@
 # With these repository secrets (Settings → Secrets and variables → Actions) the Android app is
 # signed with your Google Play upload key and a turas-driver.aab for the Play Console is made too:
 #   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
-# or the single ANDROID_SIGNING_KEY made by the "Make app signing key" workflow.
+# or ANDROID_SIGNING_PASSWORD plus the key the "Make app signing key" workflow saves in the repository.
 # Phones only accept an update signed with the same key, so updates from the PC need one of these.
 # With TURAS_UPLOAD_KEY (made on the Server page), each signed Android app built from main is sent
 # to the shuttle PC (TURAS_SITE, default https://turaslubtha.com), and drivers' phones update from there.
@@ -54,34 +54,28 @@ jobs:
       - name: Set up the upload key
         id: key
         env:
+          SIGNING_PASSWORD: ${{ secrets.ANDROID_SIGNING_PASSWORD }}
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
         run: |
-          if [ -n "$SIGNING_KEY" ]; then
-            # One secret: "<password>|<keystore in base64>", alias "upload". Spaces and line
-            # breaks picked up while copying are ignored.
-            key=$(printf '%s' "$SIGNING_KEY" | tr -d ' \t\r\n')
-            case "$key" in
-              *"|"*) ;;
-              *) echo "::error::ANDROID_SIGNING_KEY doesn't look right: it should be the whole line from ANDROID_SIGNING_KEY.txt (letters and numbers, a | sign, then a long block of text). Save it again, then run this again."; exit 1 ;;
-            esac
-            pass="${key%%|*}"
-            echo "::add-mask::$pass"
-            if ! printf '%s' "${key#*|}" | base64 -d > "$RUNNER_TEMP/upload.jks" 2>/dev/null || [ ! -s "$RUNNER_TEMP/upload.jks" ]; then
-              echo "::error::ANDROID_SIGNING_KEY is cut short or changed: the part after the | sign isn't readable. Copy the whole line from ANDROID_SIGNING_KEY.txt again (Ctrl+A, Ctrl+C in Notepad), save the secret again, then run this again."
+          key=android/app/upload-key.p12
+          if [ -f "$key" ]; then
+            # The key made by "Make app signing key", unlocked with ANDROID_SIGNING_PASSWORD.
+            if [ -z "$SIGNING_PASSWORD" ]; then
+              echo "::error::The signing key is in the repository, but the ANDROID_SIGNING_PASSWORD secret is missing. Save the password you used as that secret, then run this again."
               exit 1
             fi
-            if ! keytool -list -keystore "$RUNNER_TEMP/upload.jks" -storetype PKCS12 -storepass "$pass" -alias upload >/dev/null 2>&1; then
-              echo "::error::ANDROID_SIGNING_KEY was read, but the password in front of the | sign doesn't open it. Copy the whole line from ANDROID_SIGNING_KEY.txt again and save the secret again."
+            if ! keytool -list -keystore "$key" -storetype PKCS12 -storepass "$SIGNING_PASSWORD" -alias upload >/dev/null 2>&1; then
+              echo "::error::ANDROID_SIGNING_PASSWORD doesn't unlock the signing key. Save the same password you had when you ran 'Make app signing key' (check for a typo or a space at the end), then run this again."
               exit 1
             fi
+            cp "$key" "$RUNNER_TEMP/upload.jks"
             { echo "file=$RUNNER_TEMP/upload.jks"; echo "alias=upload"; } >> "$GITHUB_OUTPUT"
-            echo "ANDROID_KEYSTORE_PASSWORD=$pass" >> "$GITHUB_ENV"
-            echo "ANDROID_KEY_PASSWORD=$pass" >> "$GITHUB_ENV"
+            echo "ANDROID_KEYSTORE_PASSWORD=$SIGNING_PASSWORD" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_PASSWORD=$SIGNING_PASSWORD" >> "$GITHUB_ENV"
             exit 0
           fi
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "No signing key yet: the app is signed with a test key (fine for installing by hand; phones can't update from the PC until you run 'Make app signing key')." >> "$GITHUB_STEP_SUMMARY"
+            echo "No signing key yet: the app is signed with a test key (fine for installing by hand; phones can't update from the PC until you save ANDROID_SIGNING_PASSWORD and run 'Make app signing key')." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"

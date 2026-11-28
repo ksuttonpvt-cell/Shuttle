@@ -1,38 +1,55 @@
-# Run once (Actions → "Make app signing key" → Run workflow) to make the key every Android build
-# is signed with. Phones only accept updates signed with the same key, so this is needed before
-# drivers' phones can update from the shuttle PC. It's also the key Google Play would use.
+# Makes the key every Android build is signed with (phones only accept updates signed with the
+# same key, so this is needed before drivers' phones can update from the shuttle PC).
 #
-# The run attaches one file, ANDROID_SIGNING_KEY.txt. Copy its whole contents into a new repository
-# secret named ANDROID_SIGNING_KEY (Settings → Secrets and variables → Actions), then delete the
-# run (or let the file expire after a day). Keep a copy of the file somewhere safe: if the key is
-# lost, every phone has to uninstall and reinstall the app once.
+# 1. Make up a password (at least 12 characters) and save it as a repository secret named
+#    ANDROID_SIGNING_PASSWORD (Settings → Secrets and variables → Actions → New repository secret).
+#    Keep a copy somewhere safe.
+# 2. Run this workflow (Actions → "Make app signing key" → Run workflow).
+#
+# The key is made, locked with your password, and saved in the repository as
+# mobile/android/app/upload-key.p12. Builds unlock it with the same secret. It's only made once:
+# replacing it means every phone has to reinstall the app, so that needs the "replace" box ticked.
 name: Make app signing key
 
 on:
   workflow_dispatch:
+    inputs:
+      replace:
+        description: 'Replace the existing key (every phone will have to reinstall the app once)'
+        type: boolean
+        default: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   make:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       - name: Make the key
+        env:
+          PASS: ${{ secrets.ANDROID_SIGNING_PASSWORD }}
+          REPLACE: ${{ inputs.replace }}
         run: |
-          pass=$(openssl rand -hex 24)
-          echo "::add-mask::$pass"
-          keytool -genkeypair -noprompt -keystore upload.jks -storetype PKCS12 -alias upload \
-            -keyalg RSA -keysize 2048 -validity 10000 -storepass "$pass" -keypass "$pass" \
+          key=mobile/android/app/upload-key.p12
+          if [ ${#PASS} -lt 12 ]; then
+            echo "::error::First save a password of at least 12 characters as the repository secret ANDROID_SIGNING_PASSWORD (Settings → Secrets and variables → Actions), then run this again."
+            exit 1
+          fi
+          if [ -f "$key" ] && [ "$REPLACE" != "true" ]; then
+            echo "The signing key is already made. Nothing to do. (Tick 'replace' only if you really want a new one.)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          rm -f "$key"
+          keytool -genkeypair -noprompt -keystore "$key" -storetype PKCS12 -alias upload \
+            -keyalg RSA -keysize 2048 -validity 10000 -storepass "$PASS" -keypass "$PASS" \
             -dname "CN=Turas Driver, O=Turas Lubtha"
-          mkdir out
-          printf '%s|%s' "$pass" "$(base64 -w0 upload.jks)" > out/ANDROID_SIGNING_KEY.txt
-          rm upload.jks
-          echo "Done. Download **android-signing-key** below, and save its contents as the ANDROID_SIGNING_KEY secret." >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: android-signing-key
-          path: out/ANDROID_SIGNING_KEY.txt
-          retention-days: 1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$key"
+          git commit -m "Driver app signing key (locked with ANDROID_SIGNING_PASSWORD)"
+          git push
+          echo "Done: the signing key is saved, locked with your password. Now run **Driver app** (Run workflow on main)." >> "$GITHUB_STEP_SUMMARY"
