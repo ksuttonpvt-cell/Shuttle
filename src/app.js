@@ -2993,7 +2993,7 @@ function createApp(db, opts = {}) {
   app.get('/api/version', requireRole('admin'), async (req, res) => {
     const u = await updaterState();
     res.json({ version: u.version || null, version_date: u.versionDate || null, auto_update: !!u.enabled,
-      reason: u.reason || null, last_check: u.lastCheck || null, last_error: u.lastError || null });
+      reason: u.reason || null, last_check: u.lastCheck || null, last_error: u.lastError || null, undone: u.undone || null });
   });
   app.post('/api/updates/check', requireRole('admin'), async (req, res) => {
     if (!opts.updater) return bad(res, 'Updates are not available here.');

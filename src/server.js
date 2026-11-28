@@ -107,7 +107,7 @@ function runSite(db, { logbook, bus }) {
     server.closeIdleConnections?.();
     setTimeout(() => process.exit(RESTART_CODE), 3000).unref();
   }
-  const updater = createUpdater({ restart });
+  const updater = createUpdater({ restart, dataDir });
   // Road routing for the driver route planner (ROUTING=off turns it off; ROUTING_URL picks another OSRM server).
   const router = process.env.ROUTING === 'off' ? null : createOsrmRouter({ baseUrl: process.env.ROUTING_URL || undefined });
   const say = (m) => console.log(stampNow(), '[businesses]', m);

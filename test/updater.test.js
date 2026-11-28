@@ -80,3 +80,56 @@ test('turned off without git or with AUTO_UPDATE=0', async () => {
   assert.equal(off.state.enabled, false);
   fs.rmSync(plain, { recursive: true, force: true });
 });
+
+test('a bad update is undone, not installed again, and the next one installs', async () => {
+  const rollback = require('../src/rollback');
+  const { dir, server, push } = setup();
+  const dataDir = path.join(dir, 'data');
+  const u = createUpdater({ cwd: server, enabled: true, watched: true, dataDir, restart: () => {}, installPackages: async () => {}, log: () => {} });
+  const good = git(server, 'rev-parse', 'HEAD');
+  push('app.txt', 'broken');
+  assert.equal(await u.check(), 'updated');
+  const p = rollback.pending(dataDir);
+  assert.equal(p.from, good, 'the version it left is written down first');
+  const bad = p.to;
+
+  // Shuttle Control's trial: the new version crashes twice right away.
+  let t = 0;
+  const trial = rollback.createProbation({ dataDir, now: () => t });
+  trial.started();
+  assert.equal(trial.crashed(), null, 'one crash can be bad luck');
+  trial.started(); // started again after the crash: still the same trial
+  const why = trial.crashed();
+  assert.match(why, /stopped 2 times/);
+  let installs = 0;
+  const rec = await rollback.undo({ root: server, dataDir, reason: why, installPackages: async () => { installs++; } });
+  assert.equal(rec.bad, bad); assert.equal(rec.good, good);
+  assert.equal(git(server, 'rev-parse', 'HEAD'), good, 'the old version is back');
+  assert.equal(fs.readFileSync(path.join(server, 'app.txt'), 'utf8'), 'v1');
+  assert.equal(installs, 0, 'no package changes, so no npm install');
+  assert.equal(rollback.pending(dataDir), null);
+
+  // The updater won't put the broken version back on, and says why.
+  assert.equal(await u.check(), 'error');
+  assert.match(u.state.lastError, /undone automatically because the new version stopped 2 times/);
+  assert.equal(git(server, 'rev-parse', 'HEAD'), good);
+
+  // A fixed version installs as usual, and passes its trial once it stays healthy.
+  push('app.txt', 'fixed');
+  assert.equal(await u.check(), 'updated');
+  assert.equal(fs.readFileSync(path.join(server, 'app.txt'), 'utf8'), 'fixed');
+  const trial2 = rollback.createProbation({ dataDir, now: () => t, keepAfterMs: 90000 });
+  trial2.started();
+  t = 10000; assert.equal(trial2.healthy(true), null);
+  t = 20000; assert.equal(trial2.healthy(true), null);
+  t = 95000; assert.equal(trial2.healthy(true), 'keep');
+  assert.equal(rollback.pending(dataDir), null, 'kept: nothing left to undo');
+
+  // One that never comes up is undone after the wait.
+  const trial3 = rollback.createProbation({ dataDir, now: () => t, giveUpAfterMs: 1000 });
+  rollback.markPending(dataDir, { from: good, to: git(server, 'rev-parse', 'HEAD') });
+  t = 0; trial3.started();
+  t = 500; assert.equal(trial3.healthy(false), null);
+  t = 1500; assert.match(trial3.healthy(false), /didn't come up/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
