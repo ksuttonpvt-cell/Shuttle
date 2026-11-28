@@ -63,7 +63,16 @@ jobs:
             key=$(printf '%s' "$SIGNING_KEY" | tr -d ' \t\r\n')
             case "$key" in
               *"|"*) ;;
-              *) echo "::error::ANDROID_SIGNING_KEY doesn't look right: it should be the whole line from ANDROID_SIGNING_KEY.txt (letters and numbers, a | sign, then a long block of text). Save it again, then run this again."; exit 1 ;;
+              *)
+                # Say what kind of text was saved instead (never any of the text itself).
+                case "$key" in
+                  tlu_*) what="the upload key from the Server page (that one goes in TURAS_UPLOAD_KEY)" ;;
+                  http*) what="a web address (copy the text inside the downloaded file instead)" ;;
+                  PK*) what="the zip file itself: unzip android-signing-key first, then open ANDROID_SIGNING_KEY.txt" ;;
+                  *) what="something else, ${#key} characters long (the right text is about 3,500 characters)" ;;
+                esac
+                echo "::error::ANDROID_SIGNING_KEY has no | sign, so it isn't the signing key. What's saved looks like $what. Open ANDROID_SIGNING_KEY.txt in Notepad, press Ctrl+A then Ctrl+C, and save that as the secret."
+                exit 1 ;;
             esac
             pass="${key%%|*}"
             echo "::add-mask::$pass"
