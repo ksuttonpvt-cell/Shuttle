@@ -37,6 +37,10 @@
     <section class="app-card">
       <span class="step-no">1</span>
       <h2>Put it on your phone</h2>
+      <div data-apk hidden>
+        <p><b>Android:</b> download the app, open it, then tap <b>Install</b>. If your phone asks, allow your browser to install apps. After that, the app updates itself.</p>
+        <p><a class="btn btn-main" href="/download/turas-driver.apk" data-apk-link>Download the Android app</a> <span class="fine" data-apk-size></span></p>
+      </div>
       <div data-android>
         <p><b>Android:</b> <span data-has-prompt hidden>tap the button, then <b>Install</b>.</span></p>
         <p><button class="btn btn-main" type="button" data-install hidden>Install the driver app</button></p>
@@ -78,6 +82,12 @@
   var prompt=null, btn=q('[data-install]');
   window.addEventListener('beforeinstallprompt',function(e){ e.preventDefault(); prompt=e; btn.hidden=false; q('[data-has-prompt]').hidden=false; q('[data-no-prompt]').hidden=true; });
   btn.addEventListener('click',function(){ if(!prompt) return; prompt.prompt(); prompt.userChoice.then(function(){ prompt=null; btn.hidden=true; }); });
+  // The real Android app, when the shuttle PC has one: offer it instead of the web version.
+  if(!ios && !installed && window.fetch) fetch('/api/app/latest',{cache:'no-store'}).then(function(r){return r.json()}).then(function(a){
+    if(!a || !a.build) return;
+    q('[data-apk]').hidden=false; q('[data-android]').hidden=true;
+    q('[data-apk-size]').textContent='Version '+a.version+(a.size?' · '+Math.round(a.size/1048576)+' MB':'');
+  }).catch(function(){});
   window.addEventListener('appinstalled',function(){ btn.hidden=true; q('[data-installed]').hidden=false; });
 })();
 </script>

@@ -646,6 +646,11 @@
         <div id="srvBackupMsg"></div>
         <div class="table-wrap" id="srvBackups"></div>
       </div>
+      <div class="card" id="appCard" hidden>
+        <div class="card-head"><h2>Driver app updates</h2><button type="button" class="btn-ghost btn-sm" id="appKeyBtn">Make upload key</button></div>
+        <div id="appStatus" class="small"></div>
+        <div id="appMsg"></div>
+      </div>
       <div class="card" id="offCard" hidden>
         <div class="card-head"><h2>Off-PC copy</h2><button type="button" class="btn-blue btn-sm" id="offRun" hidden>Send a copy now</button></div>
         <div id="offStatus" class="small" style="margin:-.3rem 0 .6rem"></div>
@@ -1651,6 +1656,36 @@
     $('#offForm').reset();
   };
 
+  // ---------- driver app updates (owner only) ----------
+  function showAppUpdates(d) {
+    $('#appCard').hidden = !d.available;
+    if (!d.available) return;
+    const l = d.latest;
+    $('#appKeyBtn').textContent = d.has_key ? 'Make a new key' : 'Make upload key';
+    $('#appStatus').innerHTML = (l
+      ? `✅ Newest Android app here: <b>${esc(l.version)}</b> (build ${esc(String(l.build))}, ${kb(l.size)}), received ${esc(fmtTime(l.at))}. Drivers' phones offer it as an update. <a href="${esc(App.url(d.download))}" download>Download</a>`
+      : '<span class="muted">No app received yet.</span>') +
+      `<p class="muted" style="margin:.5rem 0 0">${d.has_key ? 'GitHub has a key to send each new app here.' : 'Make an upload key and save it in GitHub, and every new app GitHub builds is sent to this PC. Drivers\' phones then update from here with one tap.'}</p>`;
+  }
+  const loadAppUpdates = () => api('/api/server/app-updates').then(showAppUpdates).catch(() => {});
+  $('#appKeyBtn').onclick = async () => {
+    const d0 = await api('/api/server/app-updates');
+    if (d0.has_key && !confirm('Make a new key? The old one stops working, so you\'ll need to update it in GitHub too.')) return;
+    let d;
+    try { d = await api('/api/server/app-updates/key', { body: {} }); } catch (err) { return App.flash($('#appMsg'), err.message); }
+    showAppUpdates(d);
+    const m = App.modal(`<h2>Your app upload key</h2>
+      <p class="small">This is shown <b>only once</b>. Copy it now, then save it in GitHub:</p>
+      <div class="linkbox"><input readonly value="${esc(d.key)}" id="appKeyVal" style="font-family:monospace"><button type="button" class="btn-blue btn-sm" id="appKeyCopy">Copy</button></div>
+      <ol class="small" style="padding-left:1.2rem;margin-top:.8rem">
+        <li>On GitHub, open the <b>Shuttle</b> repository → <b>Settings</b> → <b>Secrets and variables</b> → <b>Actions</b>.</li>
+        <li>Press <b>New repository secret</b>. Name: <code>TURAS_UPLOAD_KEY</code>. Secret: paste the key. Press <b>Add secret</b>.</li>
+        <li>That's it. The next app GitHub builds is sent here, and phones offer it as an update.</li>
+      </ol>
+      <div class="actions"><button type="button" data-close>Done</button></div>`);
+    m.querySelector('#appKeyCopy').onclick = async () => { const i = m.querySelector('#appKeyVal'); i.select(); try { await navigator.clipboard.writeText(i.value); } catch { document.execCommand('copy'); } m.querySelector('#appKeyCopy').textContent = 'Copied'; };
+  };
+
   $('#srvBackupNow').onclick = async (e) => {
     e.target.disabled = true;
     try { const { backup } = await api('/api/server/backups', { body: {} }); App.flash($('#srvBackupMsg'), `Backup made: ${backup.name}`, true); loadBackups(); }
@@ -1956,7 +1991,7 @@
     } catch (err) { App.flash($('#demoMsg'), err.message); }
   });
 
-  loaders.server = () => { loadDemos().catch((err) => App.flash($('#demoMsg'), err.message)); loadBiz().catch((err) => App.flash($('#bizMsg'), err.message)); loadDaily().catch(() => {}); loadPerf().catch((err) => { $('#perfOut').textContent = err.message; }); loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadOffsite(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
+  loaders.server = () => { loadDemos().catch((err) => App.flash($('#demoMsg'), err.message)); loadBiz().catch((err) => App.flash($('#bizMsg'), err.message)); loadDaily().catch(() => {}); loadPerf().catch((err) => { $('#perfOut').textContent = err.message; }); loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadOffsite(); loadAppUpdates(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
   setInterval(() => { if (serverVisible()) { loadServer().catch(() => {}); if ($('#srvLive').checked) loadLog().catch(() => {}); } }, 5000);
   setInterval(() => { if (serverVisible()) loadChecks(); }, 60000);
 

@@ -189,7 +189,7 @@ function websiteHostsFor(domain) {
   return set;
 }
 
-function createRouter({ businesses, frontDoor, homeApp, domain, domains: domainsOf }) {
+function createRouter({ businesses, frontDoor, homeApp, domain, domains: domainsOf, appReleases = null }) {
   const domains = domainsOf || (() => [domain]);
   const { mountAt } = require('./pathmount');
   const websiteHosts = websiteHostsFor(domain);
@@ -207,6 +207,8 @@ function createRouter({ businesses, frontDoor, homeApp, domain, domains: domains
     delete req.tlBase;
     // The shared sign-in's form works from any address (the website's Sign in page, its preview).
     if (url.startsWith('/api/frontdoor/')) return frontDoor(req, res);
+    // Driver app updates (any address): what's newest, the download, and GitHub's upload.
+    if (appReleases && appReleases.handles(req)) return appReleases.handle(req, res);
     // turaslubtha.com/<name>/…: a business, or this PC's own shuttle, under its own path.
     if (websiteHosts.has(host)) {
       const m = url.match(/^\/([a-z0-9-]{2,32})(?=\/|\?|$)/i);
@@ -284,9 +286,17 @@ function createSite({ db, dataDir, domain, bus, openDb, createApp, homeOpts = {}
     const h = String(host || '').toLowerCase().replace(/:\d+$/, '').replace(/^www\./, '');
     if (usable(h) && businesses.getMeta('home_host') !== h) businesses.setMeta('home_host', h);
   };
-  const homeApp = createApp(db, { ...homeOpts, bus, businesses, businessDomain: domain, businessDomains: domains, rememberHome, redeemHandoff: (t) => businesses.redeemHandoff('', t) });
+  // Driver app updates: GitHub uploads each new Android app here; phones download it from here.
+  const { createAppReleases } = require('./appreleases');
+  const appReleases = createAppReleases({
+    dir: path.join(dataDir, 'app'),
+    getKeyHash: () => businesses.getMeta('app_upload_key'),
+    setKeyHash: (h) => businesses.setMeta('app_upload_key', h),
+    log: (m) => console.log(new Date().toLocaleString(), '[app]', m),
+  });
+  const homeApp = createApp(db, { ...homeOpts, bus, businesses, appReleases, businessDomain: domain, businessDomains: domains, rememberHome, redeemHandoff: (t) => businesses.redeemHandoff('', t) });
   const frontDoor = createFrontDoor({ businesses, homeDb: db, domain, domains, homeUrl: urlOfHome });
-  return { handler: createRouter({ businesses, frontDoor, homeApp, domain, domains }), businesses, homeApp, frontDoor, domains };
+  return { handler: createRouter({ businesses, frontDoor, homeApp, domain, domains, appReleases }), businesses, homeApp, frontDoor, domains, appReleases };
 }
 
 module.exports = { createFrontDoor, createRouter, createSite, routeOf, domainFor, websiteHostsFor, FRONT_NAMES };

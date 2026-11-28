@@ -346,3 +346,45 @@ test('off-PC backups: only the owner sets them up, the secret stays on the serve
   assert.equal((await call(HOME, '/api/server/offsite', { cookie: boss, method: 'DELETE' })).data.set_up, false);
   store.close();
 });
+
+test('driver app updates: GitHub uploads with the owner\'s key, phones check and download from this PC', async () => {
+  const boss = await signIn(HOME, '', 'boss@home.test', 'home-pass-1');
+  const upload = (key, body, build = 7, version = '1.0.0') => new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, path: '/api/app/upload', method: 'POST',
+      headers: { Host: SITE, 'Content-Type': 'application/vnd.android.package-archive', 'Content-Length': body.length, 'X-App-Build': build, 'X-App-Version': version, ...(key ? { Authorization: `Bearer ${key}` } : {}) } }, (res) => {
+      let t = ''; res.on('data', (d) => { t += d; }); res.on('end', () => resolve({ status: res.statusCode, data: JSON.parse(t) }));
+    });
+    req.on('error', reject); req.end(body);
+  });
+  const apk = Buffer.concat([Buffer.from('PK\u0003\u0004', 'latin1'), Buffer.alloc(5000, 7)]);
+  assert.equal((await call(SITE, '/api/app/latest')).data.build, 0, 'nothing yet');
+  assert.equal((await upload('tlu_nokeysetupyet', apk)).status, 401);
+
+  const made = await call(HOME, '/api/server/app-updates/key', { cookie: boss, body: {} });
+  assert.equal(made.status, 200, made.text);
+  const key = made.data.key;
+  assert.match(key, /^tlu_/);
+  assert.equal((await call(HOME, '/api/server/app-updates', { cookie: boss })).data.has_key, true);
+  assert.ok(!(await call(HOME, '/api/server/app-updates', { cookie: boss })).text.includes(key), 'the key is only shown once');
+
+  assert.equal((await upload('tlu_wrongwrongwrong', apk)).status, 401);
+  assert.equal((await upload(key, Buffer.from('not an app'))).status, 400);
+  const ok = await upload(key, apk, 7, '1.0.0');
+  assert.equal(ok.status, 201, JSON.stringify(ok.data));
+  assert.equal((await upload(key, apk, 6, '0.9.0')).status, 409, 'never goes back to an older build');
+
+  // Phones: what's newest, and the download (from any address).
+  const l = (await call(SITE, '/api/app/latest')).data;
+  assert.deepEqual([l.build, l.version, l.size, l.url], [7, '1.0.0', apk.length, '/download/turas-driver.apk']);
+  const dl = await new Promise((resolve) => http.get({ host: '127.0.0.1', port, path: '/download/turas-driver.apk', headers: { Host: SITE } }, (res) => {
+    const c = []; res.on('data', (d) => c.push(d)); res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'], body: Buffer.concat(c) }));
+  }));
+  assert.equal(dl.status, 200);
+  assert.equal(dl.type, 'application/vnd.android.package-archive');
+  assert.ok(dl.body.equals(apk));
+  assert.equal((await call(HOME, '/api/server/app-updates', { cookie: boss })).data.latest.build, 7);
+
+  // A new key replaces the old one.
+  await call(HOME, '/api/server/app-updates/key', { cookie: boss, body: {} });
+  assert.equal((await upload(key, apk, 8)).status, 401);
+});

@@ -7,6 +7,7 @@ import '../steps.dart';
 import 'desk.dart';
 import 'ride.dart';
 import 'theme.dart';
+import 'update.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.driver, this.startTab = 0});
@@ -70,6 +71,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             leading: const Icon(Icons.wifi_off_rounded),
             actions: [TextButton(onPressed: () => d.refresh(quiet: true), child: const Text('Try again'))],
           ),
+        UpdateBanner(driver: d),
         Expanded(child: tabs[tab].$1),
       ]),
       bottomNavigationBar: NavigationBar(
@@ -334,6 +336,8 @@ class MeTab extends StatelessWidget {
             title: const Text('Last update'),
             subtitle: Text(d.lastUpdate == null ? '—' : clock(d.lastUpdate)),
           ),
+          const Divider(height: 1),
+          VersionTile(driver: d),
         ]),
       ),
       const SizedBox(height: 12),

@@ -143,6 +143,25 @@ void main() {
       d.dispose();
     });
 
+    test('a newer app on the shuttle PC is offered (Android builds only)', () async {
+      final f = FakeShuttle(onDuty: false)..signedIn = true;
+      final store = MemoryStore()..s = const Session(base: 'https://turaslubtha.com/pinevalley', sid: 'S');
+      f.latestApp = {'build': 12, 'version': '1.0.0', 'size': 100, 'url': '/download/turas-driver.apk', 'sha256': 'abc'};
+      final d = Driver(api: Api(client: f.client), store: store, canUpdate: true, build: 10);
+      await d.start();
+      await d.checkForUpdate(now: true);
+      expect(d.update?.build, 12);
+      expect(d.update?.url, 'https://turaslubtha.com/download/turas-driver.apk');
+      // Already on the newest: nothing offered. Hand-made builds and iPhones never ask.
+      final same = Driver(api: Api(client: f.client), store: store, canUpdate: true, build: 12);
+      await same.checkForUpdate(now: true);
+      expect(same.update, isNull);
+      final iphone = Driver(api: Api(client: f.client), store: store, canUpdate: false, build: 10);
+      await iphone.checkForUpdate(now: true);
+      expect(iphone.update, isNull);
+      d.dispose();
+    });
+
     test('signed out elsewhere: back to sign in', () async {
       final f = FakeShuttle();
       final store = MemoryStore()..s = const Session(base: 'https://turaslubtha.com/pinevalley', sid: 'OLD');

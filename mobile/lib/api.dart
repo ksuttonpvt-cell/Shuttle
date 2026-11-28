@@ -45,6 +45,19 @@ class SignInResult {
   final List<BusinessChoice> choices;
 }
 
+/// The newest driver app this PC has (from GitHub), for updating phones.
+class AppRelease {
+  const AppRelease({required this.build, required this.version, required this.url, this.size = 0, this.sha256});
+  final int build;
+  final String version;
+  final String url; // full address of the .apk
+  final int size;
+  final String? sha256;
+}
+
+/// This app's build number (set by GitHub when it builds the app; 0 for builds made by hand).
+const int appBuild = int.fromEnvironment('APP_BUILD');
+
 class Api {
   Api({http.Client? client, this.site = siteUrl}) : _http = client ?? http.Client();
   final http.Client _http;
@@ -52,6 +65,15 @@ class Api {
   Session? session;
 
   static const _timeout = Duration(seconds: 20);
+
+  /// What the newest driver app on the shuttle PC is (null if there's none yet).
+  Future<AppRelease?> latestApp() async {
+    final d = _check(await _send(() => _http.get(Uri.parse('$site/api/app/latest'), headers: {'Accept': 'application/json'})));
+    final build = (d['build'] as num?)?.toInt() ?? 0;
+    if (build <= 0 || d['url'] == null) return null;
+    return AppRelease(build: build, version: '${d['version'] ?? ''}', url: Uri.parse(site).resolve(d['url'] as String).toString(),
+        size: (d['size'] as num?)?.toInt() ?? 0, sha256: d['sha256'] as String?);
+  }
 
   // ---------- signing in ----------
 
