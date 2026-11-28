@@ -200,6 +200,9 @@ function createApp(db, opts = {}) {
   // others through the bus (see cluster.js). Background jobs run in one copy only.
   const bus = opts.bus || createBus();
   const jobsHere = !opts.noTimers && bus.jobs;
+  // A business the owner paused rests: no ride offers, daily report, backups or shift clean-up
+  // (nothing changes while it's closed). Old customer details are still cleared, as promised.
+  const resting = () => !!(opts.paused && opts.paused());
   const rawLive = opts.live || createLive();
   const livePending = new Map();
   const live = {
@@ -1337,7 +1340,7 @@ function createApp(db, opts = {}) {
   const OFFER_SECONDS = 90;
   let sweepTimer = null;
   function scheduleOfferSweep() {
-    if (!featureOn('offers')) return; // the owner turned ride offers off for this business
+    if (!featureOn('offers') || resting()) return; // ride offers turned off, or the business is paused
     if (opts.noTimers || sweepTimer) return; // tests run app.locals.offerSweep themselves
     if (!bus.jobs) { bus.ask('jobs', 'sweep').catch(() => {}); return; } // one copy hands out offers
     sweepTimer = setTimeout(() => {
@@ -1351,7 +1354,7 @@ function createApp(db, opts = {}) {
     // Close offers that ran out of time, or whose ride was taken or cancelled.
     q(`UPDATE ride_offers SET status = 'expired', responded_at = ? WHERE status = 'pending'
        AND (expires_at <= ? OR ride_id NOT IN (SELECT id FROM rides WHERE status = 'requested' AND driver_id IS NULL))`).run(nowIso, nowIso);
-    if (getSettings().ride_offers !== '1') return [];
+    if (resting() || getSettings().ride_offers !== '1') return []; // off, or the business is paused
     const soon = new Date(at.getTime() + 90 * 60000).toISOString(); // rides due in the next 90 minutes (or late)
     const rides = q(`SELECT * FROM rides WHERE status = 'requested' AND driver_id IS NULL AND scheduled_at <= ?
                      AND id NOT IN (SELECT ride_id FROM ride_offers WHERE status = 'pending')
@@ -1408,7 +1411,7 @@ function createApp(db, opts = {}) {
   }
   bus.answer('sweep', () => { scheduleOfferSweep(); return true; });
   app.locals.offerSweep = (...a) => { const made = offerSweep(...a); if (made.length) { ridesChanged(); live.soon('rides', 300); } return made; };
-  if (jobsHere) setInterval(() => { try { if (offerSweep().length) { ridesChanged(); live.soon('rides', 300); } } catch (e) { console.error('Ride offers failed:', e.message); } }, 15000).unref();
+  if (jobsHere) setInterval(() => { if (resting()) return; try { if (offerSweep().length) { ridesChanged(); live.soon('rides', 300); } } catch (e) { console.error('Ride offers failed:', e.message); } }, 15000).unref();
 
   app.get('/api/offers/mine', requireRole('driver'), (req, res) => {
     const o = q(`SELECT o.*, r.customer_name, r.type, r.address, r.lat, r.lng, r.scheduled_at, r.passengers, r.priority, r.notes
@@ -2624,11 +2627,12 @@ function createApp(db, opts = {}) {
   app.locals.resetClearSchedule = customerWipe.reset;
   if (jobsHere) {
     setInterval(() => {
-      try { autoEndShifts(); } catch (e) { console.error('Auto end of shift failed:', e.message); }
+      const rest = resting();
+      if (!rest) try { autoEndShifts(); } catch (e) { console.error('Auto end of shift failed:', e.message); }
       try { autoSignOut(); } catch (e) { console.error('Auto sign-out failed:', e.message); }
-      try { dailyReport.tick(); } catch (e) { console.error('Building the daily report failed:', e.message); } // before the clear and the backup
+      if (!rest) try { dailyReport.tick(); } catch (e) { console.error('Building the daily report failed:', e.message); } // before the clear and the backup
       try { customerWipe.tick(); } catch (e) { console.error('Clearing customer info failed:', e.message); }
-      try { nightlyBackup.tick(); } catch (e) { console.error('Nightly backup failed:', e.message); }
+      if (!rest) try { nightlyBackup.tick(); } catch (e) { console.error('Nightly backup failed:', e.message); }
     }, 60000).unref();
   }
 

@@ -252,6 +252,7 @@ function createSite({ db, dataDir, domain, bus, openDb, createApp, homeOpts = {}
       ...businessOpts(slug, bdb, file),
       business: slug, superEmail: null, dbFile: file, bus: scopedBus(bus, slug),
       plan: () => businesses.getPlan(slug), // features and limits the owner set
+      paused: () => !!(businesses.row(slug) || {}).paused, // paused businesses rest
       redeemHandoff: (t) => businesses.redeemHandoff(slug, t),
     }),
   });

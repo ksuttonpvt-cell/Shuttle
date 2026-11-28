@@ -117,3 +117,32 @@ test('waiting rides are offered to the closest free driver, who can take it or p
   await dana.c(`/api/rides/${ride.id}`, { method: 'PATCH', body: { driver_id: null } });
   assert.deepEqual(sweep(), []);
 });
+
+test('a paused business rests: no ride offers until it is turned back on', async () => {
+  let paused = true;
+  const db = seedTestSite(openDb(':memory:'));
+  ensureAdmin(db, { email: 'admin@test.local', password: 'adminpass1', name: 'Admin' });
+  const app2 = createApp(db, { publicUrl: 'https://shuttle.test', pushSender: async () => {}, noTimers: true, paused: () => paused });
+  const srv = await new Promise((r) => { const s = app2.listen(0, () => r(s)); });
+  const b2 = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    const call = (cookie) => async (path, body) => {
+      const res = await fetch(b2 + path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(cookie.v ? { Cookie: cookie.v } : {}) }, body: body ? JSON.stringify(body) : undefined });
+      const set = res.headers.get('set-cookie'); if (set) cookie.v = set.split(';')[0];
+      return res.json().catch(() => null);
+    };
+    const admin = call({});
+    await admin('/api/login', { email: 'admin@test.local', password: 'adminpass1' });
+    await admin('/api/users', { name: 'Rae Ready', email: 'rae@t.l', role: 'driver', password: 'driverpw1' });
+    const v = (await admin('/api/vehicles', { name: 'Van R' })).vehicle;
+    const rae = call({});
+    await rae('/api/login', { email: 'rae@t.l', password: 'driverpw1' });
+    await rae('/api/driver/shift', { on_duty: true, vehicle_id: v.id });
+    await rae('/api/driver/location', { lat: 40.015, lng: -105.27 });
+    const at = new Date(Date.now() + 20 * 60000).toISOString();
+    await admin('/api/rides', { type: 'pickup', customer_name: 'Jo Test', address: 'Pearl St', lat: 40.018, lng: -105.275, scheduled_at: at });
+    assert.deepEqual(app2.locals.offerSweep(), [], 'paused: nothing offered');
+    paused = false;
+    assert.equal(app2.locals.offerSweep().length, 1, 'back on: the ride is offered');
+  } finally { srv.close(); }
+});
