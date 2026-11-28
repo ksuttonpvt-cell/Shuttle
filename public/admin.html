@@ -1557,7 +1557,7 @@
       `<span class="muted"> · build ${esc(v.version ? v.version.slice(0, 7) : 'unknown')}${when ? ` from ${when}` : ''}</span>.<br>` +
       (v.auto_update ? `✅ Updates install automatically.${v.last_check ? ` Last checked ${fmtTime(v.last_check)}.` : ''}` : `⚠️ Automatic updates are off. ${esc(v.reason || '')}`) +
       (v.last_error ? `<div class="alert alert-err" style="margin-top:.5rem">Last update problem: ${esc(v.last_error)}</div>` : '') +
-      (v.undone && !v.last_error ? `<div class="small muted" style="margin-top:.4rem">↩ On ${esc(fmtTime(v.undone.at))} an update (${esc(String(v.undone.bad).slice(0, 7))}) was undone automatically because ${esc(v.undone.reason)}.</div>` : '');
+      (v.undone && !v.last_error && Date.now() - new Date(v.undone.at) < 7 * 864e5 ? `<div class="small muted" style="margin-top:.4rem">↩ On ${esc(fmtTime(v.undone.at))} an update (${esc(String(v.undone.bad).slice(0, 7))}) was undone automatically because ${esc(v.undone.reason)}.</div>` : '');
     $('#checkUpdates').classList.toggle('hidden', !v.auto_update);
     $('#verNews').onclick = () => App.whatsNew();
   }
