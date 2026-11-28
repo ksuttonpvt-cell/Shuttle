@@ -35,8 +35,6 @@ class _BookScreenState extends State<BookScreen> {
   final _phone = TextEditingController();
   final _email = TextEditingController();
   final _address = TextEditingController();
-  final _ro = TextEditingController();
-  final _car = TextEditingController();
   final _notes = TextEditingController();
   final _why = TextEditingController();
   FoundPlace? _place;
@@ -70,7 +68,7 @@ class _BookScreenState extends State<BookScreen> {
   @override
   void dispose() {
     _debounce?.cancel();
-    for (final c in [_name, _phone, _email, _address, _ro, _car, _notes, _why]) {
+    for (final c in [_name, _phone, _email, _address, _notes, _why]) {
       c.dispose();
     }
     super.dispose();
@@ -160,8 +158,6 @@ class _BookScreenState extends State<BookScreen> {
         if (_place != null) 'lng': _place!.lng,
         'scheduled_at': _time().toUtc().toIso8601String(),
         'passengers': _passengers,
-        if (_ro.text.trim().isNotEmpty) 'ro_number': _ro.text.trim(),
-        if (_car.text.trim().isNotEmpty) 'customer_vehicle': _car.text.trim(),
         if (_notes.text.trim().isNotEmpty) 'notes': _notes.text.trim(),
         'priority': _urgent ? 'urgent' : 'normal',
         if (_urgent) 'urgent_reason': _why.text.trim(),
@@ -258,12 +254,6 @@ class _BookScreenState extends State<BookScreen> {
             IconButton.outlined(onPressed: _passengers > 1 ? () => setState(() => _passengers--) : null, icon: const Icon(Icons.remove_rounded)),
             SizedBox(width: 44, child: Text('$_passengers', textAlign: TextAlign.center, style: t.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
             IconButton.outlined(onPressed: _passengers < 15 ? () => setState(() => _passengers++) : null, icon: const Icon(Icons.add_rounded)),
-          ]),
-          const SizedBox(height: 10),
-          Row(children: [
-            Expanded(child: TextField(controller: _ro, textInputAction: TextInputAction.next, decoration: const InputDecoration(labelText: 'RO number'))),
-            const SizedBox(width: 10),
-            Expanded(child: TextField(controller: _car, textCapitalization: TextCapitalization.words, textInputAction: TextInputAction.next, decoration: const InputDecoration(labelText: 'Their car'))),
           ]),
           const SizedBox(height: 10),
           TextField(controller: _notes, minLines: 2, maxLines: 4, maxLength: 1000, decoration: const InputDecoration(labelText: 'Notes for the driver', hintText: 'e.g. Side door, has a wheelchair')),
