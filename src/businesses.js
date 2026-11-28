@@ -20,6 +20,26 @@ const RESERVED = new Set(['app', 'www', 'website', 'mail', 'email', 'smtp', 'api
   'index', 'privacy', 'terms', '404', 'css', 'js', 'img', 'icons', 'brand', 'vendor', 'auth', 'setup', 'reset', 'logout', 'healthz', 'pricing', 'features', 'about', 'contact',
   'driver', 'drivers', 'get', 'download', 'downloads', 'manifest', 'well-known']);
 const HANDOFF_SECONDS = 60;
+
+// What a business gets, set by the owner (Server → Businesses). Everything is on unless turned
+// off; limits of 0 mean no limit. These are the hooks for plans and pricing.
+const FEATURES = [
+  ['request', 'Customers book their own rides', 'The request page and its QR code'],
+  ['texting', 'Texts and calls through the business number', 'Twilio: texts, bridged calls, incoming messages'],
+  ['offers', 'Ride offers', 'New rides are offered to the closest driver first'],
+  ['spectate', 'Watch-only map links', 'Live map links managers can share'],
+  ['reports', 'Reports', 'Ride, driver and van reports, and CSV downloads'],
+  ['bdc', 'BDC desk', 'A phone booking team with its own page'],
+  ['branding', 'Their own logo, icon and banner', 'Colors can always be changed'],
+];
+const LIMITS = [['max_drivers', 'Most drivers'], ['max_vans', 'Most vans']];
+function cleanPlan(p = {}) {
+  const features = {};
+  for (const [k] of FEATURES) features[k] = !(p.features && p.features[k] === false);
+  const limits = {};
+  for (const [k] of LIMITS) { const n = Math.floor(Number(p.limits && p.limits[k])); limits[k] = Number.isFinite(n) && n > 0 ? Math.min(n, 9999) : 0; }
+  return { features, limits };
+}
 const hash = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
 
 // A business's name → a suggested web address name ("Pine Valley Auto" → "pinevalleyauto").
@@ -40,7 +60,7 @@ function checkName(slug) {
 // How many people a business has, and how busy it is (for the owner's Businesses list).
 // Counts only: no names, emails or customer details.
 function peopleIn(db) {
-  const one = (sql, ...a) => db.prepare(sql).get(...a).n;
+  const one = (sql, ...a) => db.prepare(sql.replace('FROM users WHERE', 'FROM users WHERE COALESCE(support, 0) = 0 AND')).get(...a).n;
   const has = (role) => `(role = '${role}' OR (',' || COALESCE(extra_roles, '') || ',') LIKE '%,${role},%')`;
   const since = new Date(Date.now() - 30 * 86400000).toISOString();
   const last = db.prepare("SELECT MAX(x) AS t FROM (SELECT MAX(updated_at) AS x FROM rides UNION ALL SELECT MAX(last_loc_at) FROM users)").get().t;
@@ -72,6 +92,10 @@ function createBusinesses({ dataDir, openDb, makeApp, log = () => {} }) {
       created_at TEXT NOT NULL,
       created_by TEXT,
       paused     INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS plans (     -- features and limits per business (see FEATURES)
+      slug  TEXT PRIMARY KEY,
+      plan  TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS meta (      -- small facts about this PC, like the shuttle's own address
       key   TEXT PRIMARY KEY,
@@ -116,7 +140,34 @@ function createBusinesses({ dataDir, openDb, makeApp, log = () => {} }) {
     return entry;
   }
 
-  function create({ slug, name, by }) {
+  function getPlan(slug) {
+    const r = dir.prepare('SELECT plan FROM plans WHERE slug = ?').get(slug);
+    try { return cleanPlan(r ? JSON.parse(r.plan) : {}); } catch { return cleanPlan({}); }
+  }
+  function setPlan(slug, plan) {
+    const p = cleanPlan(plan);
+    dir.prepare('INSERT INTO plans (slug, plan) VALUES (?, ?) ON CONFLICT(slug) DO UPDATE SET plan = excluded.plan').run(slug, JSON.stringify(p));
+    return p;
+  }
+
+  // The hidden "Turas Lúbtha support" manager the owner uses to open a business. It can't sign in
+  // with a password and never shows in the business's staff lists or counts.
+  const SUPPORT_EMAIL = 'support@turaslubtha.invalid';
+  function supportUser(slug) {
+    const { db } = load(slug);
+    let u = db.prepare('SELECT id FROM users WHERE support = 1').get();
+    if (!u) {
+      const id = Number(db.prepare("INSERT INTO users (name, email, role, password_hash, super_admin, support) VALUES ('Turas Lúbtha support', ?, 'admin', ?, 1, 1)")
+        .run(SUPPORT_EMAIL, `!${crypto.randomBytes(24).toString('hex')}`).lastInsertRowid);
+      u = { id };
+    }
+    db.prepare('UPDATE users SET active = 1, role = \'admin\', super_admin = 1 WHERE id = ?').run(u.id);
+    return u.id;
+  }
+  // A one-time pass for the owner into a business, as support.
+  function visit(slug) { return makeHandoff(slug, supportUser(slug)); }
+
+  function create({ slug, name, by, plan, settings }) {
     const checked = checkName(slug);
     if (checked.error) return checked;
     const nm = String(name || '').trim().slice(0, 120);
@@ -131,7 +182,15 @@ function createBusinesses({ dataDir, openDb, makeApp, log = () => {} }) {
       return { error: `Couldn't create it: ${e.message}` };
     }
     // The business's name goes in as a starting point; its owner can change it during setup.
-    entry.db.prepare("INSERT INTO settings (key, value) VALUES ('dealer_name', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(nm);
+    const put = entry.db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+    put.run('dealer_name', nm);
+    // Starting settings chosen by the owner; the business's owner sees them filled in on Setup.
+    const START = { business_type: /^(dealership|shuttle)$/, place_word: /^[\p{L} '&-]{1,30}$/u, timezone: /^[A-Za-z_]+(\/[A-Za-z_+-]+){0,2}$/, brand_color: /^#[0-9a-fA-F]{6}$/, brand_dark: /^#[0-9a-fA-F]{6}$/ };
+    for (const [k, re] of Object.entries(START)) {
+      const v = settings && settings[k] != null ? String(settings[k]).trim() : '';
+      if (v && re.test(v)) put.run(k, v);
+    }
+    setPlan(checked.slug, plan || {});
     const code = (entry.db.prepare("SELECT value FROM settings WHERE key = 'setup_code'").get() || {}).value || '';
     log(`Created business ${checked.slug} (${nm})${by ? ` for ${by}` : ''}.`);
     return { business: { ...row(checked.slug), paused: false }, setup_code: code };
@@ -153,7 +212,7 @@ function createBusinesses({ dataDir, openDb, makeApp, log = () => {} }) {
       staff = db.prepare('SELECT COUNT(*) AS n FROM users WHERE active = 1').get().n;
       people = peopleIn(db);
     } catch (e) { log(`Reading ${slug} failed: ${e.message}`); }
-    return { slug: b.slug, name: displayName, created_at: b.created_at, paused: !!b.paused, setup_done: setupDone, setup_code: setupCode, staff, people };
+    return { slug: b.slug, name: displayName, created_at: b.created_at, paused: !!b.paused, setup_done: setupDone, setup_code: setupCode, staff, people, plan: getPlan(slug) };
   }
 
   // ---------- one-time hand-offs from the shared sign-in page ----------
@@ -198,7 +257,7 @@ function createBusinesses({ dataDir, openDb, makeApp, log = () => {} }) {
   };
 
   return {
-    dirFile, list, getMeta, setMeta, demos, row, load, create, setPaused, details, makeHandoff, redeemHandoff,
+    dirFile, list, getMeta, setMeta, demos, getPlan, setPlan, visit, row, load, create, setPaused, details, makeHandoff, redeemHandoff,
     loaded: () => [...loaded.values()],
     // The copy of the site that runs background jobs keeps every business loaded, so each
     // one's timers (ride offers, nightly clearing, backups, daily reports) keep running.
@@ -223,4 +282,4 @@ function scopedBus(bus, slug) {
   };
 }
 
-module.exports = { createBusinesses, scopedBus, checkName, suggestName, peopleIn, NAME_RE, RESERVED, HANDOFF_SECONDS };
+module.exports = { createBusinesses, scopedBus, checkName, suggestName, peopleIn, cleanPlan, FEATURES, LIMITS, NAME_RE, RESERVED, HANDOFF_SECONDS };

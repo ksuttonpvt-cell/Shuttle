@@ -91,6 +91,7 @@ Every business lives at its own path on the website's address: **turaslubtha.com
 - Each business gets **its own separate database** (`data/businesses/<name>/shuttle.db`) with its own staff, rides, customers, settings and nightly backups. Sign-ins are kept per business too.
 - **Who's on top:** 👑 **Owner** (you: the PC's own shuttle, set by `ADMIN_EMAIL`, share it under People → Edit) sees the server side: Server page, businesses, demo requests, web address. Each business has its own ⭐ **Super admin** (whoever set it up): the top of that business, can change everything in it including other managers, and never sees the server side. Managers can't change super admins.
 - **Pause** closes a business until you turn it back on. Nothing is deleted.
+- **Set it up for them** (when adding): kind of business, base word, time zone, color, features and limits. **Features & limits** changes them any time (off = hidden and refused). **Open** signs you in to that business as hidden *Turas Lúbtha support* (full access, banner on every page, not in their staff list, no password).
 - The shuttle's old address keeps working; **Use it for new links & QR codes** switches new links to turaslubtha.com/<name>.
 - `data/directory.db` lists the businesses. Back it up with the rest of `data/`.
 - On this PC you can try it without Cloudflare: http://website.localhost:3000/shuttle and http://website.localhost:3000/signin.

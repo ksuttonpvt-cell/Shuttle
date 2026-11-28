@@ -245,3 +245,70 @@ test('“Book a demo” on the website: saved for super admins, safe from robots
   for (let i = 0; i < 6; i++) await call(SITE, '/api/frontdoor/demo', { body: { ...good, name: `Again ${i}` } });
   assert.equal((await call(SITE, '/api/frontdoor/demo', { body: good })).status, 429);
 });
+
+test('the owner sets each business up: starting settings, features and limits', async () => {
+  const boss = await signIn(HOME, '', 'boss@home.test', 'home-pass-1');
+  // Starting settings and a plan, chosen when the business is added.
+  const made = await call(HOME, '/api/server/businesses', { cookie: boss, body: {
+    name: 'Harbor Hotel', slug: 'harbor',
+    settings: { business_type: 'shuttle', place_word: 'hotel', timezone: 'America/Chicago', brand_color: '#0d9488' },
+    plan: { features: { reports: false, bdc: false }, limits: { max_drivers: 1, max_vans: 1 } },
+  } });
+  assert.equal(made.status, 201, made.text);
+  assert.deepEqual(made.data.business.plan.features.reports, false);
+  assert.deepEqual(made.data.business.plan.limits, { max_drivers: 1, max_vans: 1 });
+  const setup = (await call(SITE, '/harbor/api/setup')).data.values;
+  assert.deepEqual([setup.business_type, setup.place_word, setup.timezone, setup.brand_color, setup.dealer_name], ['shuttle', 'hotel', 'America/Chicago', '#0d9488', 'Harbor Hotel'], 'their Setup page starts with the owner’s choices');
+  const code = new URL(made.data.business.setup_url).searchParams.get('code');
+  const done = await call(SITE, '/harbor/api/setup', { body: { ...SETUP, business_type: 'shuttle', place_word: 'hotel', dealer_name: 'Harbor Hotel', code, admin: { first_name: 'Hal', last_name: 'Harbor', email: 'hal@harbor.test', password: 'harbor-pass-1' } } });
+  const hal = done.cookie;
+
+  // Features that are off are gone for them: from their settings and from the server.
+  assert.equal((await call(SITE, '/harbor/api/me', { cookie: hal })).data.settings.features.reports, false);
+  assert.equal((await call(SITE, '/harbor/api/reports', { cookie: hal })).status, 403);
+  assert.equal((await call(SITE, '/harbor/bdc')).status, 404);
+  assert.equal((await call(SITE, '/harbor/api/users', { cookie: hal, body: { first_name: 'Bea', last_name: 'Desk', email: 'bea@harbor.test', roles: ['bdc'], password: 'password123' } })).status, 400);
+  assert.equal((await call(SITE, '/harbor/request')).status, 200, 'what is on stays on');
+  // Limits: one driver, one van.
+  assert.equal((await call(SITE, '/harbor/api/users', { cookie: hal, body: { first_name: 'Dee', last_name: 'One', email: 'dee@harbor.test', roles: ['driver'], password: 'password123' } })).status, 201);
+  const second = await call(SITE, '/harbor/api/users', { cookie: hal, body: { first_name: 'Dan', last_name: 'Two', email: 'dan@harbor.test', roles: ['driver'], password: 'password123' } });
+  assert.equal(second.status, 400);
+  assert.match(second.data.error, /up to 1 driver/);
+  assert.equal((await call(SITE, '/harbor/api/vehicles', { cookie: hal, body: { name: 'Van 1', seats: 7 } })).status, 201);
+  assert.equal((await call(SITE, '/harbor/api/vehicles', { cookie: hal, body: { name: 'Van 2', seats: 7 } })).status, 400);
+  assert.equal((await call(SITE, '/harbor/api/vehicles', { cookie: hal, body: { name: 'Loaner', use: 'loaner' } })).status, 201, 'loaners don’t count');
+
+  // The owner changes the plan any time: reports back on, room for more drivers.
+  const changed = await call(HOME, '/api/server/businesses/harbor/plan', { cookie: boss, body: { features: { bdc: false }, limits: { max_drivers: 5 } } });
+  assert.equal(changed.status, 200);
+  assert.equal((await call(SITE, '/harbor/api/reports', { cookie: hal })).status, 200);
+  assert.equal((await call(SITE, '/harbor/api/users', { cookie: hal, body: { first_name: 'Dan', last_name: 'Two', email: 'dan@harbor.test', roles: ['driver'], password: 'password123' } })).status, 201);
+  assert.equal((await call(SITE, '/harbor/api/server/businesses/harbor/plan', { cookie: hal, body: { features: {} } })).status, 403, 'only the owner changes plans');
+});
+
+test('the owner opens any business as hidden Turas Lúbtha support', async () => {
+  const boss = await signIn(HOME, '', 'boss@home.test', 'home-pass-1');
+  const v = await call(HOME, '/api/server/businesses/harbor/visit', { cookie: boss, body: {} });
+  assert.equal(v.status, 200, v.text);
+  const u = new URL(v.data.url);
+  assert.equal(u.pathname, '/harbor/auth/handoff');
+  const landed = await call(SITE, `/harbor/auth/handoff${u.search}`);
+  assert.equal(landed.location, '/harbor/');
+  const support = landed.cookie;
+  const me = (await call(SITE, '/harbor/api/me', { cookie: support })).data.user;
+  assert.deepEqual([me.name, me.support, me.role, me.super_admin], ['Turas Lúbtha support', true, 'admin', true], 'full access, marked as support');
+  assert.equal((await call(SITE, '/harbor/api/settings', { cookie: support, method: 'PATCH', body: { dealer_phone: '(312) 555-0100' } })).status, 200, 'can fix their settings');
+  // Hidden from the business: not in the staff list or counts, can't be changed, can't sign in by password.
+  const hal = await signIn(SITE, '/harbor', 'hal@harbor.test', 'harbor-pass-1');
+  const staff = (await call(SITE, '/harbor/api/users', { cookie: hal })).data.users.map((x) => x.name);
+  assert.ok(!staff.includes('Turas Lúbtha support'));
+  assert.equal((await call(SITE, `/harbor/api/users/${me.id}`, { cookie: hal, method: 'PATCH', body: { active: false } })).status, 403);
+  assert.equal((await call(SITE, `/harbor/api/users/${me.id}`, { cookie: hal, method: 'DELETE' })).status, 403);
+  const people = (await call(HOME, '/api/server/businesses', { cookie: boss })).data.businesses.find((b) => b.slug === 'harbor').people;
+  assert.equal(people.managers, 1, 'only Hal');
+  assert.equal((await call(SITE, '/api/frontdoor/signin', { body: { email: 'support@turaslubtha.invalid', password: 'anything-1' } })).status, 401);
+  // Only the owner can open a business; one that isn't set up yet can't be opened.
+  assert.equal((await call(SITE, '/harbor/api/server/businesses/pinevalley/visit', { cookie: hal, body: {} })).status, 403);
+  await call(HOME, '/api/server/businesses', { cookie: boss, body: { name: 'Not Ready', slug: 'notready' } });
+  assert.equal((await call(HOME, '/api/server/businesses/notready/visit', { cookie: boss, body: {} })).status, 400);
+});

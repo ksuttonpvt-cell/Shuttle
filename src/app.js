@@ -147,6 +147,31 @@ function createApp(db, opts = {}) {
   });
   // A preview of the website on any address, under /website/ (for example the shuttle's own
   // address, before turaslubtha.com is set up). The website's links are relative, so they work here.
+  // ---------- what this business gets (set by the Turas Lúbtha owner) ----------
+  // A hosted business has a plan: features on or off, and limits. The PC's own shuttle has
+  // everything. A feature that's off is refused here, so it can't be used by any page or app.
+  const plan = () => (opts.plan ? opts.plan() : null);
+  const featureOn = (k) => { const p = plan(); return !p || p.features[k] !== false; };
+  const limitOf = (k) => { const p = plan(); return p ? p.limits[k] || 0 : 0; };
+  const FEATURE_NAMES = { request: 'Customer self-booking', texting: 'Texts and calls through the business number', spectate: 'Watch-only map links', reports: 'Reports', bdc: 'The BDC desk', branding: 'Your own logo, icon and banner' };
+  const FEATURE_PATHS = [
+    ['request', /^\/(request\/?$|api\/public\/rides$|api\/public\/request-qr)/],
+    ['texting', /^\/api\/(rides\/\d+\/(text|call)$|phone|sms)/],
+    ['spectate', /^\/(s\/|api\/spectate)/],
+    ['reports', /^\/api\/reports/],
+    ['bdc', /^\/bdc\/?$/],
+    ['branding', /^\/api\/brand\//],
+  ];
+  app.use((req, res, next) => {
+    if (!opts.plan) return next();
+    for (const [k, re] of FEATURE_PATHS) {
+      if (!re.test(req.path) || featureOn(k)) continue;
+      if (req.path.startsWith('/api/')) return bad(res, `${FEATURE_NAMES[k]} isn't turned on for this business. Ask Turas Lúbtha to turn it on.`, 403);
+      return res.status(404).type('html').send(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Not available</title><body style="font:17px system-ui;padding:2rem;max-width:34rem;margin:auto"><h1>Not available</h1><p>${FEATURE_NAMES[k]} isn't turned on for this business.</p>`);
+    }
+    next();
+  });
+
   app.use('/website', (req, res, next) => {
     if (!['GET', 'HEAD'].includes(req.method)) return next();
     // "/website" needs its trailing slash, or the page's own links would point one folder up.
@@ -298,6 +323,7 @@ function createApp(db, opts = {}) {
     out.logo_light_v = s.brand_logo_light ? (s.brand_logo_light_v || '1') : ''; // ...and the one for light backgrounds from /brand/logo-light
     out.icon_v = s.brand_icon_512 ? (s.brand_icon_v || '1') : ''; out.banner_v = s.brand_banner ? (s.brand_banner_v || '1') : '';
     out.place = placeWord();
+    const pl = plan(); out.features = pl ? pl.features : null; out.limits = pl ? pl.limits : null; // null = everything (the PC's own shuttle)
     const p = phonePolicy(); out.phone_calls = p.calls; out.phone_texts = p.texts; // how staff call and text customers
     return out;
   }
@@ -342,6 +368,7 @@ function createApp(db, opts = {}) {
     photo_url: u.photo ? `/api/users/${u.id}/photo?v=${u.photo_v || 1}` : null,
     super_admin: u.role === 'admin' && !!u.super_admin,
     owner: !opts.business && u.role === 'admin' && !!u.owner,
+    support: !!u.support, // the Turas Lúbtha owner looking in
   });
   // BDC team members are advisors (same access) with their own page.
   const STAFF_ROLES = ['admin', 'advisor', 'driver', 'bdc'];
@@ -370,6 +397,7 @@ function createApp(db, opts = {}) {
     if (!list) return null;
     const set = [...new Set(list.map(String))];
     if (!set.length || set.some((r) => !STAFF_ROLES.includes(r))) return { error: 'Pick at least one role.' };
+    if (set.includes('bdc') && !featureOn('bdc')) return { error: 'The BDC desk isn\u2019t turned on for this business.' };
     const main = ['admin', 'advisor', 'bdc', 'driver'].find((r) => set.includes(r)); // the strongest one
     const rr = asRole(main);
     const extras = ROLE_ORDER.filter((r) => set.includes(r) && r !== main);
@@ -546,8 +574,8 @@ function createApp(db, opts = {}) {
   (function ensureTop() {
     const email = hosted ? null : (opts.superEmail !== undefined ? opts.superEmail : process.env.ADMIN_EMAIL);
     if (email) q("UPDATE users SET super_admin = 1, owner = 1 WHERE email = ? AND role = 'admin'").run(email);
-    if (!q("SELECT 1 FROM users WHERE super_admin = 1 AND role = 'admin' AND active = 1").get()) {
-      const first = q("SELECT id FROM users WHERE role = 'admin' AND active = 1 ORDER BY id LIMIT 1").get();
+    if (!q("SELECT 1 FROM users WHERE super_admin = 1 AND role = 'admin' AND active = 1 AND COALESCE(support, 0) = 0").get()) {
+      const first = q("SELECT id FROM users WHERE role = 'admin' AND active = 1 AND COALESCE(support, 0) = 0 ORDER BY id LIMIT 1").get();
       if (first) q('UPDATE users SET super_admin = 1 WHERE id = ?').run(first.id);
     }
     if (hosted) { q('UPDATE users SET owner = 0 WHERE owner = 1').run(); return; }
@@ -824,8 +852,23 @@ function createApp(db, opts = {}) {
 
   // ---------- users (admin) ----------
   // Staff list with emails and phone numbers: admins only.
+  // The plan's limits (0 = none). Drivers are people with the driver role (managers who drive don't count).
+  const DRIVER_ROLE = "(role = 'driver' OR instr(',' || COALESCE(extra_roles, '') || ',', ',driver,') > 0)";
+  function driverLimitHit(exceptId = 0) {
+    const max = limitOf('max_drivers');
+    if (!max) return null;
+    const n = q(`SELECT COUNT(*) AS n FROM users WHERE active = 1 AND removed_at IS NULL AND ${DRIVER_ROLE} AND id <> ?`).get(exceptId).n;
+    return n >= max ? `This business can have up to ${max} driver${max === 1 ? '' : 's'}. Ask Turas Lúbtha about more.` : null;
+  }
+  function vanLimitHit(adding = 1) {
+    const max = limitOf('max_vans');
+    if (!max) return null;
+    const n = q("SELECT COUNT(*) AS n FROM vehicles WHERE status <> 'retired' AND COALESCE(use, 'shuttle') <> 'loaner'").get().n;
+    return n + adding > max ? `This business can have up to ${max} van${max === 1 ? '' : 's'}. Ask Turas Lúbtha about more.` : null;
+  }
+
   app.get('/api/users', requireRole('admin'), (req, res) => {
-    const rows = q('SELECT * FROM users WHERE removed_at IS NULL ORDER BY role, name').all();
+    const rows = q('SELECT * FROM users WHERE removed_at IS NULL AND COALESCE(support, 0) = 0 ORDER BY role, name').all();
     res.json({ users: rows.map(publicUser) });
   });
 
@@ -895,6 +938,7 @@ function createApp(db, opts = {}) {
     const err = validatePassword(req.body.password);
     if (err) return bad(res, err);
     if (q('SELECT id FROM users WHERE email = ?').get(email)) return bad(res, 'That email already has an account.');
+    if (rr.list.includes('driver')) { const full = driverLimitHit(); if (full) return bad(res, full); }
     const r = q('INSERT INTO users (name, email, phone, role, team, extra_roles, start_page, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(name, email, str(req.body.phone, 40), rr.role, rr.team, rr.extra_roles, rr.start_page, await hashPasswordAsync(req.body.password));
     res.status(201).json({ user: publicUser(q('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid)) });
@@ -903,6 +947,7 @@ function createApp(db, opts = {}) {
   app.patch('/api/users/:id', requireRole('admin'), async (req, res) => {
     const user = q('SELECT * FROM users WHERE id = ?').get(Number(req.params.id));
     if (!user) return bad(res, 'User not found.', 404);
+    const before = { ...user };
     const origEmail = String(user.email || '').toLowerCase();
     const b = req.body;
     if (b.email != null) {
@@ -915,6 +960,7 @@ function createApp(db, opts = {}) {
     if (b.first_name !== undefined || b.last_name !== undefined) { const n = fullName(b); if (!n) return bad(res, 'Enter their first and last name.'); user.name = n; }
     else if (b.name != null) user.name = str(b.name, 100) || user.name;
     if (b.phone !== undefined) user.phone = str(b.phone, 40);
+    if (user.support && !req.user.support) return bad(res, 'That’s the Turas Lúbtha support login; it can’t be changed here.', 403);
     if (user.id !== req.user.id && user.super_admin && user.role === 'admin' && !isSuper(req.user)) return bad(res, 'Only a super admin can change a super admin.', 403);
     if (user.id !== req.user.id && user.owner && !isOwner(req.user)) return bad(res, 'Only the owner can change the owner.', 403);
     const rr = rolesFrom(b);
@@ -949,6 +995,8 @@ function createApp(db, opts = {}) {
       if (user.id === req.user.id && !b.active) return bad(res, "You can't deactivate yourself.");
       user.active = b.active ? 1 : 0;
     }
+    const drives = (u) => !!u.active && (u.role === 'driver' || String(u.extra_roles || '').split(',').includes('driver'));
+    if (drives(user) && !drives(before)) { const full = driverLimitHit(user.id); if (full) return bad(res, full); }
     q('UPDATE users SET name=?, email=?, phone=?, role=?, team=?, extra_roles=?, start_page=?, active=?, super_admin=?, owner=? WHERE id=?')
       .run(user.name, user.email, user.phone, user.role, user.team || null, user.extra_roles || null, user.start_page || null, user.active, user.super_admin ? 1 : 0, !hosted && user.owner ? 1 : 0, user.id);
     if (user.active) q('UPDATE users SET signup_at = NULL, signup_note = NULL WHERE id = ?').run(user.id); // turned on = approved
@@ -1075,6 +1123,7 @@ function createApp(db, opts = {}) {
   app.post('/api/vehicles', requireRole('admin'), (req, res) => {
     const { v, error } = cleanVehicle(req.body);
     if (error) return bad(res, error);
+    if (v.use !== 'loaner' && v.status !== 'retired') { const full = vanLimitHit(1); if (full) return bad(res, full); }
     const r = q(`INSERT INTO vehicles (${VEHICLE_FIELDS.join(',')}) VALUES (${VEHICLE_FIELDS.map(() => '?').join(',')})`)
       .run(...VEHICLE_FIELDS.map((f) => v[f] ?? null));
     res.status(201).json({ vehicle: q('SELECT * FROM vehicles WHERE id = ?').get(r.lastInsertRowid) });
@@ -1115,6 +1164,7 @@ function createApp(db, opts = {}) {
     const rows = plan.map((p) => ({ action: p.action, name: p.old ? p.old.name : p.v.name, make_model: p.v.make_model, year: p.v.year, plate: p.v.plate,
       fuel: p.old?.fuel || p.v.fuel, status: p.v.status, fleet_status: p.v.fleet_status, use: p.old ? p.old.use : p.v.use, changes: Object.keys(p.changes || {}) }));
     if (req.body.preview) return res.json({ summary, rows });
+    { const full = vanLimitHit(plan.filter((p) => p.action === 'add' && p.v.use !== 'loaner' && p.v.status !== 'retired').length); if (full) return bad(res, full); }
     const add = q(`INSERT INTO vehicles (name, make_model, year, plate, vin, seats, mileage, status, fuel, use, fleet_id, fleet_status, color)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     db.exec('BEGIN IMMEDIATE');
@@ -1287,6 +1337,7 @@ function createApp(db, opts = {}) {
   const OFFER_SECONDS = 90;
   let sweepTimer = null;
   function scheduleOfferSweep() {
+    if (!featureOn('offers')) return; // the owner turned ride offers off for this business
     if (opts.noTimers || sweepTimer) return; // tests run app.locals.offerSweep themselves
     if (!bus.jobs) { bus.ask('jobs', 'sweep').catch(() => {}); return; } // one copy hands out offers
     sweepTimer = setTimeout(() => {
@@ -2987,7 +3038,7 @@ function createApp(db, opts = {}) {
   app.post('/api/server/businesses', requireRole('admin'), (req, res) => {
     if (!bizzes) return bad(res, 'Hosting other businesses isn’t turned on for this site.');
     const b = req.body || {};
-    const made = bizzes.create({ slug: b.slug, name: str(b.name, 120), by: req.user.email });
+    const made = bizzes.create({ slug: b.slug, name: str(b.name, 120), by: req.user.email, plan: b.plan, settings: b.settings });
     if (made.error) return bad(res, made.error);
     bus.publish('businesses-changed');
     res.status(201).json({ business: bizOut(req, bizzes.details(made.business.slug)) });
@@ -3056,6 +3107,31 @@ function createApp(db, opts = {}) {
     else q("DELETE FROM settings WHERE key = 'site_url'").run();
     console.log(new Date().toLocaleString(), `[businesses] New links and QR codes now use ${getSettings().site_url || 'the address they are opened from'} (set by ${req.user.email}).`);
     res.json({ home: homeInfo() });
+  });
+
+  // Features and limits for one business (the owner's plan for it). Takes effect right away.
+  app.post('/api/server/businesses/:slug/plan', requireRole('admin'), (req, res) => {
+    if (!bizzes) return bad(res, 'Hosting other businesses isn’t turned on for this site.');
+    const slug = String(req.params.slug);
+    if (!bizzes.row(slug)) return bad(res, 'Business not found.', 404);
+    const p = bizzes.setPlan(slug, req.body || {});
+    console.log(new Date().toLocaleString(), `[businesses] ${slug}: features and limits changed by ${req.user.email}.`);
+    res.json({ business: bizOut(req, bizzes.details(slug)), plan: p });
+  });
+  // Open a business as the owner: a one-time pass in as its hidden "Turas Lúbtha support" manager.
+  app.post('/api/server/businesses/:slug/visit', requireRole('admin'), (req, res) => {
+    if (!bizzes) return bad(res, 'Hosting other businesses isn’t turned on for this site.');
+    const slug = String(req.params.slug);
+    const b = bizzes.row(slug);
+    if (!b) return bad(res, 'Business not found.', 404);
+    if (!bizzes.details(slug).setup_done) return bad(res, 'This business hasn’t finished setup yet. Send its owner the setup link first.');
+    const token = bizzes.visit(slug);
+    console.log(new Date().toLocaleString(), `[businesses] ${req.user.email} opened ${slug} as Turas Lúbtha support.`);
+    res.json({ url: `${bizUrl(req, slug)}/auth/handoff?t=${encodeURIComponent(token)}` });
+  });
+  app.get('/api/server/plan-options', requireRole('admin'), (req, res) => {
+    const { FEATURES, LIMITS } = require('./businesses');
+    res.json({ features: FEATURES.map(([key, label, note]) => ({ key, label, note })), limits: LIMITS.map(([key, label]) => ({ key, label })) });
   });
 
   app.post('/api/server/businesses/:slug/pause', requireRole('admin'), (req, res) => {
@@ -3301,6 +3377,7 @@ function createApp(db, opts = {}) {
     if (u.id === req.user.id) return bad(res, 'You can\'t delete your own account.');
     if (u.super_admin && u.role === 'admin' && !isSuper(req.user)) return bad(res, 'Only a super admin can delete a super admin.', 403);
     if (u.owner && !isOwner(req.user)) return bad(res, 'Only the owner can delete the owner.', 403);
+    if (u.support) return bad(res, 'That’s the Turas Lúbtha support login; it can’t be deleted here.', 403);
     db.exec('BEGIN IMMEDIATE');
     try {
       if (u.signup_at && !u.active) q('DELETE FROM users WHERE id = ?').run(u.id); else retireUser(u.id);
