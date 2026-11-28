@@ -95,7 +95,7 @@ function createFrontDoor({ businesses, homeDb, domain, domains: domainsOf, siteD
     let checked = 0;
     for (const p of places) {
       let u = null;
-      try { u = p.db.prepare('SELECT id, password_hash, active, signup_at FROM users WHERE email = ?').get(email); } catch { /* no table yet */ }
+      try { u = p.db.prepare('SELECT id, password_hash, active, signup_at FROM users WHERE email = ? AND COALESCE(support, 0) = 0').get(email); } catch { /* no table yet */ }
       if (!u) continue;
       checked++;
       if (await verifyPasswordAsync(password, u.password_hash)) matches.push({ ...p, user: u });
@@ -251,6 +251,8 @@ function createSite({ db, dataDir, domain, bus, openDb, createApp, homeOpts = {}
     makeApp: (slug, bdb, file) => createApp(bdb, {
       ...businessOpts(slug, bdb, file),
       business: slug, superEmail: null, dbFile: file, bus: scopedBus(bus, slug),
+      plan: () => businesses.getPlan(slug), // features and limits the owner set
+      paused: () => !!(businesses.row(slug) || {}).paused, // paused businesses rest
       redeemHandoff: (t) => businesses.redeemHandoff(slug, t),
     }),
   });

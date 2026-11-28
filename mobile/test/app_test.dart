@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:turas_driver/api.dart';
 import 'package:turas_driver/driver.dart';
@@ -20,6 +24,22 @@ class RecordAlerts implements Alerts {
 }
 
 Ride ride(Map<String, dynamic> j) => Ride.fromJson(j);
+
+/// The fake shuttle plus a live-updates line the test can talk down.
+class LiveClient extends http.BaseClient {
+  LiveClient(this.inner);
+  final http.Client inner;
+  StreamController<List<int>>? line;
+  String? cookie;
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest req) async {
+    if (!req.url.path.endsWith('/api/events')) return inner.send(req);
+    cookie = req.headers['Cookie'];
+    line = StreamController<List<int>>();
+    return http.StreamedResponse(line!.stream, 200, headers: {'content-type': 'text/event-stream'});
+  }
+  void say(String text) => line!.add(utf8.encode(text));
+}
 
 void main() {
   group('steps', () {
@@ -96,6 +116,30 @@ void main() {
       expect(alerts.shown, ['rides:Jo New', 'offer:Jo New']);
       await d.refresh();
       expect(alerts.shown.length, 2, reason: 'once only');
+      d.dispose();
+    });
+
+    test('live updates: a change on the shuttle shows up right away', () async {
+      final f = FakeShuttle(onDuty: true);
+      f.signedIn = true;
+      final store = MemoryStore()..s = const Session(base: 'https://turaslubtha.com/pinevalley', sid: 'SECRET123');
+      final live = LiveClient(f.client);
+      final d = Driver(api: Api(client: live), store: store);
+      await d.start();
+      await Future<void>.delayed(Duration.zero);
+      expect(live.cookie, 'sid=SECRET123');
+      live.say('retry: 4000\n\nevent: hello\ndata: {}\n\n');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(d.liveOn, isTrue);
+      final before = d.rides.rides.length;
+      f.rides.add(f.rides.last.map((k, v) => MapEntry(k, v))..['id'] = 15..['customer_name'] = 'Lee Live');
+      live.say(': ping\n\nevent: rides\ndata: {}\n\n');
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(d.rides.rides.length, before + 1);
+      // The line drops: back to asking often, and it tries again.
+      await live.line!.close();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(d.liveOn, isFalse);
       d.dispose();
     });
 

@@ -14,10 +14,11 @@ const { RESTART_CODE } = require('./updater');
 const { createLogbook, eachLine } = require('./logbook');
 const tunnelKit = require('./tunnel');
 const crypto = require('node:crypto');
+const rollback = require('./rollback');
 
 // The code Shuttle Control runs. If an update changes any of it, Shuttle Control restarts
 // itself (through the starter) so the fix applies without anyone touching the PC.
-const OWN_CODE = ['shuttle-control.js', 'tunnel.js', 'logbook.js', 'updater.js'].map((f) => path.join(__dirname, f));
+const OWN_CODE = ['shuttle-control.js', 'tunnel.js', 'logbook.js', 'updater.js', 'rollback.js'].map((f) => path.join(__dirname, f));
 if (process.env.SHUTTLE_CONTROL_EXTRA_CODE) OWN_CODE.push(process.env.SHUTTLE_CONTROL_EXTRA_CODE); // tests: a file to change instead of the real code
 const fingerprint = () => {
   const h = crypto.createHash('sha1');
@@ -45,6 +46,9 @@ let child = null;
 let state = 'stopped'; // starting, running, stopping, stopped, waiting (after a crash)
 let since = new Date(); let wanted = 'running'; let restartNext = false; let quitting = false;
 let restarts = 0; let lastExit = null; let crashTimer = null; const crashes = [];
+// A freshly installed update is on trial: if it keeps the website from running, it's undone.
+const probation = rollback.createProbation({ dataDir, keepAfterMs: Number(process.env.UPDATE_TRIAL_KEEP_MS) || undefined, giveUpAfterMs: Number(process.env.UPDATE_TRIAL_GIVE_UP_MS) || undefined });
+let undoing = false;
 
 function setState(s) { state = s; since = new Date(); }
 
@@ -56,6 +60,7 @@ function start() {
   if (fs.existsSync(envFile)) args.push('--env-file=.env');
   args.push(path.join('src', 'server.js'));
   setState('starting');
+  probation.started();
   child = spawn(process.execPath, args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, SHUTTLE_SUPERVISED: '1' }, windowsHide: true });
   eachLine(child.stdout, (l) => { process.stdout.write(`${l}\n`); logbook.add(l); if (state === 'starting' && /running at/i.test(l)) setState('running'); });
   eachLine(child.stderr, (l) => { process.stderr.write(`${l}\n`); logbook.add(l, { fromStderr: true }); });
@@ -63,6 +68,7 @@ function start() {
     child = null;
     lastExit = { at: new Date().toISOString(), code, signal };
     if (quitting) return process.exit(0);
+    if (undoing) return; // stopped on purpose to put the old version back
     if (restartNext) { restartNext = false; restarts++; say('Restarting the website...'); return start(); }
     if (wanted === 'stopped') { setState('stopped'); say('The website is stopped. Use Start to run it again.'); return; }
     if (code === RESTART_CODE) {
@@ -70,6 +76,9 @@ function start() {
       if (process.env.SHUTTLE_KEEPER === '1' && fingerprint() !== startedWith) return reloadSelf();
       restarts++; say('Update installed (or restart asked for). Starting the new version...'); return start();
     }
+    // Crashed right after an update? Put the version before it back.
+    const why = probation.crashed();
+    if (why) return undoUpdate(why);
     // Crashed. Wait 10 seconds, or a minute if it keeps crashing.
     const now = Date.now(); crashes.push(now); while (crashes.length && now - crashes[0] > 120000) crashes.shift();
     const wait = crashes.length >= 5 ? 60 : 10;
@@ -80,12 +89,43 @@ function start() {
 }
 function stop() {
   wanted = 'stopped'; clearTimeout(crashTimer); crashTimer = null;
+  probation.stop(); // stopped by hand: the trial starts over next time it's started
   if (child) { setState('stopping'); child.kill(); } else setState('stopped');
 }
 function restart() {
   if (!child) return start();
   restartNext = true; setState('stopping'); child.kill();
 }
+
+// ---------- auto-undo for bad updates ----------
+async function undoUpdate(reason) {
+  if (undoing) return;
+  undoing = true;
+  probation.stop();
+  clearTimeout(crashTimer); crashTimer = null;
+  const p = rollback.pending(dataDir);
+  say(`The update to ${p ? p.to.slice(0, 7) : 'the new version'} isn't working (${reason}). Putting the version before it back...`, 'error');
+  setState('stopping');
+  if (child) { const c = child; await new Promise((r) => { c.once('exit', r); c.kill(); setTimeout(r, 8000); }); }
+  try {
+    const rec = await rollback.undo({ root, dataDir, reason });
+    say(`Back on ${rec.good.slice(0, 7)}. That update won't be installed again; the next one will install as usual.`, 'warn');
+  } catch (e) {
+    say(`Couldn't undo the update: ${e.message}`, 'error');
+    rollback.clearPending(dataDir); // don't keep trying; the crash restarts below still run
+  }
+  undoing = false;
+  if (process.env.SHUTTLE_KEEPER === '1' && fingerprint() !== startedWith) return reloadSelf();
+  restarts++; start();
+}
+// While an update is on trial, check the website every few seconds.
+setInterval(async () => {
+  if (!probation.watching || undoing || wanted !== 'running') return;
+  const ok = !!child && state === 'running' && await siteHealthy();
+  const verdict = probation.healthy(ok);
+  if (verdict === 'keep') say('The update is working. Keeping it.');
+  else if (verdict) undoUpdate(verdict);
+}, Number(process.env.UPDATE_TRIAL_CHECK_MS) || 5000).unref();
 
 // ---------- Cloudflare connection ----------
 // With CLOUDFLARE_TUNNEL_TOKEN in .env (saved from Shuttle Control), this runs cloudflared

@@ -1,5 +1,26 @@
 [
   {
+    "version": "3.14.0",
+    "date": "2026-11-28",
+    "title": "Safer and quicker behind the scenes",
+    "changes": [
+      "Off-PC copy: after the nightly backup, every database (this shuttle, the businesses list and each business) can be sent to your own Cloudflare R2 bucket (or Amazon S3 / Backblaze B2). Set it up on the Server page; it's tested before it's saved, and the secret key never leaves the PC.",
+      "Bad updates undo themselves: if a new version keeps crashing or doesn't come up within a few minutes, Shuttle Control puts the version before it back, skips that update, and installs the next one as usual. The Server page says when it happened.",
+      "The driver app hears changes the moment they happen (new rides, assignments, offers) instead of checking every 6 seconds; it now only double-checks every 30 seconds, which saves battery and data.",
+      "Paused businesses rest: no ride offers, daily reports, backups or shift clean-up while they're paused. Old customer details are still cleared on time."
+    ]
+  },
+  {
+    "version": "3.13.0",
+    "date": "2026-11-28",
+    "title": "Set up and look after each business",
+    "changes": [
+      "When you add a business, set it up for them: kind of business, what their base is called, time zone and main color (their owner sees these filled in on Setup), plus which features they get and limits on drivers and vans.",
+      "Features & limits for any business, any time: customer self-booking, texts & calls through the business number, ride offers, watch-only map links, reports, the BDC desk, and their own logo/icon/banner. Features that are off disappear from their screens and the app, and the server refuses them.",
+      "Open any business: one tap signs you in as a hidden \"Turas Lúbtha support\" manager with full access, with a banner so you know. It never shows in their staff lists or counts, can't be changed by them, and has no password."
+    ]
+  },
+  {
     "version": "3.12.0",
     "date": "2026-11-26",
     "title": "Book rides in the app",

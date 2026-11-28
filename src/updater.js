@@ -4,6 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { exec, execFile } = require('node:child_process');
+const rollback = require('./rollback');
 
 const RESTART_CODE = 75;
 
@@ -28,12 +29,16 @@ function createUpdater({
   restart = () => process.exit(RESTART_CODE),
   installPackages = (dir) => npm(dir, 'install --omit=dev --no-audit --no-fund'),
   log = (...a) => console.log(new Date().toLocaleString(), '[updates]', ...a),
+  dataDir = path.join(cwd, 'data'),
+  // Shuttle Control is watching: it undoes an update that keeps the website from running.
+  watched = process.env.SHUTTLE_SUPERVISED === '1',
 } = {}) {
   const isGit = fs.existsSync(path.join(cwd, '.git'));
   const state = {
     enabled: enabled && isGit,
     reason: !isGit ? 'Not installed with git, so updates must be done by hand.' : !enabled ? 'Turned off (AUTO_UPDATE=0).' : null,
     version: null, versionDate: null, lastCheck: null, lastError: null, checking: false,
+    undone: rollback.lastUndo(dataDir), // the last update that was undone automatically
   };
   let failedTarget = null; let timer = null;
 
@@ -56,6 +61,12 @@ function createUpdater({
       state.lastCheck = new Date().toISOString();
       if (local === remote) { state.lastError = null; return 'up-to-date'; }
       if (remote === failedTarget) return 'error'; // Don't retry the same broken update every few minutes.
+      // An update that was undone because it broke the website: wait for a newer one.
+      state.undone = rollback.lastUndo(dataDir);
+      if (state.undone && state.undone.bad === remote) {
+        state.lastError = `The newest update (${remote.slice(0, 7)}) was undone automatically because ${state.undone.reason}. The next update will install as usual.`;
+        return 'error';
+      }
       try { await git(cwd, 'merge-base', '--is-ancestor', 'HEAD', `origin/${branch}`); } catch {
         failedTarget = remote;
         state.lastError = 'This copy has its own changes, so it can\'t update automatically. Run "git status" in the app folder.';
@@ -71,7 +82,9 @@ function createUpdater({
         if (!fs.existsSync(env)) { fs.copyFileSync(example, env); log('Saved settings from .env.example into .env.'); }
         await git(cwd, 'checkout', '--', '.env.example').catch(() => {});
       }
+      if (watched) rollback.markPending(dataDir, { from: local, to: remote });
       try { await git(cwd, 'pull', '--ff-only', '--quiet', 'origin', branch); } catch (e) {
+        rollback.clearPending(dataDir);
         failedTarget = remote; state.lastError = e.message; log(e.message); return 'error';
       }
       if (/(^|\n)package(-lock)?\.json$/m.test(changed)) {

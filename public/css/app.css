@@ -905,3 +905,9 @@ body.drawer-open { overflow: hidden; }
 @media (max-width: 600px) { .demo-row { flex-direction: column; } .demo-acts { justify-content: flex-start; } }
 .b-owner { background: #ede9fe; color: #5b21b6; }
 [data-theme="dark"] .b-owner { background: #2e1065; color: #ddd6fe; }
+.support-bar { position: sticky; top: 0; z-index: 3200; background: #4c1d95; color: #fff; padding: .45rem 1rem; font-size: .9rem; text-align: center; }
+.support-bar .linkish { color: #ddd6fe; margin-left: .4rem; }
+.biz-acts { display: flex; gap: .35rem; flex-wrap: wrap; justify-content: flex-end; }
+.biz-more summary { cursor: pointer; font-weight: 600; color: var(--accent); margin-top: .2rem; }
+.biz-more .opt-group .check span { display: inline; }
+.opt-group .check input[type=checkbox] { flex: none; }

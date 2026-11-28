@@ -114,6 +114,7 @@ function openDb(file) {
   `);
   addColumn('users', 'super_admin', 'INTEGER NOT NULL DEFAULT 0'); // the business's top manager: can change everything in it
   addColumn('users', 'owner', 'INTEGER NOT NULL DEFAULT 0'); // owns the whole Turas Lúbtha PC: Server page, businesses, web address
+  addColumn('users', 'support', 'INTEGER NOT NULL DEFAULT 0'); // the owner's hidden "Turas Lúbtha support" login in a hosted business
   addColumn('users', 'last_heading', 'REAL');  // direction of travel, degrees (from the phone's GPS)
   addColumn('users', 'last_speed', 'REAL');    // metres per second
   addColumn('users', 'route_json', 'TEXT');    // the driver's planned route (stops in order + path)

@@ -121,10 +121,11 @@
 
   <!-- Links -->
   <section data-pane="links" class="hidden">
-    <div id="qrFeature"></div>
+    <div id="qrFeature" data-feature="request"></div>
     <h2 class="qr-section">For staff</h2>
     <div class="qr-staff" id="links"></div>
     <p class="small muted">Each ride also gets its own tracking link for the customer: use <b>Send link / QR</b> on the ride.</p>
+    <div data-feature="spectate">
     <h2 class="qr-section">Spectator links</h2>
     <div class="card">
       <p class="small muted" style="margin-top:0">A live map anyone with the link can watch, without signing in: vans, speed, battery and route lines, but no customer names or addresses. Links stop working when their time runs out, or when you revoke them.</p>
@@ -136,6 +137,7 @@
       </form>
       <div id="specMsg"></div>
       <div id="specList" class="small" style="margin-top:.6rem"></div>
+    </div>
     </div>
   </section>
 
@@ -295,6 +297,7 @@
         <div><label>Dark color <span class="muted">(QR signs)</span></label><input type="color" name="brand_dark"></div>
         <button type="button" class="btn-ghost btn-sm" id="lookReset">Back to the plain colors</button>
       </div>
+      <div data-feature="branding">
       <label style="margin-top:1rem">Logo (optional)</label>
       <div class="actions" style="align-items:center;margin-top:0">
         <span class="logo-preview" id="logoPreview"></span>
@@ -323,6 +326,7 @@
         <button type="button" class="btn-ghost btn-sm hidden" id="bannerRemove">Remove banner</button>
       </div>
       <p class="small muted">A wide photo (your building, your fleet) behind your name on the sign-in page and the customer pages. It's darkened so the words stay readable.</p>
+      </div>
       <div id="lookMsg"></div>
       <button class="btn-block" style="margin-top:.6rem">Save branding</button>
     </form>
@@ -403,7 +407,7 @@
 
   <!-- Phone & email -->
   <section data-pane="comms" class="grid hidden" style="max-width:760px">
-    <div class="card">
+    <div class="card" data-feature="texting">
       <h2>Calls &amp; texts with customers</h2>
       <p class="small muted" style="margin-top:0">Choose how your team calls and texts customers. Staff can use their own phones, or the dealership's number so customers only ever see the dealership. <span id="phState"></span></p>
       <form id="phPolicy">
@@ -432,7 +436,7 @@
       </form>
     </div>
 
-    <div class="card">
+    <div class="card" data-feature="texting">
       <h2>Dealership phone number</h2>
       <p class="small muted" style="margin-top:0">A phone number from <b>Twilio</b> (about $1–2 a month, plus about 1¢ a text and 1–2¢ a minute for calls). Everything above that uses the dealership number starts working once it's here. <span id="phNumState"></span></p>
       <form id="phForm">
@@ -456,7 +460,7 @@
       </ul></details>
     </div>
 
-    <div class="card">
+    <div class="card" data-feature="texting">
     <h2>Automatic customer texts</h2>
     <div id="smsInfo" class="small muted">Loading…</div>
     <form id="smsForm">
@@ -510,7 +514,7 @@
       </form>
     </div>
 
-    <div class="card"><h2>Recent texts &amp; calls</h2><div id="smsLog"><p class="small muted">Nothing yet.</p></div>
+    <div class="card" data-feature="texting"><h2>Recent texts &amp; calls</h2><div id="smsLog"><p class="small muted">Nothing yet.</p></div>
       <p class="small muted" style="margin-bottom:0">Cleared every night with the other customer details.</p></div>
   </section>
 
@@ -543,6 +547,19 @@
           <div style="flex:2;min-width:220px"><label for="bizSlug">Web address</label>
             <div class="addr-in"><span class="addr-domain" id="bizDomain">turaslubtha.com/</span><input id="bizSlug" name="slug" required maxlength="32" placeholder="pinevalley" autocomplete="off" autocapitalize="off" spellcheck="false"></div></div>
           <button class="btn-blue">Add business</button>
+          <details class="biz-more" style="flex-basis:100%">
+            <summary>Set it up for them: business type, colors, features and limits</summary>
+            <div class="grid cols-2" style="gap:.6rem;margin-top:.6rem">
+              <div><label for="bizType">Kind of business</label><select id="bizType" name="business_type"><option value="dealership">Car dealership</option><option value="shuttle">Shuttle service (hotel, parking…)</option></select></div>
+              <div><label for="bizPlace">Their base is called</label><input id="bizPlace" name="place_word" maxlength="30" placeholder="dealership, hotel, office…"></div>
+              <div><label for="bizTz">Time zone</label><select id="bizTz" name="timezone">
+                <option value="">Same as this PC</option><option value="America/New_York">Eastern</option><option value="America/Chicago">Central</option><option value="America/Denver">Mountain</option><option value="America/Phoenix">Arizona</option><option value="America/Los_Angeles">Pacific</option><option value="America/Anchorage">Alaska</option><option value="Pacific/Honolulu">Hawaii</option>
+              </select></div>
+              <div><label for="bizColor">Main color</label><input id="bizColor" name="brand_color" type="color" value="#6d28d9" style="height:44px;padding:4px"></div>
+            </div>
+            <div data-plan-fields style="margin-top:.6rem"></div>
+            <p class="small muted" style="margin:.4rem 0 0">Their owner sees these filled in on their Setup page and can change the settings; features and limits stay yours to change.</p>
+          </details>
         </form>
         <div id="bizMsg"></div>
         <div id="bizMade"></div>
@@ -629,6 +646,24 @@
         <div id="srvBackupMsg"></div>
         <div class="table-wrap" id="srvBackups"></div>
       </div>
+      <div class="card" id="offCard" hidden>
+        <div class="card-head"><h2>Off-PC copy</h2><button type="button" class="btn-blue btn-sm" id="offRun" hidden>Send a copy now</button></div>
+        <div id="offStatus" class="small" style="margin:-.3rem 0 .6rem"></div>
+        <details id="offMore">
+          <summary class="small"><b id="offSummary">Set up: send every night's backup to Cloudflare R2</b></summary>
+          <p class="small muted">After the nightly backup, a copy of every database (this shuttle, the businesses list and each business) goes to your own storage bucket, so a dead PC or disk doesn't lose anything. In Cloudflare: <b>R2 → Create bucket</b>, then <b>Manage API tokens → Create API token</b> with <i>Object Read &amp; Write</i> for that bucket. Paste what it shows below. To keep 30 days, add a lifecycle rule in the bucket's settings that deletes objects after 30 days. Amazon S3 and Backblaze B2 work too.</p>
+          <form id="offForm" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:.6rem">
+            <div style="grid-column:1/-1"><label for="offEndpoint">Endpoint</label><input id="offEndpoint" name="endpoint" placeholder="https://<account id>.r2.cloudflarestorage.com" autocomplete="off" spellcheck="false"></div>
+            <div><label for="offBucket">Bucket</label><input id="offBucket" name="bucket" placeholder="turas-backups" autocomplete="off" spellcheck="false"></div>
+            <div><label for="offPrefix">Folder <span class="muted">(optional)</span></label><input id="offPrefix" name="prefix" placeholder="shuttle-pc" autocomplete="off" spellcheck="false"></div>
+            <div><label for="offKey">Access key ID</label><input id="offKey" name="access_key_id" autocomplete="off" spellcheck="false"></div>
+            <div><label for="offSecret">Secret access key</label><input id="offSecret" name="secret_access_key" type="password" autocomplete="new-password"></div>
+            <div><label for="offRegion">Region <span class="muted">(R2: auto)</span></label><input id="offRegion" name="region" placeholder="auto" autocomplete="off"></div>
+            <div style="grid-column:1/-1" id="offMsg"></div>
+            <div class="actions" style="grid-column:1/-1"><button>Test &amp; save</button><button type="button" class="btn-ghost" id="offClear" hidden>Turn off</button></div>
+          </form>
+        </details>
+      </div>
     </div>
     <div class="card danger-card">
       <div class="card-head"><h2>Remove all staff</h2><button type="button" class="btn-sm btn-dark" id="wipeBtn">Remove all staff…</button></div>
@@ -661,6 +696,10 @@
 (async () => {
   const { $, $$, api, esc, fmtTime, statusBadge, typeBadge } = App;
   const me = await App.requireUser('admin');
+  // What this business gets (set by Turas Lúbtha). null = everything.
+  const features = (App.settings && App.settings.features) || null;
+  const featureOn = (k) => !features || features[k] !== false;
+  document.querySelectorAll('[data-feature]').forEach((el) => { if (!featureOn(el.dataset.feature)) el.hidden = true; });
   const ROLE = { admin: 'Manager', advisor: 'Advisor', bdc: 'BDC', driver: 'Driver' };
   const roleOf = (u) => (u.role === 'advisor' && u.team === 'bdc' ? 'bdc' : u.role); // BDC = an advisor on the BDC team
   // Some people have several roles (an advisor who also drives, BDC who drives…).
@@ -669,7 +708,7 @@
   const ROLE_HELP = { advisor: 'Service advisor', bdc: 'BDC (books rides by phone, has its own page)', driver: 'Shuttle driver', admin: 'Manager (full access)' };
   const PAGE_NAME_OF = { advisor: 'Advisor desk', bdc: 'BDC page', driver: 'Driver page', admin: 'Manager page' };
   function rolePicker(selected = ['advisor'], { start = '', compact = false, lockAdmin = false } = {}) {
-    const boxes = ['advisor', 'bdc', 'driver', 'admin'].map((k) => `<label class="check${compact ? ' role-chip' : ''}"><input type="checkbox" name="roles" value="${k}" ${selected.includes(k) ? 'checked' : ''} ${lockAdmin && k === 'admin' ? 'disabled title="You can\'t remove your own manager access"' : ''}> ${compact ? ROLE[k] : ROLE_HELP[k]}</label>`).join('');
+    const boxes = ['advisor', 'bdc', 'driver', 'admin'].filter((k) => k !== 'bdc' || featureOn('bdc') || selected.includes('bdc')).map((k) => `<label class="check${compact ? ' role-chip' : ''}"><input type="checkbox" name="roles" value="${k}" ${selected.includes(k) ? 'checked' : ''} ${lockAdmin && k === 'admin' ? 'disabled title="You can\'t remove your own manager access"' : ''}> ${compact ? ROLE[k] : ROLE_HELP[k]}</label>`).join('');
     if (compact) return `<span class="role-pick role-pick-compact">${boxes}</span>`;
     return `<div class="role-pick" data-role-pick data-start="${esc(start || '')}">${boxes}
       <div data-start-wrap hidden><label>Opens to</label><select name="start_page"></select>
@@ -1155,7 +1194,7 @@
     if (!confirm('Revoke this link? Anyone watching loses the map right away.')) return;
     await api(`/api/spectate-links/${b.closest('[data-id]').dataset.id}/revoke`, { body: {} }); loadSpectate();
   });
-  loaders.links = () => { loadLinks(); loadSpectate().catch((err) => { $('#specList').textContent = err.message; }); };
+  loaders.links = () => { loadLinks(); if (featureOn('spectate')) loadSpectate().catch((err) => { $('#specList').textContent = err.message; }); };
   // A one-page sign for the counter or waiting room.
   function printSign(url) {
     const dealer = App.settings.dealer_name || 'Dealership';
@@ -1535,7 +1574,8 @@
     $('#verInfo').innerHTML = `Running <b>v${esc(v.app || '?')}</b> <button type="button" class="linkish" id="verNews">What's new</button>` +
       `<span class="muted"> · build ${esc(v.version ? v.version.slice(0, 7) : 'unknown')}${when ? ` from ${when}` : ''}</span>.<br>` +
       (v.auto_update ? `✅ Updates install automatically.${v.last_check ? ` Last checked ${fmtTime(v.last_check)}.` : ''}` : `⚠️ Automatic updates are off. ${esc(v.reason || '')}`) +
-      (v.last_error ? `<div class="alert alert-err" style="margin-top:.5rem">Last update problem: ${esc(v.last_error)}</div>` : '');
+      (v.last_error ? `<div class="alert alert-err" style="margin-top:.5rem">Last update problem: ${esc(v.last_error)}</div>` : '') +
+      (v.undone && !v.last_error && Date.now() - new Date(v.undone.at) < 7 * 864e5 ? `<div class="small muted" style="margin-top:.4rem">↩ On ${esc(fmtTime(v.undone.at))} an update (${esc(String(v.undone.bad).slice(0, 7))}) was undone automatically because ${esc(v.undone.reason)}.</div>` : '');
     $('#checkUpdates').classList.toggle('hidden', !v.auto_update);
     $('#verNews').onclick = () => App.whatsNew();
   }
@@ -1577,6 +1617,40 @@
           <button class="btn-ghost btn-sm" data-restore>Restore</button> <button class="btn-ghost btn-sm" data-delete aria-label="Delete backup">✕</button></td></tr>`).join('')}</table>`
       : '<div class="empty">No backups yet. Tap “Back up now”, or wait for tonight\'s.</div>';
   }
+  // ---------- off-PC copy (owner only) ----------
+  const kb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`);
+  function showOffsite(d) {
+    $('#offCard').hidden = !d.available;
+    if (!d.available) return;
+    const c = d.config; const st = d.status; const f = $('#offForm');
+    $('#offRun').hidden = !d.set_up; $('#offClear').hidden = !d.set_up;
+    $('#offSummary').textContent = d.set_up ? `Sending to ${c.bucket} at ${new URL(c.endpoint).host} · change` : 'Set up: send every night\'s backup to Cloudflare R2';
+    if (c) { for (const k of ['endpoint', 'bucket', 'prefix', 'access_key_id', 'region']) f.elements[k].value = c[k] || ''; f.elements.secret_access_key.placeholder = c.has_secret ? 'Saved (leave blank to keep)' : ''; }
+    $('#offStatus').innerHTML = !d.set_up ? '<span class="muted">Not set up. Backups are only on this PC.</span>'
+      : !st ? '<span class="muted">Set up. The first copy goes after tonight\'s backup (or tap “Send a copy now”).</span>'
+      : st.ok ? `✅ Last copy ${esc(fmtTime(st.at))}: ${st.sent.length} database${st.sent.length === 1 ? '' : 's'}, ${kb(st.bytes)}.`
+      : `<div class="alert alert-err">Last copy ${esc(fmtTime(st.at))} had a problem: ${esc((st.failed[0] || {}).error || 'nothing was sent')}${st.failed.length > 1 ? ` (and ${st.failed.length - 1} more)` : ''}</div>`;
+  }
+  const loadOffsite = () => api('/api/server/offsite').then(showOffsite).catch(() => {});
+  $('#offForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target; const btn = f.querySelector('button'); btn.disabled = true; btn.textContent = 'Testing…';
+    const body = {}; for (const k of ['endpoint', 'bucket', 'prefix', 'access_key_id', 'secret_access_key', 'region']) body[k] = f.elements[k].value;
+    try { showOffsite(await api('/api/server/offsite', { method: 'PUT', body })); f.elements.secret_access_key.value = ''; App.flash($('#offMsg'), 'It works. Saved: a copy goes after every nightly backup.', true); }
+    catch (err) { App.flash($('#offMsg'), err.message); }
+    btn.disabled = false; btn.textContent = 'Test & save';
+  };
+  $('#offRun').onclick = async (e) => {
+    e.target.disabled = true; e.target.textContent = 'Sending…';
+    try { showOffsite(await api('/api/server/offsite/run', { body: {} })); } catch (err) { App.flash($('#offMsg'), err.message); $('#offMore').open = true; }
+    e.target.disabled = false; e.target.textContent = 'Send a copy now';
+  };
+  $('#offClear').onclick = async () => {
+    if (!confirm('Stop sending copies off this PC? Copies already in the bucket stay there.')) return;
+    showOffsite(await api('/api/server/offsite', { method: 'DELETE' }));
+    $('#offForm').reset();
+  };
+
   $('#srvBackupNow').onclick = async (e) => {
     e.target.disabled = true;
     try { const { backup } = await api('/api/server/backups', { body: {} }); App.flash($('#srvBackupMsg'), `Backup made: ${backup.name}`, true); loadBackups(); }
@@ -1707,18 +1781,46 @@
     return `<tr><td><b>${esc(b.name)}</b><div class="small muted">Added ${esc(new Date(b.created_at).toLocaleDateString())}</div></td>
       <td><a href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.url.replace(/^https?:\/\//, ''))}</a>${b.also_url ? `<div class="small muted">Later also: ${esc(b.also_url.replace(/^https?:\/\//, ''))}</div>` : ''}</td>
       <td>${status}${b.setup_url ? `<div style="margin-top:.3rem">${copyBtn(b.setup_url, 'Copy setup link')}</div>` : ''}${b.setup_done ? `<div style="margin-top:.3rem">${peopleLine(b.people)}</div>` : ''}</td>
-      <td style="text-align:right"><button type="button" class="btn-ghost btn-sm" data-biz-pause="${esc(b.slug)}" data-paused="${b.paused ? 1 : 0}">${b.paused ? 'Turn back on' : 'Pause'}</button></td></tr>`;
+      <td style="text-align:right"><div class="biz-acts">${b.setup_done && !b.paused ? `<button type="button" class="btn-blue btn-sm" data-biz-open="${esc(b.slug)}">Open</button>` : ''}<button type="button" class="btn-ghost btn-sm" data-biz-plan="${esc(b.slug)}">Features &amp; limits</button><button type="button" class="btn-ghost btn-sm" data-biz-pause="${esc(b.slug)}" data-paused="${b.paused ? 1 : 0}">${b.paused ? 'Turn back on' : 'Pause'}</button></div>${planLine(b.plan)}</td></tr>`;
   }
   const bare = (u) => String(u || '').replace(/^https?:\/\//, '');
+  // ---------- features & limits (the owner's plan for each business) ----------
+  let planOptions = null;
+  const loadPlanOptions = async () => { if (!planOptions) planOptions = await api('/api/server/plan-options'); return planOptions; };
+  function planLine(p) {
+    if (!p || !planOptions) return '';
+    const off = planOptions.features.filter((f) => p.features[f.key] === false).map((f) => f.label);
+    const lim = [p.limits.max_drivers ? `up to ${p.limits.max_drivers} drivers` : '', p.limits.max_vans ? `up to ${p.limits.max_vans} vans` : ''].filter(Boolean);
+    return `<div class="small muted" style="margin-top:.35rem;text-align:right">${off.length ? `Off: ${esc(off.join(', '))}` : 'All features'}${lim.length ? ` · ${esc(lim.join(', '))}` : ''}</div>`;
+  }
+  function planFields(p) {
+    const f = (p && p.features) || {}; const l = (p && p.limits) || {};
+    return `<fieldset class="opt-group"><legend>Features</legend>${planOptions.features.map((x) => `<label class="check"><input type="checkbox" name="f_${x.key}" ${f[x.key] !== false ? 'checked' : ''}> <span><b>${esc(x.label)}</b> <span class="small muted">${esc(x.note)}</span></span></label>`).join('')}</fieldset>
+      <div class="grid cols-2" style="gap:.6rem;margin-top:.4rem">${planOptions.limits.map((x) => `<div><label>${esc(x.label)}</label><input type="number" min="0" max="9999" name="l_${x.key}" value="${l[x.key] || ''}" placeholder="No limit" inputmode="numeric"></div>`).join('')}</div>`;
+  }
+  function readPlan(root) {
+    const features = {}; const limits = {};
+    for (const x of planOptions.features) features[x.key] = !!root.querySelector(`[name="f_${x.key}"]`)?.checked;
+    for (const x of planOptions.limits) limits[x.key] = Number(root.querySelector(`[name="l_${x.key}"]`)?.value) || 0;
+    return { features, limits };
+  }
   // How many people a business has, and how busy it is (counts only).
   const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+  // "just now", "12 min ago", "3 h ago", "2 days ago"
+  const ago = (iso) => {
+    const m = Math.max(0, Math.round((Date.now() - new Date(String(iso).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? '' : 'Z'))) / 60000));
+    if (m < 2) return 'just now';
+    if (m < 60) return `${m} min ago`;
+    if (m < 48 * 60) return `${Math.round(m / 60)} h ago`;
+    return `${Math.round(m / 1440)} days ago`;
+  };
   function peopleLine(p) {
     if (!p) return '';
     const bits = [plural(p.managers, 'manager'), `${p.desk} desk`, plural(p.drivers, 'driver'), plural(p.vans, 'van')];
     const busy = [`${plural(p.rides_30d, 'ride')} in 30 days`];
     if (p.on_shift) busy.push(`${p.on_shift} on shift now`);
     if (p.waiting_approval) busy.push(`${p.waiting_approval} waiting for approval`);
-    if (p.last_activity) busy.push(`last active ${App.relTime ? App.relTime(p.last_activity) : new Date(p.last_activity).toLocaleString()}`);
+    if (p.last_activity) busy.push(`last active ${ago(p.last_activity)}`);
     return `<div class="small"><b>${plural(p.active, 'person', 'people')}</b>: ${bits.join(' · ')}</div><div class="small muted">${busy.join(' · ')}</div>`;
   }
   function showHome(h, mainDomain) {
@@ -1732,6 +1834,9 @@
     $('#homeInfo').innerHTML = `${peopleLine(h.people)}<div style="margin-top:.4rem">✅ Also at <a href="${esc(h.url)}" target="_blank" rel="noopener"><b>${esc(bare(h.url))}</b></a>${old}</div><div style="margin-top:.4rem">${links}</div>`;
   }
   async function loadBiz() {
+    await loadPlanOptions().catch(() => {});
+    const pf = $('[data-plan-fields]');
+    if (planOptions && pf && !pf.dataset.ready) { pf.innerHTML = planFields(null); pf.dataset.ready = '1'; }
     const d = await api('/api/server/businesses');
     $('#bizCard').hidden = !d.available;
     if (!d.available) return;
@@ -1749,7 +1854,10 @@
     const f = e.target; const btn = f.querySelector('button');
     btn.disabled = true;
     try {
-      const { business: b } = await api('/api/server/businesses', { body: { name: f.elements.name.value, slug: f.elements.slug.value } });
+      const more = f.querySelector('.biz-more');
+      const settings = { business_type: f.elements.business_type.value, place_word: f.elements.place_word.value.trim(), timezone: f.elements.timezone.value, brand_color: f.elements.brand_color.value };
+      const { business: b } = await api('/api/server/businesses', { body: { name: f.elements.name.value, slug: f.elements.slug.value, settings, plan: planOptions ? readPlan(more) : undefined } });
+      const pf = $('[data-plan-fields]'); if (pf) delete pf.dataset.ready;
       f.reset(); bizSlugTouched = false; $('#bizMsg').textContent = '';
       $('#bizMade').innerHTML = `<div class="notice ok" style="margin:.6rem 0"><b>${esc(b.name)} is ready to set up.</b>
         <p class="small" style="margin:.3rem 0">Send this link to the business owner. They'll make their own manager account and fill in their business. It works until they finish setup.</p>
@@ -1767,6 +1875,33 @@
   });
   $('#homeSlug').addEventListener('input', (e) => { e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''); });
   $('#bizCard').addEventListener('click', async (e) => {
+    const op = e.target.closest('[data-biz-open]');
+    if (op) {
+      // A new tab opened right away (so the browser allows it), sent to the business once the pass is ready.
+      const tab = window.open('about:blank', '_blank');
+      try {
+        const { url } = await api(`/api/server/businesses/${encodeURIComponent(op.dataset.bizOpen)}/visit`, { body: {} });
+        if (tab) tab.location = url; else location.href = url;
+      } catch (err) { if (tab) tab.close(); App.flash($('#bizMsg'), err.message); }
+      return;
+    }
+    const pl = e.target.closest('[data-biz-plan]');
+    if (pl) {
+      await loadPlanOptions();
+      const { businesses } = await api('/api/server/businesses');
+      const b = businesses.find((x) => x.slug === pl.dataset.bizPlan);
+      if (!b) return;
+      const m = App.modal(`<h2>${esc(b.name)}: features &amp; limits</h2>
+        <p class="small muted" style="margin-top:0">Changes take effect right away. Features that are off disappear from their screens and the app, and can't be used.</p>
+        <form>${planFields(b.plan)}<div class="msg"></div><div class="actions"><button>Save</button><button type="button" class="btn-ghost" data-close>Cancel</button></div></form>`);
+      const form = m.querySelector('form');
+      form.onsubmit = async (ev) => {
+        ev.preventDefault();
+        try { await api(`/api/server/businesses/${encodeURIComponent(b.slug)}/plan`, { body: readPlan(form) }); m.close(); await loadBiz(); App.flash($('#bizMsg'), `Saved for ${b.name}.`, true); }
+        catch (err) { App.flash(form.querySelector('.msg'), err.message); }
+      };
+      return;
+    }
     const hl = e.target.closest('[data-home-links]');
     if (hl) {
       const use = hl.dataset.homeLinks === '1';
@@ -1821,7 +1956,7 @@
     } catch (err) { App.flash($('#demoMsg'), err.message); }
   });
 
-  loaders.server = () => { loadDemos().catch((err) => App.flash($('#demoMsg'), err.message)); loadBiz().catch((err) => App.flash($('#bizMsg'), err.message)); loadDaily().catch(() => {}); loadPerf().catch((err) => { $('#perfOut').textContent = err.message; }); loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
+  loaders.server = () => { loadDemos().catch((err) => App.flash($('#demoMsg'), err.message)); loadBiz().catch((err) => App.flash($('#bizMsg'), err.message)); loadDaily().catch(() => {}); loadPerf().catch((err) => { $('#perfOut').textContent = err.message; }); loadServer().catch((err) => App.flash($('#verMsg'), err.message)); loadChecks(); loadBackups(); loadOffsite(); loadHistory().catch(() => {}); loadLog(true).catch(() => {}); };
   setInterval(() => { if (serverVisible()) { loadServer().catch(() => {}); if ($('#srvLive').checked) loadLog().catch(() => {}); } }, 5000);
   setInterval(() => { if (serverVisible()) loadChecks(); }, 60000);
 
@@ -2123,7 +2258,7 @@
   };
   $('#eggTry').onclick = () => App.tacoRain(10);
   loaders.settings = () => { loadLook(); loadEgg(); loadFeedback(); return loadSettings(); };
-  loaders.comms = () => { loadSms(); loadPhone().catch(() => {}); return loadEmail().catch(() => {}); };
+  loaders.comms = () => { if (featureOn('texting')) { loadSms(); loadPhone().catch(() => {}); } return loadEmail().catch(() => {}); };
   sf.onsubmit = async (e) => {
     e.preventDefault();
     { const m = mapOf(); if (m.setting && !sf.elements[m.setting].value.trim()) { location.hash = 'settings/maps'; return App.flash($('#setMsg'), `To use ${m.name}, paste its key on the Map page first.`); } }
@@ -2192,7 +2327,7 @@
   if (!me.owner) delete loaders.server;
   App.pageNav('Manager', [
     { id: 'dash', label: 'Overview', icon: 'manager' }, { id: 'history', label: 'Rides', icon: 'list' },
-    { id: 'reports', label: 'Reports', icon: 'chart' }, { id: 'users', label: 'People', icon: 'people' },
+    ...(featureOn('reports') ? [{ id: 'reports', label: 'Reports', icon: 'chart' }] : []), { id: 'users', label: 'People', icon: 'people' },
     { id: 'vehicles', label: 'Vehicles', icon: 'driver' }, { id: 'links', label: 'QR codes & links', icon: 'qr' },
     { id: 'settings', label: 'Settings', icon: 'gear' },
     ...(me.owner ? [{ id: 'server', label: 'Server', icon: 'server' }] : []),

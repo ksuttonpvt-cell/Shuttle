@@ -25,6 +25,19 @@ function run() {
     if (code === 0) return process.exit(0); // turned off on purpose, or another copy is already running
     // It crashed: start it again, unless it keeps crashing.
     const now = Date.now(); crashes.push(now); while (crashes.length && now - crashes[0] > 10 * 60000) crashes.shift();
+    // Shuttle Control itself keeps failing right after an update: put the version before it back.
+    if (crashes.length >= 2) {
+      try {
+        const rollback = require('./rollback');
+        const dataDir = path.dirname(path.resolve(root, process.env.DB_FILE || path.join('data', 'shuttle.db')));
+        if (rollback.pending(dataDir)) {
+          console.log('\n  Shuttle Control stopped right after an update. Putting the version before it back...\n');
+          return rollback.undo({ root, dataDir, reason: 'Shuttle Control kept stopping after it was installed' })
+            .then(() => { crashes.length = 0; }, (e) => console.log(`  Couldn't undo the update: ${e.message}`))
+            .finally(() => setTimeout(run, 1000));
+        }
+      } catch { /* carry on as usual */ }
+    }
     if (crashes.length > 5) { console.log('\n  Shuttle Control keeps stopping. Close this window and start the shuttle again.\n'); return process.exit(1); }
     console.log(`\n  Shuttle Control stopped unexpectedly (${signal || `code ${code}`}). Starting it again in 10 seconds...\n`);
     setTimeout(run, 10000);

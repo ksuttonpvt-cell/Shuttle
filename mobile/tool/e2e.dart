@@ -38,9 +38,19 @@ Future<void> main(List<String> args) async {
   ok('${me.name} · roles ${me.roles} · ${me.settings.businessName} (${me.settings.place})');
   if (!me.canDrive) throw 'not a driver';
 
+  // Live updates: listen, then starting the shift should be heard within a few seconds.
+  final heard = <String>[];
+  final live = api.events().listen(heard.add, onError: (Object e) => heard.add('error: $e'));
+  await Future<void>.delayed(const Duration(seconds: 1));
   final vans = (await api.vehicles()).where((v) => v.usable).toList();
   await api.startShift(vans.first.id);
   ok('shift started in ${vans.first.name}');
+  for (var i = 0; i < 30 && !heard.contains('drivers'); i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+  }
+  if (!heard.contains('drivers')) throw 'live updates not heard: $heard';
+  ok('live updates heard: ${heard.toSet().join(', ')}');
+  await live.cancel();
   await api.sendLocation(lat: 40.02, lng: -105.24, heading: 90, speed: 0, battery: 80, charging: true);
   ok('location sent');
 
